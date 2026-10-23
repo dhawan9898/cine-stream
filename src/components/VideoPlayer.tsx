@@ -1,6 +1,8 @@
 // VideoPlayer.tsx - CineStream Netflix-Like Native Video Player Engine with Dual HLS & Cloud Provider Architecture
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
+import { Capacitor } from '@capacitor/core';
+import { ScreenOrientation } from '@capacitor/screen-orientation';
 import {
   ArrowLeft,
   Play,
@@ -99,6 +101,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     episode,
     server: selectedServer
   });
+
+  // On the Android app, play in landscape while the player is open
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    ScreenOrientation.lock({ orientation: 'landscape' }).catch(() => {});
+    return () => {
+      ScreenOrientation.unlock().catch(() => {});
+    };
+  }, []);
 
   // Non-sandbox Pop-up & Ad Interceptor
   // Blocks window.open, stops top-navigation redirects, and refocuses tab without triggering "Please Disable Sandbox"

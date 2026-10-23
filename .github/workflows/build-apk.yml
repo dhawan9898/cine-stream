@@ -38,6 +38,9 @@ jobs:
       - run: npx cap add android
       - run: npx cap sync android
 
+      # Block ad popups / external-browser launches from the stream iframe.
+      - run: cp android-overrides/MainActivity.java android/app/src/main/java/com/cinehype/stream/MainActivity.java
+
       - name: Build APK
         working-directory: android
         run: ./gradlew assembleRelease assembleDebug --no-daemon
