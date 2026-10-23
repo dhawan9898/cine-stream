@@ -794,3 +794,163 @@ input {
   }
 }
 
+
+/* ==========================================================================
+   NETFLIX PLAYER HUD v2 (flat, gradient-backed controls like the Netflix app)
+   ========================================================================== */
+.netflix-top-bar {
+  padding: calc(14px + var(--safe-top)) calc(20px + env(safe-area-inset-right, 0px)) 28px calc(20px + env(safe-area-inset-left, 0px));
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 65%, transparent 100%);
+  display: grid;
+  grid-template-columns: 56px 1fr 112px;
+  align-items: center;
+  gap: 8px;
+}
+.netflix-top-bar .netflix-icon-btn { padding: 10px; }
+.netflix-back { justify-self: start; }
+.netflix-title {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  min-width: 0;
+  line-height: 1.25;
+}
+.netflix-title-main {
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.netflix-title-sub {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.72);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.netflix-top-actions { display: flex; justify-content: flex-end; gap: 2px; }
+
+.netflix-center-controls { gap: clamp(36px, 12vw, 120px); }
+.netflix-center-btn,
+.netflix-center-btn.play-pause-btn {
+  position: relative;
+  width: auto;
+  height: auto;
+  padding: 10px;
+  background: none;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border-radius: 50%;
+  filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.6));
+}
+.netflix-center-btn:hover,
+.netflix-center-btn.play-pause-btn:hover {
+  background: none;
+  box-shadow: none;
+  transform: scale(1.08);
+}
+.netflix-center-btn:active,
+.netflix-center-btn.play-pause-btn:active { transform: scale(0.88); }
+.netflix-center-num {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 800;
+  padding-top: 3px;
+  pointer-events: none;
+}
+
+.netflix-bottom-bar {
+  padding: 40px calc(24px + env(safe-area-inset-right, 0px)) calc(14px + var(--safe-bottom)) calc(24px + env(safe-area-inset-left, 0px));
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.55) 55%, transparent 100%);
+  gap: 6px;
+}
+.netflix-scrub-row { display: flex; align-items: center; gap: 14px; }
+.netflix-scrub-row .netflix-scrubber-wrapper { flex: 1; height: 28px; }
+.netflix-time-left { font-size: 13px; font-weight: 600; color: #fff; min-width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+.netflix-scrubber-track { height: 4px; background: rgba(255, 255, 255, 0.3); }
+.netflix-scrubber-progress { background: #e50914; box-shadow: none; }
+.netflix-scrubber-buffer { background: rgba(255, 255, 255, 0.35); }
+.netflix-scrubber-thumb { transform: translate(-50%, -50%) scale(1); width: 14px; height: 14px; background: #e50914; border: none; box-shadow: 0 0 0 4px rgba(229, 9, 20, 0.25); }
+
+.netflix-actions { display: flex; align-items: flex-start; justify-content: center; gap: clamp(18px, 6vw, 56px); flex-wrap: wrap; }
+.netflix-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 64px;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.9);
+  padding: 4px 6px;
+  cursor: pointer;
+}
+.netflix-action:active { transform: scale(0.92); }
+.netflix-action-label { font-size: 12px; font-weight: 600; max-width: 96px; text-align: center; line-height: 1.2; }
+
+/* Player entrance */
+.netflix-player-container { animation: playerIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes playerIn { from { opacity: 0; transform: scale(1.04); } to { opacity: 1; transform: none; } }
+
+/* ==========================================================================
+   MOTION & LIQUID GLASS POLISH
+   ========================================================================== */
+html { scroll-behavior: smooth; -webkit-tap-highlight-color: transparent; }
+button, a, [role="button"] { touch-action: manipulation; }
+
+/* Screen transitions */
+.screen-enter { animation: screenIn 0.42s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.screen-enter-detail { animation: detailIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes screenIn { from { opacity: 0; transform: translateY(14px) scale(0.995); filter: blur(6px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes detailIn { from { opacity: 0; transform: translateY(32px) scale(0.985); } to { opacity: 1; transform: none; } }
+
+/* Staggered card entrance */
+.rail > * { animation: cardIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.rail > *:nth-child(2) { animation-delay: 40ms; }
+.rail > *:nth-child(3) { animation-delay: 80ms; }
+.rail > *:nth-child(4) { animation-delay: 120ms; }
+.rail > *:nth-child(5) { animation-delay: 160ms; }
+.rail > *:nth-child(6) { animation-delay: 200ms; }
+.rail > *:nth-child(n+7) { animation-delay: 240ms; }
+@keyframes cardIn { from { opacity: 0; transform: translateY(16px) scale(0.97); } to { opacity: 1; transform: none; } }
+
+/* Glass: specular sheen + press feedback */
+.poster-card:active { transform: scale(0.97); transition-duration: 0.12s; }
+.poster-card::after,
+.bottom-dock::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--liquid-glass-specular);
+  opacity: 0.35;
+  mix-blend-mode: soft-light;
+  pointer-events: none;
+}
+.bottom-dock { animation: dockIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both; }
+@keyframes dockIn { from { transform: translate(-50%, 120%); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+.dock-btn { transition: color 0.25s ease, transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
+.dock-btn:active { transform: scale(0.88); }
+.dock-btn.active { transform: translateY(-2px); }
+.dock-btn.active::after { animation: pillIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+@keyframes pillIn { from { transform: scaleX(0); opacity: 0; } to { transform: scaleX(1); opacity: 1; } }
+.btn-primary, .btn-secondary, .liquid-pill { transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, background 0.2s ease; }
+.btn-primary:active, .btn-secondary:active, .liquid-pill:active { transform: scale(0.95); }
+.netflix-glass-drawer { animation-duration: 0.4s; }
+
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}

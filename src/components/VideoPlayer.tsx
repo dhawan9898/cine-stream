@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Subtitles,
   PictureInPicture,
+  Gauge,
   Check,
   X,
   ShieldCheck,
@@ -121,16 +122,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return null;
     };
 
-    // 2. Prevent top-level redirect hijacking from embedded ad scripts
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      const activeElement = document.activeElement;
-      if (activeElement && activeElement.tagName === 'IFRAME') {
-        e.preventDefault();
-        e.returnValue = '';
-        return '';
-      }
-    };
-
     // 3. Intercept clicks on any external target="_blank" links created by ad overlays
     const handleDocumentClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -159,14 +150,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
     };
 
-    window.addEventListener('beforeunload', handleBeforeUnload);
     document.addEventListener('click', handleDocumentClick, true);
     document.addEventListener('fullscreenchange', handleFullscreenChange);
     document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
 
     return () => {
       window.open = originalOpen;
-      window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('click', handleDocumentClick, true);
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
       document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
@@ -767,506 +756,277 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
       {/* Netflix Liquid Glass HUD Overlay */}
       <div className={`netflix-hud ${showControls ? 'visible' : 'hidden'}`}>
-        {/* Top Control Bar */}
+        {/* Top Control Bar (Netflix mobile layout) */}
         <div className="netflix-top-bar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <button
-              onClick={onBack}
-              className="interactive netflix-icon-btn"
-              style={{
-                width: 44,
-                height: 44,
-                background: 'rgba(255, 255, 255, 0.12)',
-                backdropFilter: 'blur(20px)',
-                border: '1px solid rgba(255, 255, 255, 0.2)'
-              }}
-              aria-label="Back"
-            >
-              <ArrowLeft size={22} color="#ffffff" />
-            </button>
+          <button onClick={onBack} className="interactive netflix-icon-btn netflix-back" aria-label="Back">
+            <ArrowLeft size={28} color="#ffffff" />
+          </button>
 
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <h2 style={{ fontSize: '18px', fontWeight: 800, color: '#ffffff', letterSpacing: '-0.3px' }}>
-                  {media.title}
-                </h2>
-                {isSeries && (
-                  <span
-                    className="liquid-pill"
-                    style={{
-                      background: 'rgba(236, 28, 36, 0.2)',
-                      borderColor: 'rgba(236, 28, 36, 0.45)',
-                      color: 'var(--accent-primary)',
-                      padding: '3px 8px',
-                      fontSize: '11px',
-                      fontWeight: 800
-                    }}
-                  >
-                    S{season} : E{episode}
-                  </span>
-                )}
-              </div>
-              <div style={{ fontSize: '12px', color: 'rgba(255, 255, 255, 0.7)', marginTop: '2px' }}>
-                {isSeries && currentEpisodeData?.name ? currentEpisodeData.name : media.overview?.slice(0, 75) + '...'}
-              </div>
-            </div>
+          <div className="netflix-title">
+            <span className="netflix-title-main">{media.title}</span>
+            {isSeries && (
+              <span className="netflix-title-sub">
+                S{season}:E{episode}{currentEpisodeData?.name ? ` “${currentEpisodeData.name}”` : ''}
+              </span>
+            )}
           </div>
 
-          {/* Top Right Controls: Anti-Popup Shield, Rotate, Stream Info, Fullscreen, Server Switcher */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {/* Anti-Popup Status Indicator */}
-            {!isNative && (
-              <div
-                className="liquid-pill"
-                title="Active Pop-up Interceptor: External ad popups and redirect traps are neutralized"
-                style={{
-                  background: 'rgba(16, 185, 129, 0.15)',
-                  borderColor: 'rgba(16, 185, 129, 0.4)',
-                  color: '#34d399',
-                  padding: '5px 10px',
-                  fontSize: '11px',
-                  fontWeight: 700,
-                  gap: '6px'
-                }}
-              >
-                <ShieldCheck size={14} />
-                <span>Ad-Block ON</span>
-              </div>
-            )}
-
-            {/* Manual Screen Rotation Button (Portrait <-> Landscape) */}
-            <button
-              onClick={toggleLandscapeRotation}
-              className="interactive netflix-icon-btn"
-              title={isForceLandscape ? "Switch to Portrait" : "Switch to Landscape"}
-              style={{
-                width: 40,
-                height: 40,
-                background: isForceLandscape ? 'rgba(236, 28, 36, 0.3)' : 'rgba(255, 255, 255, 0.08)',
-                borderColor: isForceLandscape ? 'var(--accent-primary)' : 'rgba(255, 255, 255, 0.2)'
-              }}
-            >
-              <Smartphone size={18} style={{ transform: isForceLandscape ? 'rotate(90deg)' : 'none', transition: 'transform 0.3s ease' }} />
+          <div className="netflix-top-actions">
+            <button onClick={() => setShowLinkInfoModal(true)} className="interactive netflix-icon-btn" aria-label="Stream info">
+              <Info size={22} />
             </button>
-
-            {/* Link & Provider Inspector */}
-            <button
-              onClick={() => setShowLinkInfoModal(true)}
-              className="interactive netflix-icon-btn"
-              title="Inspect Stream URL & Provider Info"
-              style={{ width: 40, height: 40, background: 'rgba(255, 255, 255, 0.08)' }}
-            >
-              <Info size={18} />
-            </button>
-
-            {/* Server Switcher Pill */}
-            <button
-              onClick={() => setShowServerModal(true)}
-              className="interactive liquid-pill"
-              style={{
-                background: isNative ? 'rgba(236, 28, 36, 0.25)' : 'rgba(255, 255, 255, 0.1)',
-                borderColor: isNative ? 'var(--accent-primary)' : 'rgba(255, 255, 255, 0.2)',
-                padding: '8px 16px',
-                gap: '8px'
-              }}
-            >
-              <Server size={15} color={isNative ? 'var(--accent-primary)' : '#ffffff'} />
-              <span>{currentServerObj.name}</span>
-              <span
-                style={{
-                  fontSize: '10px',
-                  background: 'rgba(236, 28, 36, 0.9)',
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  fontWeight: 800
-                }}
-              >
-                {currentServerObj.badge}
-              </span>
-            </button>
-
-            {/* Top Bar Native Fullscreen Button */}
-            <button
-              onClick={toggleFullscreen}
-              className="interactive netflix-icon-btn"
-              title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen (Landscape)'}
-              style={{ width: 40, height: 40 }}
-            >
-              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
-            </button>
-
-            {/* Quick reload */}
-            <button
-              onClick={() => setIframeKey(k => k + 1)}
-              className="interactive netflix-icon-btn"
-              title="Reload Stream"
-              style={{ width: 40, height: 40 }}
-            >
-              <RefreshCw size={18} />
+            <button onClick={() => setIframeKey(k => k + 1)} className="interactive netflix-icon-btn" aria-label="Reload stream">
+              <RefreshCw size={22} />
             </button>
           </div>
         </div>
 
-        {/* Center Screen Netflix Big Controls (For Native Mode) */}
+        {/* Center Screen Netflix Big Controls (Native mode) */}
         {isNative && (
           <div className="netflix-center-controls">
-            <button
-              onClick={handleRewind10}
-              className="netflix-center-btn"
-              title="Rewind 10 Seconds"
-              aria-label="Rewind 10s"
-            >
-              <RotateCcw size={28} />
+            <button onClick={handleRewind10} className="netflix-center-btn" aria-label="Rewind 10s">
+              <RotateCcw size={46} strokeWidth={1.6} />
+              <span className="netflix-center-num">10</span>
             </button>
-
             <button
               onClick={togglePlay}
               className="netflix-center-btn play-pause-btn"
-              title={isPlaying ? 'Pause' : 'Play'}
               aria-label={isPlaying ? 'Pause' : 'Play'}
             >
-              {isPlaying ? <Pause size={38} fill="#ffffff" /> : <Play size={38} fill="#ffffff" style={{ marginLeft: 4 }} />}
+              {isPlaying ? <Pause size={64} fill="#ffffff" strokeWidth={0} /> : <Play size={64} fill="#ffffff" strokeWidth={0} />}
             </button>
-
-            <button
-              onClick={handleForward10}
-              className="netflix-center-btn"
-              title="Forward 10 Seconds"
-              aria-label="Forward 10s"
-            >
-              <RotateCw size={28} />
+            <button onClick={handleForward10} className="netflix-center-btn" aria-label="Forward 10s">
+              <RotateCw size={46} strokeWidth={1.6} />
+              <span className="netflix-center-num">10</span>
             </button>
           </div>
         )}
 
         {/* Bottom Netflix Control Dock */}
         <div className="netflix-bottom-bar">
-          {/* Timeline Scrubber (Active in Native mode) */}
-          {isNative ? (
-            <div
-              ref={scrubberRef}
-              className="netflix-scrubber-wrapper"
-              onClick={handleScrubberClick}
-              onMouseMove={handleScrubberMouseMove}
-              onMouseLeave={handleScrubberMouseLeave}
-            >
-              {hoverScrubTime !== null && (
-                <div
-                  className="netflix-time-tooltip"
-                  style={{ left: `${hoverPosition}%` }}
-                >
-                  {formatTime(hoverScrubTime)}
+          {isNative && (
+            <div className="netflix-scrub-row">
+              <div
+                ref={scrubberRef}
+                className="netflix-scrubber-wrapper"
+                onClick={handleScrubberClick}
+                onMouseMove={handleScrubberMouseMove}
+                onMouseLeave={handleScrubberMouseLeave}
+              >
+                {hoverScrubTime !== null && (
+                  <div className="netflix-time-tooltip" style={{ left: `${hoverPosition}%` }}>
+                    {formatTime(hoverScrubTime)}
+                  </div>
+                )}
+                <div className="netflix-scrubber-track">
+                  <div className="netflix-scrubber-buffer" style={{ width: `${bufferPercent}%` }} />
+                  <div className="netflix-scrubber-progress" style={{ width: `${progressPercent}%` }} />
+                  <div className="netflix-scrubber-thumb" style={{ left: `${progressPercent}%` }} />
                 </div>
-              )}
-
-              <div className="netflix-scrubber-track">
-                <div
-                  className="netflix-scrubber-buffer"
-                  style={{ width: `${bufferPercent}%` }}
-                />
-                <div
-                  className="netflix-scrubber-progress"
-                  style={{ width: `${progressPercent}%` }}
-                />
-                <div
-                  className="netflix-scrubber-thumb"
-                  style={{ left: `${progressPercent}%` }}
-                />
               </div>
+              <span className="netflix-time-left">{formatTime(Math.max(0, duration - currentTime))}</span>
             </div>
-          ) : (
-            <div style={{ height: 4 }} />
           )}
 
-          {/* Bottom Controls Row */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            {/* Left Controls */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              {isNative && (
-                <>
-                  <button
-                    onClick={togglePlay}
-                    className="netflix-icon-btn"
-                    title={isPlaying ? 'Pause' : 'Play'}
-                  >
-                    {isPlaying ? <Pause size={22} fill="#ffffff" /> : <Play size={22} fill="#ffffff" />}
-                  </button>
+          <div className="netflix-actions">
+            <button onClick={() => setShowServerModal(true)} className="interactive netflix-action">
+              <Server size={24} />
+              <span className="netflix-action-label">{currentServerObj.name}</span>
+            </button>
 
-                  <button
-                    onClick={handleRewind10}
-                    className="netflix-icon-btn"
-                    title="Rewind 10s"
-                  >
-                    <RotateCcw size={20} />
-                  </button>
+              {/* Playback Speed Menu */}
+            {isNative && (
+              <div style={{ position: 'relative' }}>
+                <button
+                  onClick={() => {
+                    setShowSpeedMenu(!showSpeedMenu);
+                    setShowSubtitlesMenu(false);
+                  }}
+                  className="interactive netflix-action"
+                  title="Playback Speed"
+                >
+                  <Gauge size={24} />
+                  <span className="netflix-action-label">Speed ({playbackSpeed}x)</span>
+                </button>
 
-                  <button
-                    onClick={handleForward10}
-                    className="netflix-icon-btn"
-                    title="Forward 10s"
-                  >
-                    <RotateCw size={20} />
-                  </button>
-                </>
-              )}
-
-              {/* Volume Slider */}
-              {isNative && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <button
-                    onClick={toggleMute}
-                    className="netflix-icon-btn"
-                    title={isMuted ? 'Unmute' : 'Mute'}
-                  >
-                    {isMuted || volume === 0 ? (
-                      <VolumeX size={20} color="var(--accent-primary)" />
-                    ) : volume < 0.5 ? (
-                      <Volume1 size={20} />
-                    ) : (
-                      <Volume2 size={20} />
-                    )}
-                  </button>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={isMuted ? 0 : volume}
-                    onChange={(e) => handleVolumeChange(parseFloat(e.target.value))}
+                {showSpeedMenu && (
+                  <div
+                    className="liquid-glass"
                     style={{
-                      width: 80,
-                      height: 4,
-                      accentColor: 'var(--accent-primary)',
-                      cursor: 'pointer'
+                      position: 'absolute',
+                      bottom: '64px',
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      width: '130px',
+                      borderRadius: 'var(--radius-md)',
+                      padding: '8px',
+                      zIndex: 60,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '2px'
                     }}
-                  />
-                </div>
-              )}
+                  >
+                    {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
+                      <button
+                        key={speed}
+                        onClick={() => handleSpeedSelect(speed)}
+                        className="interactive"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          background: playbackSpeed === speed ? 'rgba(236,28,36,0.25)' : 'transparent',
+                          border: 'none',
+                          color: playbackSpeed === speed ? 'var(--accent-primary)' : '#fff',
+                          padding: '8px 12px',
+                          borderRadius: '6px',
+                          fontSize: '13px',
+                          fontWeight: 700
+                        }}
+                      >
+                        <span>{speed}x</span>
+                        {playbackSpeed === speed && <Check size={14} />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
-              {/* Time display */}
-              {isNative && (
-                <div style={{ fontSize: '13px', fontWeight: 600, color: 'rgba(255,255,255,0.85)', marginLeft: '6px' }}>
-                  <span>{formatTime(currentTime)}</span>
-                  <span style={{ margin: '0 6px', color: 'rgba(255,255,255,0.4)' }}>/</span>
-                  <span>{formatTime(duration)}</span>
-                </div>
-              )}
-            </div>
 
-            {/* Right Controls */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              {/* TV Next Episode */}
-              {hasNextEpisode && (
-                <button
-                  onClick={handleNextEpisode}
-                  className="interactive netflix-icon-btn"
-                  title="Next Episode"
-                  style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '20px' }}
-                >
-                  <SkipForward size={18} />
-                  <span style={{ fontSize: '12px', fontWeight: 700 }}>Next</span>
-                </button>
-              )}
+            {isSeries && episodeList.length > 0 && (
+              <button onClick={() => setShowEpisodesDrawer(true)} className="interactive netflix-action">
+                <List size={24} />
+                <span className="netflix-action-label">Episodes</span>
+              </button>
+            )}
 
-              {/* TV Episode List Drawer */}
-              {isSeries && episodeList.length > 0 && (
-                <button
-                  onClick={() => setShowEpisodesDrawer(true)}
-                  className="interactive netflix-icon-btn"
-                  title="Episodes"
-                >
-                  <List size={20} />
-                </button>
-              )}
+            {hasNextEpisode && (
+              <button onClick={handleNextEpisode} className="interactive netflix-action">
+                <SkipForward size={24} />
+                <span className="netflix-action-label">Next Ep.</span>
+              </button>
+            )}
 
               {/* Subtitles & Audio Selector */}
-              {isNative && (
-                <div style={{ position: 'relative' }}>
-                  <button
-                    onClick={() => {
-                      setShowSubtitlesMenu(!showSubtitlesMenu);
-                      setShowSpeedMenu(false);
+            {isNative && (
+              <div style={{ position: 'relative' }}>
+                <button
+                  onClick={() => {
+                    setShowSubtitlesMenu(!showSubtitlesMenu);
+                    setShowSpeedMenu(false);
+                  }}
+                  className="interactive netflix-action"
+                  title="Audio & Subtitles"
+                >
+                  <Subtitles size={24} />
+                  <span className="netflix-action-label">Audio & Subtitles</span>
+                </button>
+
+                {showSubtitlesMenu && (
+                  <div
+                    className="liquid-glass"
+                    style={{
+                      position: 'absolute',
+                      bottom: '64px',
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      width: '260px',
+                      borderRadius: 'var(--radius-md)',
+                      padding: '16px',
+                      zIndex: 60
                     }}
-                    className="interactive netflix-icon-btn"
-                    title="Audio & Subtitles"
                   >
-                    <Subtitles size={20} />
-                  </button>
-
-                  {showSubtitlesMenu && (
-                    <div
-                      className="liquid-glass"
-                      style={{
-                        position: 'absolute',
-                        bottom: '50px',
-                        right: 0,
-                        width: '260px',
-                        borderRadius: 'var(--radius-md)',
-                        padding: '16px',
-                        zIndex: 60
-                      }}
-                    >
-                      <h4 style={{ fontSize: '13px', fontWeight: 800, marginBottom: '8px', color: '#fff' }}>
-                        Audio Tracks
-                      </h4>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '14px' }}>
-                        {audioTracks.length === 0 ? (
-                          <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>Default Stereo</div>
-                        ) : (
-                          audioTracks.map(track => (
-                            <button
-                              key={track.id}
-                              onClick={() => handleAudioTrackSelect(track.id)}
-                              className="interactive"
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'space-between',
-                                background: selectedAudioTrack === track.id ? 'rgba(236,28,36,0.2)' : 'transparent',
-                                border: 'none',
-                                color: selectedAudioTrack === track.id ? 'var(--accent-primary)' : '#fff',
-                                padding: '6px 10px',
-                                borderRadius: '6px',
-                                fontSize: '12px',
-                                textAlign: 'left'
-                              }}
-                            >
-                              <span>{track.name}</span>
-                              {selectedAudioTrack === track.id && <Check size={14} />}
-                            </button>
-                          ))
-                        )}
-                      </div>
-
-                      <h4 style={{ fontSize: '13px', fontWeight: 800, marginBottom: '8px', color: '#fff' }}>
-                        Subtitles
-                      </h4>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                        <button
-                          onClick={() => handleSubtitleSelect(-1)}
-                          className="interactive"
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            background: selectedSubtitleTrack === -1 ? 'rgba(236,28,36,0.2)' : 'transparent',
-                            border: 'none',
-                            color: selectedSubtitleTrack === -1 ? 'var(--accent-primary)' : '#fff',
-                            padding: '6px 10px',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            textAlign: 'left'
-                          }}
-                        >
-                          <span>Off</span>
-                          {selectedSubtitleTrack === -1 && <Check size={14} />}
-                        </button>
-                        {subtitleTracks.map(sub => (
+                    <h4 style={{ fontSize: '13px', fontWeight: 800, marginBottom: '8px', color: '#fff' }}>
+                      Audio Tracks
+                    </h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginBottom: '14px' }}>
+                      {audioTracks.length === 0 ? (
+                        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>Default Stereo</div>
+                      ) : (
+                        audioTracks.map(track => (
                           <button
-                            key={sub.id}
-                            onClick={() => handleSubtitleSelect(sub.id)}
+                            key={track.id}
+                            onClick={() => handleAudioTrackSelect(track.id)}
                             className="interactive"
                             style={{
                               display: 'flex',
                               alignItems: 'center',
                               justifyContent: 'space-between',
-                              background: selectedSubtitleTrack === sub.id ? 'rgba(236,28,36,0.2)' : 'transparent',
+                              background: selectedAudioTrack === track.id ? 'rgba(236,28,36,0.2)' : 'transparent',
                               border: 'none',
-                              color: selectedSubtitleTrack === sub.id ? 'var(--accent-primary)' : '#fff',
+                              color: selectedAudioTrack === track.id ? 'var(--accent-primary)' : '#fff',
                               padding: '6px 10px',
                               borderRadius: '6px',
                               fontSize: '12px',
                               textAlign: 'left'
                             }}
                           >
-                            <span>{sub.label}</span>
-                            {selectedSubtitleTrack === sub.id && <Check size={14} />}
+                            <span>{track.name}</span>
+                            {selectedAudioTrack === track.id && <Check size={14} />}
                           </button>
-                        ))}
-                      </div>
+                        ))
+                      )}
                     </div>
-                  )}
-                </div>
-              )}
 
-              {/* Playback Speed Menu */}
-              {isNative && (
-                <div style={{ position: 'relative' }}>
-                  <button
-                    onClick={() => {
-                      setShowSpeedMenu(!showSpeedMenu);
-                      setShowSubtitlesMenu(false);
-                    }}
-                    className="interactive netflix-icon-btn"
-                    title="Playback Speed"
-                    style={{ fontSize: '13px', fontWeight: 700 }}
-                  >
-                    {playbackSpeed}x
-                  </button>
-
-                  {showSpeedMenu && (
-                    <div
-                      className="liquid-glass"
-                      style={{
-                        position: 'absolute',
-                        bottom: '50px',
-                        right: 0,
-                        width: '130px',
-                        borderRadius: 'var(--radius-md)',
-                        padding: '8px',
-                        zIndex: 60,
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '2px'
-                      }}
-                    >
-                      {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
+                    <h4 style={{ fontSize: '13px', fontWeight: 800, marginBottom: '8px', color: '#fff' }}>
+                      Subtitles
+                    </h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <button
+                        onClick={() => handleSubtitleSelect(-1)}
+                        className="interactive"
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          background: selectedSubtitleTrack === -1 ? 'rgba(236,28,36,0.2)' : 'transparent',
+                          border: 'none',
+                          color: selectedSubtitleTrack === -1 ? 'var(--accent-primary)' : '#fff',
+                          padding: '6px 10px',
+                          borderRadius: '6px',
+                          fontSize: '12px',
+                          textAlign: 'left'
+                        }}
+                      >
+                        <span>Off</span>
+                        {selectedSubtitleTrack === -1 && <Check size={14} />}
+                      </button>
+                      {subtitleTracks.map(sub => (
                         <button
-                          key={speed}
-                          onClick={() => handleSpeedSelect(speed)}
+                          key={sub.id}
+                          onClick={() => handleSubtitleSelect(sub.id)}
                           className="interactive"
                           style={{
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
-                            background: playbackSpeed === speed ? 'rgba(236,28,36,0.25)' : 'transparent',
+                            background: selectedSubtitleTrack === sub.id ? 'rgba(236,28,36,0.2)' : 'transparent',
                             border: 'none',
-                            color: playbackSpeed === speed ? 'var(--accent-primary)' : '#fff',
-                            padding: '8px 12px',
+                            color: selectedSubtitleTrack === sub.id ? 'var(--accent-primary)' : '#fff',
+                            padding: '6px 10px',
                             borderRadius: '6px',
-                            fontSize: '13px',
-                            fontWeight: 700
+                            fontSize: '12px',
+                            textAlign: 'left'
                           }}
                         >
-                          <span>{speed}x</span>
-                          {playbackSpeed === speed && <Check size={14} />}
+                          <span>{sub.label}</span>
+                          {selectedSubtitleTrack === sub.id && <Check size={14} />}
                         </button>
                       ))}
                     </div>
-                  )}
-                </div>
-              )}
+                  </div>
+                )}
+              </div>
+            )}
 
-              {/* PiP Button */}
-              {isNative && (
-                <button
-                  onClick={togglePiP}
-                  className="interactive netflix-icon-btn"
-                  title="Picture in Picture"
-                >
-                  <PictureInPicture size={20} />
-                </button>
-              )}
 
-              {/* Fullscreen Toggle (Rotates to Landscape) */}
-              <button
-                onClick={toggleFullscreen}
-                className="interactive netflix-icon-btn"
-                title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen (Landscape)'}
-              >
-                {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
+            {isNative && (
+              <button onClick={togglePiP} className="interactive netflix-action">
+                <PictureInPicture size={24} />
+                <span className="netflix-action-label">PiP</span>
               </button>
-            </div>
+            )}
           </div>
         </div>
       </div>

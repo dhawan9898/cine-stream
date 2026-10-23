@@ -1,5 +1,5 @@
 // App.tsx - Main CineStream App Navigation & State Machine
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Navbar } from './components/Navbar.tsx';
 import { BottomNav } from './components/BottomNav.tsx';
 import { HomeScreen } from './pages/HomeScreen.tsx';
@@ -32,33 +32,56 @@ export const App: React.FC = () => {
     applyTheme(getSavedTheme());
   }, []);
 
-  // Back stack handling
+  // Back stack handling. History is the single source of truth: every in-app
+  // "back" calls history.back(), and popstate decides what is on screen.
+  const detailStack = useRef<MediaItem[]>([]);
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+
   useEffect(() => {
-    const handlePopState = (e: PopStateEvent) => {
-      if (activePlayer) {
-        setActivePlayer(null);
-        e.preventDefault();
-      } else if (selectedMedia) {
-        setSelectedMedia(null);
-        e.preventDefault();
-      } else if (tab !== 'home') {
-        setTab('home');
-        e.preventDefault();
+    const handlePopState = () => {
+      const state = window.history.state as { screen?: string; depth?: number } | null;
+      if (state?.screen === 'player') return;
+      setActivePlayer(null);
+      if (state?.screen === 'detail') {
+        const media = detailStack.current[(state.depth ?? 1) - 1];
+        if (media) {
+          detailStack.current = detailStack.current.slice(0, state.depth);
+          setSelectedMedia(media);
+        } else {
+          window.history.back(); // stale entry left over from a tab switch
+        }
+        return;
       }
+      detailStack.current = [];
+      setSelectedMedia(null);
+      if (tabRef.current !== 'home') setTab('home');
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [activePlayer, selectedMedia, tab]);
+  }, []);
 
   const handleOpenDetails = useCallback((media: MediaItem) => {
+    detailStack.current = [...detailStack.current, media];
     setSelectedMedia(media);
-    window.history.pushState({ screen: 'detail', id: media.id }, '');
+    window.history.pushState({ screen: 'detail', depth: detailStack.current.length }, '');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
   const handleBackFromDetails = useCallback(() => {
+    if (window.history.state?.screen === 'detail') {
+      window.history.back();
+    } else {
+      setSelectedMedia(null);
+    }
+  }, []);
+
+  const handleNavigate = useCallback((newTab: NavigationTab) => {
+    detailStack.current = [];
     setSelectedMedia(null);
+    setTab(newTab);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
   const handlePlayMedia = useCallback((
@@ -72,9 +95,10 @@ export const App: React.FC = () => {
   }, []);
 
   const handleClosePlayer = useCallback(() => {
-    setActivePlayer(null);
     if (window.history.state?.screen === 'player') {
       window.history.back();
+    } else {
+      setActivePlayer(null);
     }
   }, []);
 
@@ -92,19 +116,16 @@ export const App: React.FC = () => {
         {/* Top App Header */}
         <Navbar
           currentTab={tab}
-          onNavigate={(newTab) => {
-            setSelectedMedia(null);
-            setTab(newTab);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
-          onOpenSearch={() => {
-            setSelectedMedia(null);
-            setTab('search');
-          }}
+          onNavigate={handleNavigate}
+          onOpenSearch={() => handleNavigate('search')}
         />
 
         {/* Main Content View */}
-        <main style={{ flex: 1 }}>
+        <main
+          key={selectedMedia ? `detail-${selectedMedia.id}` : tab}
+          className={selectedMedia ? 'screen-enter-detail' : 'screen-enter'}
+          style={{ flex: 1 }}
+        >
           {selectedMedia ? (
             <MediaDetailScreen
               media={selectedMedia}
@@ -142,11 +163,7 @@ export const App: React.FC = () => {
         {/* Mobile Navigation Dock */}
         <BottomNav
           currentTab={tab}
-          onNavigate={(newTab) => {
-            setSelectedMedia(null);
-            setTab(newTab);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
+          onNavigate={handleNavigate}
         />
 
         {/* Fullscreen Video Player (When active) */}

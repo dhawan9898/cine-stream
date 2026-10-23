@@ -2,10 +2,12 @@ package com.cinehype.stream;
 
 import android.net.Uri;
 import android.os.Bundle;
+import android.webkit.JsResult;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.BridgeWebChromeClient;
 import com.getcapacitor.BridgeWebViewClient;
 
 public class MainActivity extends BridgeActivity {
@@ -26,6 +28,16 @@ public class MainActivity extends BridgeActivity {
                 String host = url.getHost();
                 boolean isApp = host != null && host.equals(getBridge().getHost());
                 return !isApp; // block top-level hijacks to ad/external sites
+            }
+        });
+
+        // Ad scripts register beforeunload handlers, which the WebView turns into a
+        // "Confirm Navigation" dialog. Accept silently; hijack navigations are blocked above.
+        getBridge().getWebView().setWebChromeClient(new BridgeWebChromeClient(getBridge()) {
+            @Override
+            public boolean onJsBeforeUnload(WebView view, String url, String message, JsResult result) {
+                result.confirm();
+                return true;
             }
         });
     }

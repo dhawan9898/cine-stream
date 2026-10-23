@@ -113,11 +113,25 @@ async function tmdbFetch<T>(endpoint: string, params: Record<string, string | nu
   });
 
   const url = `${TMDB_API_BASE}${endpoint}?${query.toString()}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`TMDB request failed (${res.status}): ${endpoint}`);
+  // Timeout + retry with backoff on network errors, 429 and 5xx so flaky mobile
+  // connections don't surface as hard failures.
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 12000);
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      if (res.ok) return (await res.json()) as T;
+      lastError = new Error(`TMDB request failed (${res.status}): ${endpoint}`);
+      if (res.status !== 429 && res.status < 500) break; // not retryable
+    } catch (err) {
+      lastError = err;
+    } finally {
+      clearTimeout(timer);
+    }
+    await new Promise(r => setTimeout(r, 400 * 2 ** attempt));
   }
-  return res.json() as Promise<T>;
+  throw lastError instanceof Error ? lastError : new Error(`TMDB request failed: ${endpoint}`);
 }
 
 // Mapping Raw TMDB results to MediaItem
