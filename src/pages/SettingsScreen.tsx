@@ -1,301 +1,179 @@
-// SettingsScreen.tsx - App Preferences, Streaming Server & Theme Settings
-import React, { useState, useEffect } from 'react';
-import {
-  Server,
-  Palette,
-  Trash2,
-  Globe,
-  ShieldCheck,
-  Check,
-  Info,
-  Tv,
-  Film
-} from 'lucide-react';
+// SettingsScreen.tsx - Appearance, playback and data settings.
+import React, { useState } from 'react';
+import { Settings as SettingsIcon, SkipForward, Trash2, Database } from 'lucide-react';
 import { STREAM_SERVERS } from '../services/streamResolver.ts';
-import {
-  getUserPreferences,
-  saveUserPreferences,
-  clearWatchHistory
-} from '../services/historyService.ts';
+import { clearWatchHistory, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../core/persistentCache.ts';
+import { ConfirmModal } from '../components/ConfirmModal.tsx';
+
+const THEMES: { id: Theme; label: string }[] = [
+  { id: 'dark', label: 'Dark' },
+  { id: 'obsidian', label: 'OLED' },
+  { id: 'slate', label: 'Slate' },
+  { id: 'light', label: 'Light' }
+];
+
+const IconBox: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <div style={{ width: '38px', height: '38px', borderRadius: 'var(--radius-sm)', background: 'rgba(229, 9, 20, 0.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-primary)', flexShrink: 0 }}>
+    {children}
+  </div>
+);
+
+const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <h2 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '10px' }}>
+    {children}
+  </h2>
+);
+
+const Row: React.FC<{
+  icon: React.ReactNode;
+  title: string;
+  text: string;
+  onClick: () => void;
+  trailing: React.ReactNode;
+  danger?: boolean;
+}> = ({ icon, title, text, onClick, trailing, danger }) => (
+  <div onClick={onClick} className="interactive" style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px' }}>
+    <IconBox>{icon}</IconBox>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <h4 style={{ fontSize: '14px', fontWeight: 700, color: danger ? 'var(--accent-danger)' : 'var(--text-primary)' }}>{title}</h4>
+      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{text}</p>
+    </div>
+    {trailing}
+  </div>
+);
 
 export const SettingsScreen: React.FC = () => {
   const [prefs, setPrefs] = useState(getUserPreferences());
-  const [currentTheme, setCurrentTheme] = useState<Theme>(getSavedTheme());
-  const [notification, setNotification] = useState<string | null>(null);
+  const [theme, setTheme] = useState<Theme>(getSavedTheme());
+  const [historyCount, setHistoryCount] = useState(() => getWatchHistory().length);
+  const [confirming, setConfirming] = useState(false);
+  const [cacheCleared, setCacheCleared] = useState(false);
 
-  const showToast = (msg: string) => {
-    setNotification(msg);
-    setTimeout(() => setNotification(null), 3000);
-  };
-
-  const handleServerChange = (serverId: string) => {
-    saveUserPreferences({ defaultServer: serverId });
+  const update = (patch: Partial<typeof prefs>) => {
+    saveUserPreferences(patch);
     setPrefs(getUserPreferences());
-    showToast(`Default server set to ${STREAM_SERVERS.find(s => s.id === serverId)?.name}`);
   };
 
-  const handleThemeChange = (t: Theme) => {
+  const changeTheme = (t: Theme) => {
     applyTheme(t);
-    setCurrentTheme(t);
+    setTheme(t);
     saveUserPreferences({ theme: t });
-    showToast(`Theme changed to ${t}`);
-  };
-
-  const handleClearCache = () => {
-    clearPersistedCache();
-    showToast('Cache memory cleared successfully');
-  };
-
-  const handleClearHistory = () => {
-    clearWatchHistory();
-    showToast('Watch history wiped');
   };
 
   return (
-    <div style={{ padding: '24px 20px 90px 20px', maxWidth: '800px', margin: '0 auto' }}>
-      {/* Title */}
-      <div style={{ marginBottom: '28px' }}>
-        <h2 style={{ fontSize: '26px', fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>
-          Settings & Preferences
-        </h2>
-        <p style={{ fontSize: '13px', color: 'var(--text-muted)', marginTop: '4px' }}>
-          Configure CineHype streaming provider, player behavior and themes
-        </p>
-      </div>
-
-      {/* Toast Notification */}
-      {notification && (
-        <div
-          style={{
-            position: 'fixed',
-            top: '80px',
-            right: '24px',
-            zIndex: 1000,
-            background: 'var(--accent-gradient)',
-            color: '#fff',
-            padding: '10px 18px',
-            borderRadius: 'var(--radius-md)',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-            fontSize: '13px',
-            fontWeight: 700,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}
-        >
-          <Check size={16} />
-          <span>{notification}</span>
-        </div>
-      )}
-
-      {/* 1. Streaming Provider Settings */}
-      <div
-        style={{
-          background: 'var(--bg-surface)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--border-subtle)',
-          padding: '24px',
-          marginBottom: '24px',
-          boxShadow: 'var(--card-shadow)'
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-          <Server size={22} color="var(--accent-primary)" />
-          <div>
-            <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
-              Default Streaming Server
-            </h3>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Preferred CineHype mirror when launching video playback
-            </p>
+    <div className="screen-scroll" style={{ paddingBottom: '110px' }}>
+      <div style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 30,
+        backgroundColor: 'var(--bg-main)',
+        padding: 'calc(var(--safe-top) + 16px) 20px 14px 20px',
+        borderBottom: '1px solid var(--border-subtle)'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div style={{ width: '36px', height: '36px', borderRadius: 'var(--radius-sm)', background: 'var(--accent-gradient)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'var(--shadow-glow)' }}>
+            <SettingsIcon size={18} color="#fff" />
           </div>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {STREAM_SERVERS.map(srv => {
-            const isSelected = prefs.defaultServer === srv.id;
-            return (
-              <button
-                key={srv.id}
-                onClick={() => handleServerChange(srv.id)}
-                className="interactive"
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '12px 16px',
-                  borderRadius: 'var(--radius-sm)',
-                  background: isSelected ? 'rgba(229, 9, 20, 0.16)' : 'rgba(255,255,255,0.03)',
-                  border: isSelected ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
-                  textAlign: 'left'
-                }}
-              >
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                      {srv.name}
-                    </span>
-                    <span className="badge" style={{ fontSize: '9px', background: isSelected ? 'var(--accent-primary)' : 'rgba(255,255,255,0.1)', color: '#fff' }}>
-                      {srv.badge}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                    {srv.description}
-                  </span>
-                </div>
-                {isSelected && <Check size={18} color="var(--accent-primary)" />}
-              </button>
-            );
-          })}
+          <h1 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>Settings</h1>
         </div>
       </div>
 
-      {/* 2. Theme Selection */}
-      <div
-        style={{
-          background: 'var(--bg-surface)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--border-subtle)',
-          padding: '24px',
-          marginBottom: '24px',
-          boxShadow: 'var(--card-shadow)'
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-          <Palette size={22} color="var(--accent-primary)" />
-          <div>
-            <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
-              Appearance & Theme
-            </h3>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Choose your visual design palette
-            </p>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px' }}>
-          {[
-            { id: 'dark', label: 'Cinema Crimson', desc: 'CineHype signature dark', color: '#e50914' },
-            { id: 'obsidian', label: 'Obsidian OLED', desc: 'Deep black for OLEDs', color: '#ff1f29' },
-            { id: 'slate', label: 'Midnight Slate', desc: 'Deep navy & sky blue', color: '#38bdf8' },
-            { id: 'light', label: 'Daylight', desc: 'Clean frosted light mode', color: '#e50914' }
-          ].map(t => {
-            const isSelected = currentTheme === t.id;
-            return (
-              <button
-                key={t.id}
-                onClick={() => handleThemeChange(t.id as Theme)}
-                className="interactive"
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  padding: '14px',
-                  borderRadius: 'var(--radius-md)',
-                  background: isSelected ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.03)',
-                  border: isSelected ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
-                  textAlign: 'left'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                  <div style={{ width: 14, height: 14, borderRadius: '50%', background: t.color }} />
-                  {isSelected && <Check size={16} color="var(--accent-primary)" />}
-                </div>
-                <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
+      <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <section>
+          <SectionLabel>Appearance</SectionLabel>
+          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', padding: '16px' }}>
+            <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px' }}>Theme</h4>
+            <div className="seg-track">
+              {THEMES.map(t => (
+                <button key={t.id} onClick={() => changeTheme(t.id)} className={`interactive seg-pill ${theme === t.id ? 'active' : ''}`}>
                   {t.label}
-                </span>
-                <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  {t.desc}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
 
-      {/* 3. Storage & Cache Management */}
-      <div
-        style={{
-          background: 'var(--bg-surface)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--border-subtle)',
-          padding: '24px',
-          marginBottom: '24px',
-          boxShadow: 'var(--card-shadow)'
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-          <Trash2 size={22} color="var(--accent-primary)" />
-          <div>
-            <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
-              Data & Storage
-            </h3>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Manage local cache and watch history
+        <section>
+          <SectionLabel>Playback</SectionLabel>
+          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 16px 6px 16px' }}>
+              <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>Default Server</h4>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>Used first when a title starts playing.</p>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '10px 16px 16px 16px' }}>
+              {STREAM_SERVERS.map(srv => {
+                const selected = prefs.defaultServer === srv.id;
+                return (
+                  <button
+                    key={srv.id}
+                    onClick={() => update({ defaultServer: srv.id })}
+                    className={`interactive glass-pill chip ${selected ? 'active' : ''}`}
+                    style={{ padding: '7px 14px', borderRadius: 'var(--radius-full)', color: selected ? undefined : 'var(--text-secondary)', fontSize: '12px', fontWeight: 700, whiteSpace: 'nowrap' }}
+                  >
+                    {srv.name}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              <Row
+                icon={<SkipForward size={18} />}
+                title="Autoplay Next Episode"
+                text="Continue to the next episode when one ends"
+                onClick={() => update({ autoplayNext: !prefs.autoplayNext })}
+                trailing={<div className={`toggle-switch ${prefs.autoplayNext ? 'on' : ''}`}><div className="knob" /></div>}
+              />
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <SectionLabel>Data</SectionLabel>
+          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+            <Row
+              icon={<Database size={18} />}
+              title="Clear Cache"
+              text={cacheCleared ? 'Cache cleared' : 'Frees stored lists and artwork data'}
+              onClick={() => { clearPersistedCache(); setCacheCleared(true); }}
+              trailing={<Trash2 size={18} color="var(--text-muted)" />}
+            />
+            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              <Row
+                icon={<Trash2 size={18} />}
+                title="Clear Watch History"
+                text={`${historyCount} ${historyCount === 1 ? 'item' : 'items'} stored`}
+                onClick={() => setConfirming(true)}
+                danger
+                trailing={<Trash2 size={18} color="var(--text-muted)" />}
+              />
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <SectionLabel>About</SectionLabel>
+          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', padding: '16px' }}>
+            <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>CineStream</h4>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>Version {__APP_VERSION__}</p>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '10px', lineHeight: 1.5 }}>
+              Movie and TV metadata from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.
             </p>
           </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-          <button
-            onClick={handleClearCache}
-            className="btn-secondary interactive"
-            style={{ fontSize: '13px' }}
-          >
-            Clear Local Cache
-          </button>
-          <button
-            onClick={handleClearHistory}
-            className="btn-secondary interactive"
-            style={{ fontSize: '13px', color: 'var(--accent-primary)' }}
-          >
-            Clear Watch History
-          </button>
-        </div>
+        </section>
       </div>
 
-      {/* 4. Provider & App Info */}
-      <div
-        style={{
-          background: 'var(--bg-surface)',
-          borderRadius: 'var(--radius-lg)',
-          border: '1px solid var(--border-subtle)',
-          padding: '24px',
-          boxShadow: 'var(--card-shadow)'
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-          <Globe size={22} color="var(--accent-primary)" />
-          <div>
-            <h3 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>
-              Provider Information
-            </h3>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              Active streaming configuration
-            </p>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-            <span>Active Provider:</span>
-            <span style={{ fontWeight: 700, color: 'var(--accent-primary)' }}>cinehype.sc</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-            <span>Catalog Engine:</span>
-            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>TMDB v3 (CineHype Node)</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-            <span>Stream Mirrors:</span>
-            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>VidFast • VidSrc • ScreenFetch • Rypr</span>
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
-            <span>Application:</span>
-            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>CineStream v{__APP_VERSION__}</span>
-          </div>
-        </div>
-      </div>
+      <ConfirmModal
+        open={confirming}
+        title="Clear Watch History"
+        message="Are you sure you want to clear your watch history? This cannot be undone."
+        confirmLabel="Clear"
+        cancelLabel="Cancel"
+        danger
+        onConfirm={() => { clearWatchHistory(); setHistoryCount(0); setConfirming(false); }}
+        onCancel={() => setConfirming(false)}
+      />
     </div>
   );
 };

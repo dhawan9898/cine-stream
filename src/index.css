@@ -1,10 +1,16 @@
-/* index.css - CineStream Liquid Glass Design System & Netflix Player Engine */
-@import '@fontsource/outfit/400.css';
-@import '@fontsource/outfit/500.css';
-@import '@fontsource/outfit/600.css';
-@import '@fontsource/outfit/700.css';
-@import '@fontsource/outfit/800.css';
+/* index.css - Design system for AniStream (dark + light).
 
+   Performance rules this file follows (Android WebView):
+   - only `transform` and `opacity` are ever animated;
+   - no `backdrop-filter` on anything that sits over scrolling content (it is
+     re-blurred every frame) - glass looks come from translucent fills,
+     hairline borders and inner highlights instead;
+   - no permanent `will-change` (each one costs a GPU layer);
+   - skeleton shimmer is a moving pseudo-element, not an animated gradient.
+
+   Shared with CineStream: same tokens, same Netflix red, same glass recipe
+   (blur only on small fixed chrome: dock, popovers, modals) and same motion
+   curve, so both apps feel like one product. */
 :root,
 :root[data-theme="dark"] {
   --bg-main: #0b0b0d;
@@ -14,18 +20,30 @@
   --bg-glass: rgba(24, 24, 28, 0.62);
   --bg-glass-heavy: rgba(11, 11, 13, 0.9);
   --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-hover: rgba(255, 255, 255, 0.22);
   --border-glow: rgba(229, 9, 20, 0.4);
 
+  --accent-primary: #e50914;
+  --accent-secondary: #ff3b45;
+  --accent-cyan: #06b6d4;
+  --accent-amber: #f59e0b;
+  --accent-danger: #fb7185;
+  --accent-danger-bg: rgba(244, 63, 94, 0.14);
+  --accent-gradient: linear-gradient(135deg, #e50914 0%, #ff2a36 100%);
+  --accent-gradient-glow: linear-gradient(135deg, rgba(229,9,20,0.4) 0%, rgba(255,42,54,0.25) 100%);
+  --surface-gradient: linear-gradient(180deg, rgba(255, 255, 255, 0.04) 0%, rgba(255, 255, 255, 0.01) 100%);
+
+  --text-primary: #ffffff;
+  --text-secondary: #a8a8b3;
+  --text-muted: #6f6f7b;
+
   /* Liquid glass: translucent fill + hairline border + top specular
-     highlight. Blur is only applied to small fixed chrome (dock, popovers,
-     drawer) - never to cards or bars inside scrolling content. */
+     highlight. `--glass-blur` is only ever applied to small fixed chrome. */
   --glass-blur: blur(18px) saturate(170%);
   --glass-fill: rgba(30, 30, 36, 0.58);
   --glass-border: rgba(255, 255, 255, 0.14);
   --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.5);
 
-  /* Motion: one curve + three durations, shared with AniStream. */
+  /* Motion: one curve + three durations across both apps. */
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
   --dur-fast: 0.15s;
@@ -34,33 +52,37 @@
 
   --select-bg: rgba(255, 255, 255, 0.16);
   --select-border: rgba(255, 255, 255, 0.3);
+  --select-text: #ffffff;
   --select-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 6px 18px rgba(0, 0, 0, 0.35);
-
-  --accent-primary: #e50914;
-  --accent-secondary: #ff3b45;
-  --accent-hover: #ff2a36;
-  --accent-dark: #b20710;
-  --accent-gold: #f59e0b;
-  --accent-cyan: #06b6d4;
-  --accent-glow: 0 0 22px rgba(229, 9, 20, 0.35);
-  --accent-gradient: linear-gradient(135deg, #e50914 0%, #ff2a36 100%);
-
-  --text-primary: #ffffff;
-  --text-secondary: #a8a8b3;
-  --text-muted: #6f6f7b;
-
-  --card-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
-  --dock-bg: rgba(24, 24, 28, 0.66);
-  --dock-border: rgba(255, 255, 255, 0.14);
+  --track-bg: rgba(255, 255, 255, 0.08);
+  --shadow-dock: 0 16px 40px rgba(0, 0, 0, 0.6), 0 4px 14px rgba(0, 0, 0, 0.4);
+  --bg-dock: rgba(24, 24, 28, 0.66);
 
   --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
-  --radius-xl: 24px;
   --radius-full: 9999px;
+
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 12px 36px rgba(0, 0, 0, 0.6);
+  --shadow-glow: 0 0 22px rgba(229, 9, 20, 0.35);
 
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* Names used by CineStream's player rules. */
+  --accent-hover: #ff2a36;
+  --accent-dark: #b20710;
+  --accent-gold: #f59e0b;
+  --accent-glow: 0 0 22px rgba(229, 9, 20, 0.35);
+  --border-hover: rgba(255, 255, 255, 0.22);
+  --card-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+  --dock-bg: var(--bg-dock);
+  --radius-xl: 24px;
+  --liquid-glass-bg: var(--glass-fill);
+  --liquid-glass-border: var(--glass-border);
+  --liquid-glass-shadow: var(--glass-shadow);
+  --liquid-glass-blur: var(--glass-blur);
 }
 
 :root[data-theme="obsidian"] {
@@ -74,11 +96,6 @@
   --border-hover: rgba(255, 255, 255, 0.25);
   --border-glow: rgba(255, 31, 41, 0.55);
 
-  --liquid-glass-bg: rgba(16, 16, 22, 0.65);
-  --liquid-glass-border: rgba(255, 255, 255, 0.18);
-  --liquid-glass-specular: linear-gradient(135deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.05) 50%, rgba(255, 31, 41, 0.25) 100%);
-  --liquid-glass-shadow: 0 18px 45px -8px rgba(0, 0, 0, 0.8), inset 0 1px 1px 0 rgba(255, 255, 255, 0.3);
-  --liquid-glass-blur: blur(30px) saturate(200%);
 
   --accent-primary: #ff1f29;
   --accent-secondary: #ff4d55;
@@ -93,8 +110,7 @@
   --text-muted: #737373;
 
   --card-shadow: 0 12px 34px rgba(0, 0, 0, 0.8);
-  --dock-bg: rgba(10, 10, 14, 0.85);
-  --dock-border: rgba(255, 255, 255, 0.16);
+  --bg-dock: rgba(10, 10, 14, 0.85);
 }
 
 :root[data-theme="slate"] {
@@ -108,11 +124,6 @@
   --border-hover: rgba(255, 255, 255, 0.24);
   --border-glow: rgba(56, 189, 248, 0.45);
 
-  --liquid-glass-bg: rgba(22, 36, 62, 0.62);
-  --liquid-glass-border: rgba(255, 255, 255, 0.17);
-  --liquid-glass-specular: linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.05) 50%, rgba(56, 189, 248, 0.25) 100%);
-  --liquid-glass-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.65), inset 0 1px 1px 0 rgba(255, 255, 255, 0.26);
-  --liquid-glass-blur: blur(28px) saturate(190%);
 
   --accent-primary: #38bdf8;
   --accent-secondary: #818cf8;
@@ -127,48 +138,65 @@
   --text-muted: #64748b;
 
   --card-shadow: 0 10px 28px rgba(0, 0, 0, 0.6);
-  --dock-bg: rgba(19, 30, 51, 0.82);
-  --dock-border: rgba(255, 255, 255, 0.15);
+  --bg-dock: rgba(19, 30, 51, 0.82);
 }
 
+/* Light theme: same liquid-glass language, re-tuned so frosted panes sit on
+   a soft neutral backdrop instead of black - minimal, high-contrast text,
+   glass panels read as lifted white/silver panes rather than dark tint. */
 :root[data-theme="light"] {
-  --glass-fill: rgba(255, 255, 255, 0.66);
-  --glass-border: rgba(255, 255, 255, 0.8);
-  --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 10px 28px rgba(15, 23, 42, 0.14);
-  --select-bg: rgba(255, 255, 255, 0.85);
-  --select-border: rgba(15, 23, 42, 0.06);
-  --select-shadow: 0 6px 16px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.7);
-  --bg-main: #f2f4f8;
-  --bg-main-rgb: 242, 244, 248;
+  --bg-main: #f1f2f6;
+  --bg-main-rgb: 241, 242, 246;
   --bg-surface: #ffffff;
-  --bg-surface-hover: #e8ecf3;
-  --bg-glass: rgba(255, 255, 255, 0.78);
-  --bg-glass-heavy: rgba(242, 244, 248, 0.95);
-  --border-subtle: rgba(0, 0, 0, 0.08);
-  --border-hover: rgba(0, 0, 0, 0.18);
-  --border-glow: rgba(229, 9, 20, 0.3);
-
-  --liquid-glass-bg: rgba(255, 255, 255, 0.68);
-  --liquid-glass-border: rgba(255, 255, 255, 0.85);
-  --liquid-glass-specular: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.2) 60%, rgba(229, 9, 20, 0.15) 100%);
-  --liquid-glass-shadow: 0 12px 30px -6px rgba(0, 0, 0, 0.1), inset 0 1px 1px 0 rgba(255, 255, 255, 0.9);
-  --liquid-glass-blur: blur(24px) saturate(170%);
+  --bg-surface-hover: #eceef3;
+  --bg-glass: rgba(255, 255, 255, 0.62);
+  --bg-glass-heavy: rgba(255, 255, 255, 0.78);
+  --border-subtle: rgba(15, 23, 42, 0.08);
+  --border-glow: rgba(229, 9, 20, 0.25);
 
   --accent-primary: #e50914;
   --accent-secondary: #ff3b45;
-  --accent-hover: #ff2a36;
-  --accent-dark: #a80f15;
-  --accent-gold: #d97706;
-  --accent-glow: 0 0 24px rgba(229, 9, 20, 0.3);
-  --accent-gradient: linear-gradient(135deg, #e50914 0%, #f43f5e 100%);
+  --accent-cyan: #0891b2;
+  --accent-amber: #d97706;
+  --accent-danger: #e11d48;
+  --accent-danger-bg: rgba(225, 29, 72, 0.1);
+  --accent-gradient: linear-gradient(135deg, #e50914 0%, #ff2a36 100%);
+  --accent-gradient-glow: linear-gradient(135deg, rgba(229,9,20,0.25) 0%, rgba(255,42,54,0.15) 100%);
+
+  --glass-blur: blur(18px) saturate(160%);
+  --glass-fill: rgba(255, 255, 255, 0.66);
+  --glass-border: rgba(255, 255, 255, 0.8);
+  --glass-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 10px 28px rgba(15, 23, 42, 0.14);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --dur-fast: 0.15s;
+  --dur-base: 0.25s;
+  --dur-slow: 0.35s;
+  --surface-gradient: linear-gradient(180deg, rgba(15, 23, 42, 0.03) 0%, rgba(15, 23, 42, 0.005) 100%);
 
   --text-primary: #0f172a;
-  --text-secondary: #475569;
-  --text-muted: #94a3b8;
+  --text-secondary: #52607a;
+  --text-muted: #7b879c;
 
-  --card-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-  --dock-bg: rgba(255, 255, 255, 0.85);
-  --dock-border: rgba(0, 0, 0, 0.1);
+  --select-bg: rgba(255, 255, 255, 0.85);
+  --select-border: rgba(15, 23, 42, 0.06);
+  --select-text: #0f172a;
+  --select-shadow: 0 6px 16px rgba(15, 23, 42, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  --track-bg: rgba(15, 23, 42, 0.05);
+  --shadow-dock: 0 16px 36px rgba(15, 23, 42, 0.16), 0 4px 12px rgba(15, 23, 42, 0.08);
+  --bg-dock: rgba(255, 255, 255, 0.96);
+
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-full: 9999px;
+
+  --shadow-sm: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.14);
+  --shadow-glow: 0 0 22px rgba(229, 9, 20, 0.2);
+
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 * {
@@ -176,47 +204,585 @@
   padding: 0;
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
+  user-select: none;
 }
 
-html, body {
+html {
+  background-color: var(--bg-main);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
   background-color: var(--bg-main);
   color: var(--text-primary);
-  font-family: 'Outfit', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
-  min-height: 100vh;
+  overflow-x: hidden;
+  height: 100%;
   width: 100%;
+  position: fixed;
 }
 
-button {
-  font-family: inherit;
-  cursor: pointer;
+button { font-family: inherit; }
+
+/* Keyboard / D-pad focus ring (touch taps never show it). */
+:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 
-input {
-  font-family: inherit;
+/* Every screen's scroll container: momentum scrolling that never chains
+   into the page behind it, and layout work contained to the screen. */
+.screen-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  contain: layout style;
 }
 
-/* Custom Scrollbars */
+/* Horizontal rails. */
+.rail {
+  display: flex;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.rail::-webkit-scrollbar { display: none; }
+
+/* ---- Navigation layers ----
+   Tabs stay mounted and are only hidden (state and scroll position are
+   kept); title/genre pages are layers that slide over them. */
+.tab-pane {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+.tab-pane[data-active="false"] {
+  visibility: hidden;
+  pointer-events: none;
+  content-visibility: hidden;
+}
+.tab-pane[data-active="true"] {
+  animation: paneIn 0.22s ease-out both;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-main);
+  box-shadow: -14px 0 32px rgba(0, 0, 0, 0.35);
+  animation: overlayIn 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.overlay.leaving {
+  pointer-events: none;
+  animation: overlayOut 0.24s cubic-bezier(0.4, 0, 0.9, 0.6) both;
+}
+@keyframes overlayIn {
+  from { transform: translate3d(100%, 0, 0); }
+  to { transform: translate3d(0, 0, 0); }
+}
+@keyframes overlayOut {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(100%, 0, 0); }
+}
+@keyframes paneIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+#root {
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Responsive grids: column count follows the available width, so phones get
+   2-3 columns and tablets / landscape / desktop get more instead of a
+   stretched phone layout. */
+.grid-posters {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 14px;
+}
+.grid-genres {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.grid-collection {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 14px 10px;
+}
+.grid-episodes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 10px;
+}
+
+/* Keep the scrolling page content readable on very wide screens. */
+@media (min-width: 900px) {
+  .grid-posters { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+  .grid-collection { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); }
+}
+
+/* Custom smooth scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.16);
-  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.32);
+  background: rgba(255, 255, 255, 0.25);
 }
 
-/* ==========================================================================
-   LIQUID GLASS DESIGN SYSTEM (shared with AniStream)
-   ========================================================================== */
+/* Card surface (Continue Watching cards, episode tiles, list rows). Flat
+   and opaque on purpose: these sit inside scrolling lists, and a
+   backdrop-filter blur on each one is re-rendered every frame while
+   scrolling - the main source of jank in Android WebViews. Netflix uses
+   flat surfaces for the same reason. Only `transform` animates. */
+.glass-panel {
+  position: relative;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  contain: layout paint;
+}
 
-/* Glass pane: translucent fill, hairline border, specular top edge. */
+.glass-panel:active {
+  transform: scale(0.97);
+}
+
+.glass-nav {
+  background: var(--bg-glass-heavy);
+  border-top: 1px solid var(--border-subtle);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  transition: background-color 0.4s ease, border-color 0.4s ease;
+}
+
+/* Floating Apple-TV style dock: detached from the screen edge, fully
+   rounded, and lifted with a deep ambient shadow so it reads as a physical
+   pane hovering above the content rather than a docked bar. */
+.dock-wrap {
+  position: fixed;
+  left: 20px;
+  right: 20px;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  transition: transform var(--dur-slow) var(--ease-out), opacity var(--dur-base) ease;
+}
+.dock-wrap.hidden {
+  transform: translate3d(0, 140%, 0);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.glass-dock {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  height: 64px;
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-dock);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-full);
+  box-shadow: var(--glass-shadow), var(--shadow-dock);
+  transition: background-color 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+}
+
+.glass-pill {
+  position: relative;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.25s ease, box-shadow 0.35s ease;
+}
+
+:root[data-theme="light"] .glass-pill {
+  background: rgba(15, 23, 42, 0.05);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* The video player is a dark cinema surface regardless of app theme (same
+   convention as most video apps), so its popovers force the dark glass
+   look rather than following the light/dark toggle. */
+.glass-panel-dark {
+  position: relative;
+  background: rgba(20, 20, 24, 0.82);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 12px 36px rgba(0, 0, 0, 0.6);
+}
+
+/* Same idea for pills/buttons that float on top of a photo banner (hero
+   badges, poster overlay controls) - the photo always has a dark filter
+   under it, so these stay dark-glass regardless of the light/dark toggle. */
+.glass-pill-dark {
+  background: rgba(24, 24, 28, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+/* Interactive touch feedback - a slight spring overshoot on release reads as
+   "liquid" rather than a stiff linear scale. */
+.interactive {
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.15s ease;
+  cursor: pointer;
+}
+.interactive:active {
+  transform: scale(0.96);
+  opacity: 0.88;
+  transition: transform 0.1s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.1s ease;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(28px) scale(0.99); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.94); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes skeletonShimmer {
+  from { transform: translate3d(-100%, 0, 0); }
+  to { transform: translate3d(100%, 0, 0); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.animate-spin { animation: spin 0.9s linear infinite; }
+
+/* Loading placeholder - never real (or fake-real) content, just an inert
+   shimmering block, so a slow fetch never reads as fabricated data. The
+   highlight is a pseudo-element that only translates (compositor-only). */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--track-bg);
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.09) 50%, transparent 70%);
+  animation: skeletonShimmer 1.4s ease-in-out infinite;
+  will-change: transform;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Screen-push transition used for navigating "into" a view (detail, search,
+   settings) so it reads as gliding in from the right rather than a hard cut. */
+.animate-slide-in {
+  animation: slideInRight 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-pop-in {
+  animation: popIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.glow-active {
+  box-shadow: 0 0 20px rgba(229, 9, 20, 0.45);
+}
+
+/* Floating dock nav item: the active tab's icon lifts and glows, echoing the
+   Apple TV focus engine's "floating" affordance. */
+.dock-item {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  background: none;
+  border: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--text-muted);
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), color 0.25s ease;
+}
+.dock-item span { font-size: 10px; font-weight: 500; }
+.dock-item.active { color: var(--select-text); transform: translateY(-2px); }
+.dock-item.active span { font-weight: 700; }
+
+/* Sliding liquid indicator that glides behind the active dock icon. A frosted,
+   lifted pane of glass - not a brand-colored fill - so "selected" reads as
+   glass catching light, matching the rest of the liquid-glass language. */
+.dock-indicator {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  border-radius: var(--radius-full);
+  left: 0;
+  background: var(--select-bg);
+  border: 1px solid var(--select-border);
+  box-shadow: var(--select-shadow);
+  transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 0;
+}
+
+/* Segmented control (e.g. Sub/Dub, History/Saved): a frosted track with a
+   sliding glass pill for the active segment - the same neutral selection
+   language as the dock indicator, no brand color. */
+.seg-track {
+  display: flex;
+  background-color: var(--track-bg);
+  border-radius: var(--radius-full);
+  padding: 4px;
+  transition: background-color 0.4s ease;
+}
+.seg-pill {
+  flex: 1;
+  padding: 8px;
+  border-radius: var(--radius-full);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  transition: background-color 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
+}
+.seg-pill.active {
+  background: var(--select-bg);
+  border: 1px solid var(--select-border);
+  color: var(--select-text);
+  box-shadow: var(--select-shadow);
+}
+
+/* Chip / tag selection (quick tags, quality picker): unselected chips use
+   the standard glass-pill look; selected ones lift into a brighter frosted
+   pane instead of turning a brand color. */
+.chip.active {
+  background: var(--select-bg) !important;
+  border: 1px solid var(--select-border) !important;
+  color: var(--select-text) !important;
+  box-shadow: var(--select-shadow);
+}
+
+/* iOS-style toggle switch, styled to match the glass system. */
+.toggle-switch {
+  position: relative;
+  width: 46px;
+  height: 27px;
+  border-radius: var(--radius-full);
+  border: none;
+  flex-shrink: 0;
+  background: var(--track-bg);
+  transition: background-color 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  cursor: pointer;
+}
+.toggle-switch.on {
+  background: var(--select-bg);
+  border: 1px solid var(--select-border);
+  box-shadow: var(--select-shadow);
+}
+.toggle-switch .knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.toggle-switch.on .knob {
+  transform: translateX(19px);
+}
+
+/* Input reset */
+input {
+  font-family: inherit;
+  outline: none;
+  user-select: text;
+}
+
+/* Slim indeterminate loading bar shown while an episode's stream resolves */
+.stream-loading-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 10001;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.stream-loading-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  background: var(--accent-primary);
+  animation: stream-loading-slide 1s ease-in-out infinite;
+}
+
+@keyframes stream-loading-slide {
+  from { transform: translate3d(-100%, 0, 0); }
+  to { transform: translate3d(250%, 0, 0); }
+}
+
+/* ---- Hero carousel (HeroCarousel.tsx) ----
+   Native horizontal scroll-snap: swipes track the finger 1:1 and settle on
+   a slide without any JS animation. */
+.hero-track {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.hero-track::-webkit-scrollbar { display: none; }
+.hero-slide {
+  position: relative;
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  overflow: hidden;
+}
+.hero-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.hero-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 24px 20px 40px 20px;
+  background: linear-gradient(180deg, rgba(11,11,13,0.35) 0%, rgba(11,11,13,0.6) 50%, var(--bg-main) 100%);
+}
+.hero-rank {
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+}
+.hero-title {
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.2;
+  color: #fff;
+  margin-bottom: 8px;
+  text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+}
+.hero-desc {
+  font-size: 13px;
+  color: #cbd5e1;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-bottom: 16px;
+  max-width: 90%;
+}
+.hero-play, .hero-list {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 44px;
+  border-radius: 6px;
+  border: none;
+  font-size: 15px;
+  font-weight: 700;
+}
+.hero-play { flex: 1; background: #fff; color: #000; }
+.hero-list { padding: 0 16px; color: #fff; }
+.hero-dots {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 14px;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  pointer-events: none;
+}
+.hero-dot {
+  pointer-events: auto;
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.35);
+  transition: width 0.25s ease, background-color 0.25s ease;
+}
+.hero-dot.active { width: 18px; background: #fff; }
+
+
+/* Poster/banner images fade in once decoded instead of popping. */
+.fade-img {
+  opacity: 0;
+  transition: opacity 0.28s ease;
+}
+.fade-img.loaded { opacity: 1; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==== CineStream additions ==== */
+
 .liquid-glass {
   background: var(--glass-fill);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -226,68 +792,6 @@ input {
   position: relative;
   overflow: hidden;
 }
-
-/* Touch feedback: only transform/opacity animate. */
-.interactive {
-  transition: transform var(--dur-base) var(--ease-out), opacity var(--dur-base) ease;
-  cursor: pointer;
-}
-.interactive:active {
-  transform: scale(0.96);
-  opacity: 0.9;
-  transition-duration: var(--dur-fast);
-}
-
-/* Horizontal rail */
-.rail {
-  display: flex;
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 8px;
-}
-.rail::-webkit-scrollbar { display: none; }
-
-/* Skeleton: a moving highlight, compositor-only */
-.skeleton {
-  background: var(--bg-surface);
-  position: relative;
-  overflow: hidden;
-  border-radius: var(--radius-sm);
-}
-.skeleton::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  transform: translate3d(-100%, 0, 0);
-  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.08) 50%, transparent 70%);
-  animation: shimmer 1.4s infinite ease-in-out;
-}
-@keyframes shimmer {
-  to { transform: translate3d(100%, 0, 0); }
-}
-
-/* Poster card: flat and opaque like Netflix. Blur on every card would be
-   re-rendered each scroll frame, so depth comes from shadow and scale. */
-.poster-card {
-  position: relative;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  cursor: pointer;
-  background: var(--bg-surface);
-  box-shadow: var(--card-shadow);
-  transition: transform var(--dur-base) var(--ease-out);
-  contain: layout paint;
-}
-@media (hover: hover) {
-  .poster-card:hover { transform: scale(1.05); z-index: 2; }
-}
-.poster-card:active { transform: scale(0.97); transition-duration: var(--dur-fast); }
-
-/* Badges */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -303,16 +807,12 @@ input {
   background: var(--accent-primary);
   color: #ffffff;
 }
-/* Sits on photos, so it stays dark glass in every theme. No blur: it is
-   repeated on every card. */
 .badge-glass {
   background: rgba(20, 20, 24, 0.62);
   color: #ffffff;
   border: 1px solid rgba(255, 255, 255, 0.16);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
 }
-
-/* Glass pill (chips, meta tags) */
 .liquid-pill {
   display: inline-flex;
   align-items: center;
@@ -327,121 +827,6 @@ input {
   color: var(--text-primary);
   transition: transform var(--dur-base) var(--ease-out), background-color var(--dur-base) ease;
 }
-
-/* Floating glass dock (mobile) with a sliding selection pane. It is the one
-   blurred element over scrolling content: small and fixed, so it stays cheap. */
-.bottom-dock {
-  position: fixed;
-  bottom: calc(14px + var(--safe-bottom));
-  left: 50%;
-  width: calc(100% - 40px);
-  max-width: 400px;
-  height: 64px;
-  display: flex;
-  align-items: stretch;
-  background: var(--dock-bg);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--glass-border);
-  border-radius: var(--radius-full);
-  box-shadow: var(--glass-shadow);
-  z-index: 900;
-  transform: translate3d(-50%, 0, 0);
-  animation: dockIn 0.5s var(--ease-out) 0.1s both;
-}
-@keyframes dockIn {
-  from { transform: translate3d(-50%, 140%, 0); opacity: 0; }
-  to { transform: translate3d(-50%, 0, 0); opacity: 1; }
-}
-.dock-indicator {
-  position: absolute;
-  top: 6px;
-  bottom: 6px;
-  left: 0;
-  border-radius: var(--radius-full);
-  background: var(--select-bg);
-  border: 1px solid var(--select-border);
-  box-shadow: var(--select-shadow);
-  transition: transform var(--dur-slow) var(--ease-out);
-  z-index: 0;
-}
-.dock-btn {
-  position: relative;
-  z-index: 1;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 500;
-  transition: color var(--dur-base) ease, transform var(--dur-slow) var(--ease-spring);
-}
-.dock-btn.active { color: var(--text-primary); font-weight: 700; transform: translateY(-2px); }
-.dock-btn:active { transform: scale(0.9); }
-
-/* Scroll arrows are for mouse users; touch screens swipe. */
-@media (max-width: 768px), (hover: none) { .desktop-only { display: none !important; } }
-
-/* Wide screens navigate from the top bar, so the dock is mobile-only. */
-@media (min-width: 769px) { .bottom-dock { display: none; } }
-
-/* Top bar: Netflix-style gradient that fades into the page, no blur (a
-   blurred sticky bar re-renders the whole feed under it every scroll frame). */
-.top-bar {
-  position: sticky;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: calc(60px + var(--safe-top));
-  padding: var(--safe-top) 20px 0;
-  background: linear-gradient(180deg, rgba(var(--bg-main-rgb), 0.92) 0%, rgba(var(--bg-main-rgb), 0.6) 60%, transparent 100%);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  z-index: 800;
-}
-.top-link {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 14px;
-  font-weight: 600;
-  padding: 6px 4px;
-  position: relative;
-  transition: color var(--dur-base) ease;
-}
-.top-link:hover { color: var(--text-primary); }
-.top-link.active { color: var(--text-primary); font-weight: 700; }
-.top-link.active::after {
-  content: '';
-  position: absolute;
-  left: 4px;
-  right: 4px;
-  bottom: -2px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--accent-primary);
-}
-.icon-glass {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--glass-fill);
-  border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  color: var(--text-secondary);
-}
-.icon-glass.active { color: var(--text-primary); border-color: var(--select-border); }
-
-/* Primary button: flat Netflix red. */
 .btn-primary {
   display: inline-flex;
   align-items: center;
@@ -478,8 +863,85 @@ input {
   transition: transform var(--dur-base) var(--ease-out), background-color var(--dur-base) ease;
   cursor: pointer;
 }
+.btn-primary:active { transform: scale(0.96); transition-duration: var(--dur-fast); }
+
+/* Secondary button: liquid-glass pane. */
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--glass-fill);
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 12px 22px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  transition: transform var(--dur-base) var(--ease-out), background-color var(--dur-base) ease;
+  cursor: pointer;
+}
+.btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--glass-fill);
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 12px 22px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  transition: transform var(--dur-base) var(--ease-out), background-color var(--dur-base) ease;
+  cursor: pointer;
+}
 .btn-secondary:hover { background: var(--bg-surface-hover); }
 .btn-secondary:active { transform: scale(0.96); transition-duration: var(--dur-fast); }
+
+/* ==========================================================================
+   NETFLIX NATIVE VIDEO PLAYER STYLES
+   ========================================================================== */
+
+.netflix-player-container {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #000000;
+  overflow: hidden;
+  user-select: none;
+  font-family: 'Outfit', sans-serif;
+}
+.btn-secondary:active { transform: scale(0.96); transition-duration: var(--dur-fast); }
+
+/* ==========================================================================
+   NETFLIX NATIVE VIDEO PLAYER STYLES
+   ========================================================================== */
+
+.netflix-player-container {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #000000;
+  overflow: hidden;
+  user-select: none;
+  font-family: 'Outfit', sans-serif;
+}
+
+/* Poster tile used inside the player's episode drawer. */
+.poster-card {
+  position: relative;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  transition: transform var(--dur-base) var(--ease-out);
+  contain: layout paint;
+}
+.poster-card:active { transform: scale(0.97); }
 
 /* ==========================================================================
    NETFLIX NATIVE VIDEO PLAYER STYLES
@@ -914,17 +1376,3 @@ input {
 /* ==========================================================================
    MOTION & LIQUID GLASS POLISH
    ========================================================================== */
-html { -webkit-tap-highlight-color: transparent; }
-button, a, [role="button"] { touch-action: manipulation; }
-
-/* Screen transitions: opacity + a short translate only (no filter/blur). */
-.screen-enter { animation: screenIn 0.3s var(--ease-out) both; }
-.screen-enter-detail { animation: detailIn 0.34s var(--ease-out) both; }
-@keyframes screenIn { from { opacity: 0; transform: translate3d(0, 8px, 0); } to { opacity: 1; transform: none; } }
-@keyframes detailIn { from { opacity: 0; transform: translate3d(24px, 0, 0); } to { opacity: 1; transform: none; } }
-
-.netflix-glass-drawer { animation-duration: 0.35s; }
-
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0ms !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
-}

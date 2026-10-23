@@ -32,7 +32,6 @@ export class ErrorBoundary extends Component<Props, State> {
     if (this.state.hasError) {
       return (
         <ErrorState
-          title="Unexpected Application Error"
           message={this.state.error?.message || 'An unexpected rendering error occurred.'}
           onRetry={this.handleRetry}
         />

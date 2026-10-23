@@ -1,266 +1,155 @@
-// HeroCarousel.tsx - Prominent hero showcase of trending movies & series
-import React, { useState, useEffect } from 'react';
-import { Play, Info, Star, ChevronLeft, ChevronRight } from 'lucide-react';
+// HeroCarousel.tsx - Netflix-style featured banner: swipe between the top
+// trending titles (native scroll-snap, so it tracks the finger 1:1), with
+// page dots and an auto-advance that steps aside while the user is touching
+// it or a screen covers it.
+import React, { useEffect, useRef, useState } from 'react';
+import { Play, Plus, Check, Info } from 'lucide-react';
 import type { MediaItem } from '../core/cineHypeCore.ts';
 import { FadeImage } from './FadeImage.tsx';
+import { getBookmarks, subscribeLibraryChanges, toggleBookmark } from '../services/historyService.ts';
+
+const MAX_SLIDES = 8;
+const AUTO_ADVANCE_MS = 6000;
+// After a manual swipe, wait this long before auto-advancing again.
+const USER_IDLE_MS = 10000;
+const HERO_HEIGHT = 440;
 
 interface HeroCarouselProps {
   items: MediaItem[];
   onPlay: (item: MediaItem) => void;
   onOpenDetails: (item: MediaItem) => void;
+  // True while another screen covers this one - no auto-advance then.
+  paused?: boolean;
 }
 
-export const HeroCarousel: React.FC<HeroCarouselProps> = ({
-  items,
-  onPlay,
-  onOpenDetails
-}) => {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isPaused, setIsPaused] = useState(false);
+const key = (m: MediaItem) => `${m.mediaType}-${m.id}`;
 
-  const heroItems = items.slice(0, 6);
+export const HeroCarousel: React.FC<HeroCarouselProps> = ({ items, onPlay, onOpenDetails, paused = false }) => {
+  const slides = items.slice(0, MAX_SLIDES);
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const lastTouchRef = useRef<number>(0);
+  const [index, setIndex] = useState<number>(0);
+  const [saved, setSaved] = useState<Set<string>>(() => new Set(getBookmarks().map(key)));
 
+  useEffect(() => subscribeLibraryChanges(() => setSaved(new Set(getBookmarks().map(key)))), []);
+
+  // Current slide follows the scroll position (rAF-throttled).
   useEffect(() => {
-    if (heroItems.length === 0 || isPaused) return;
-    const timer = setInterval(() => {
-      setCurrentIndex(prev => (prev + 1) % heroItems.length);
-    }, 7000);
-    return () => clearInterval(timer);
-  }, [heroItems.length, isPaused]);
+    const track = trackRef.current;
+    if (!track) return;
+    let frame = 0;
+    const onScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        const width = track.clientWidth || 1;
+        setIndex(Math.max(0, Math.min(slides.length - 1, Math.round(track.scrollLeft / width))));
+      });
+    };
+    track.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      track.removeEventListener('scroll', onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, [slides.length]);
 
-  if (heroItems.length === 0) {
-    return (
-      <div
-        className="skeleton"
-        style={{
-          width: '100%',
-          height: '65vh',
-          minHeight: '440px',
-          maxHeight: '620px',
-          borderRadius: 0
-        }}
-      />
-    );
+  const goTo = (i: number) => {
+    const track = trackRef.current;
+    if (!track) return;
+    track.scrollTo({ left: i * track.clientWidth, behavior: 'smooth' });
+  };
+
+  // Auto-advance; skipped while hidden, covered, or recently touched.
+  useEffect(() => {
+    if (slides.length < 2 || paused) return;
+    const timer = window.setInterval(() => {
+      if (document.hidden || Date.now() - lastTouchRef.current < USER_IDLE_MS) return;
+      const track = trackRef.current;
+      if (!track) return;
+      const current = Math.round(track.scrollLeft / (track.clientWidth || 1));
+      goTo((current + 1) % slides.length);
+    }, AUTO_ADVANCE_MS);
+    return () => window.clearInterval(timer);
+  }, [slides.length, paused]);
+
+  const markTouched = () => { lastTouchRef.current = Date.now(); };
+
+  if (slides.length === 0) {
+    return <div className="skeleton" style={{ width: '100%', height: `${HERO_HEIGHT}px`, marginTop: '-60px', borderRadius: 0 }} />;
   }
 
-  const current = heroItems[currentIndex];
-  const year = current.releaseDate ? current.releaseDate.slice(0, 4) : '';
-
   return (
-    <div
-      style={{
-        position: 'relative',
-        width: '100%',
-        height: '68vh',
-        minHeight: '460px',
-        maxHeight: '640px',
-        overflow: 'hidden',
-        background: '#000000'
-      }}
-      onMouseEnter={() => setIsPaused(true)}
-      onMouseLeave={() => setIsPaused(false)}
-    >
-      {/* Background Backdrop with Gradient Overlays */}
+    <div style={{ position: 'relative', marginTop: '-60px' }}>
       <div
-        style={{
-          position: 'absolute',
-          inset: 0,
-          zIndex: 1
-        }}
+        ref={trackRef}
+        className="hero-track"
+        onTouchStart={markTouched}
+        onPointerDown={markTouched}
+        onWheel={markTouched}
       >
-        <FadeImage
-          src={current.backdrop || current.poster}
-          alt={current.title}
-          style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            filter: 'brightness(0.75)'
-          }}
-        />
-        {/* Cinematic Multi-stop Vignette */}
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            background: `
-              linear-gradient(to top, var(--bg-main) 0%, rgba(11, 11, 13, 0.7) 40%, transparent 80%),
-              linear-gradient(to right, rgba(11, 11, 13, 0.9) 0%, rgba(11, 11, 13, 0.45) 45%, transparent 100%)
-            `
-          }}
-        />
+        {slides.map((media, i) => {
+          const inList = saved.has(key(media));
+          const year = media.releaseDate ? media.releaseDate.slice(0, 4) : '';
+          return (
+            <div key={key(media)} className="hero-slide" style={{ height: `${HERO_HEIGHT}px` }}>
+              <FadeImage
+                src={media.backdrop || media.poster}
+                alt=""
+                loading={i === 0 ? 'eager' : 'lazy'}
+                className="hero-img"
+              />
+              <div className="hero-overlay">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <span className="hero-rank">#{i + 1} in Trending</span>
+                  <span className="glass-pill-dark" style={{ fontSize: '11px', fontWeight: 600, padding: '3px 8px', borderRadius: '6px', color: '#cbd5e1' }}>
+                    {media.mediaType === 'tv' ? 'Series' : 'Movie'}
+                  </span>
+                  {year && (
+                    <span className="glass-pill-dark" style={{ fontSize: '11px', fontWeight: 600, padding: '3px 8px', borderRadius: '6px', color: '#cbd5e1' }}>
+                      {year}
+                    </span>
+                  )}
+                </div>
+                <h1 className="hero-title">{media.title}</h1>
+                {media.overview && <p className="hero-desc">{media.overview}</p>}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <button onClick={() => onPlay(media)} className="interactive hero-play">
+                    <Play size={18} fill="#000" />
+                    <span>Play</span>
+                  </button>
+                  <button onClick={() => onOpenDetails(media)} className="interactive glass-pill-dark hero-list" aria-label="More info">
+                    <Info size={18} />
+                    <span>Info</span>
+                  </button>
+                  <button
+                    onClick={() => toggleBookmark(media)}
+                    className="interactive glass-pill-dark hero-list"
+                    aria-label={inList ? 'Remove from My List' : 'Add to My List'}
+                    aria-pressed={inList}
+                  >
+                    {inList ? <Check size={18} /> : <Plus size={18} />}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      {/* Content Area */}
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          padding: '0 28px 48px 28px',
-          zIndex: 2,
-          maxWidth: '850px'
-        }}
-      >
-        {/* Meta badges */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
-          <span className="badge badge-red">
-            {current.mediaType === 'tv' ? 'TV SERIES' : 'FEATURE FILM'}
-          </span>
-          {year && (
-            <span className="badge badge-glass">
-              {year}
-            </span>
-          )}
-          {current.voteAverage > 0 && (
-            <span
-              className="badge"
-              style={{
-                background: 'rgba(245, 158, 11, 0.2)',
-                color: 'var(--accent-gold)',
-                border: '1px solid rgba(245, 158, 11, 0.4)'
-              }}
-            >
-              <Star size={12} fill="var(--accent-gold)" color="var(--accent-gold)" />
-              {current.voteAverage} / 10
-            </span>
-          )}
+      {slides.length > 1 && (
+        <div className="hero-dots" role="tablist" aria-label="Featured titles">
+          {slides.map((media, i) => (
+            <button
+              key={key(media)}
+              role="tab"
+              aria-selected={i === index}
+              aria-label={`Show ${media.title}`}
+              onClick={() => { markTouched(); goTo(i); }}
+              className={i === index ? 'hero-dot active' : 'hero-dot'}
+            />
+          ))}
         </div>
-
-        {/* Title */}
-        <h1
-          style={{
-            fontSize: 'clamp(28px, 5vw, 48px)',
-            fontWeight: 800,
-            lineHeight: 1.15,
-            color: '#ffffff',
-            letterSpacing: '-0.8px',
-            marginBottom: '12px',
-            textShadow: '0 2px 10px rgba(0,0,0,0.8)'
-          }}
-        >
-          {current.title}
-        </h1>
-
-        {/* Overview Synopsis */}
-        <p
-          style={{
-            fontSize: '14px',
-            color: 'rgba(255, 255, 255, 0.85)',
-            lineHeight: 1.6,
-            maxWidth: '680px',
-            display: '-webkit-box',
-            WebkitLineClamp: 3,
-            WebkitBoxOrient: 'vertical',
-            overflow: 'hidden',
-            marginBottom: '22px',
-            textShadow: '0 1px 4px rgba(0,0,0,0.6)'
-          }}
-        >
-          {current.overview || 'Stream this title in high definition with multi-source server resolution on CineStream.'}
-        </p>
-
-        {/* Action Buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-          <button
-            onClick={() => onPlay(current)}
-            className="btn-primary"
-            style={{ fontSize: '15px', padding: '12px 28px', background: '#fff', color: '#000', boxShadow: 'none' }}
-          >
-            <Play size={18} fill="#000" />
-            <span>Play</span>
-          </button>
-
-          <button
-            onClick={() => onOpenDetails(current)}
-            className="btn-secondary"
-            style={{ fontSize: '15px' }}
-          >
-            <Info size={18} />
-            <span>More Info</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Navigation arrows (desktop) */}
-      <button
-        onClick={() => setCurrentIndex((currentIndex - 1 + heroItems.length) % heroItems.length)}
-        className="interactive desktop-only"
-        style={{
-          position: 'absolute',
-          top: '50%',
-          left: '16px',
-          transform: 'translateY(-50%)',
-          zIndex: 3,
-          width: '42px',
-          height: '42px',
-          borderRadius: '50%',
-          background: 'rgba(0,0,0,0.5)',
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255,255,255,0.15)',
-          color: '#fff',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}
-        aria-label="Previous slide"
-      >
-        <ChevronLeft size={22} />
-      </button>
-
-      <button
-        onClick={() => setCurrentIndex((currentIndex + 1) % heroItems.length)}
-        className="interactive desktop-only"
-        style={{
-          position: 'absolute',
-          top: '50%',
-          right: '16px',
-          transform: 'translateY(-50%)',
-          zIndex: 3,
-          width: '42px',
-          height: '42px',
-          borderRadius: '50%',
-          background: 'rgba(0,0,0,0.5)',
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255,255,255,0.15)',
-          color: '#fff',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}
-        aria-label="Next slide"
-      >
-        <ChevronRight size={22} />
-      </button>
-
-      {/* Dots Indicator */}
-      <div
-        style={{
-          position: 'absolute',
-          bottom: '18px',
-          right: '28px',
-          display: 'flex',
-          gap: '8px',
-          zIndex: 3
-        }}
-      >
-        {heroItems.map((_, i) => (
-          <button
-            key={i}
-            onClick={() => setCurrentIndex(i)}
-            style={{
-              width: i === currentIndex ? '26px' : '8px',
-              height: '8px',
-              borderRadius: '4px',
-              background: i === currentIndex ? 'var(--accent-primary)' : 'rgba(255,255,255,0.3)',
-              border: 'none',
-              transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
-            }}
-            aria-label={`Go to slide ${i + 1}`}
-          />
-        ))}
-      </div>
+      )}
     </div>
   );
 };
