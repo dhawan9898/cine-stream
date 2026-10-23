@@ -38,16 +38,35 @@ jobs:
       - run: npx cap add android
       - run: npx cap sync android
 
-      - name: Build release APK
+      - name: Build APK
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon
+        run: ./gradlew assembleRelease assembleDebug --no-daemon
 
-      - name: Prepare APK
+      # Android refuses to install unsigned APKs ("App not installed"), so always sign.
+      # Preferred: persistent keystore from secrets (keeps the signature stable so updates
+      # install over older versions). Fallback: the debug-signed APK, which installs fine
+      # but may need an uninstall first when updating from a build signed by another key.
+      - name: Align, sign and prepare APK
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
           SHORT=$(git rev-parse --short HEAD)
-          UNSIGNED=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
-          cp "$UNSIGNED" CineStream-latest.apk
-          cp "$UNSIGNED" "CineStream-${SHORT}.apk"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+            UNSIGNED=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
+            "$BT/zipalign" -f -p 4 "$UNSIGNED" "$RUNNER_TEMP/aligned.apk"
+            "$BT/apksigner" sign --ks "$RUNNER_TEMP/release.p12" --ks-type pkcs12 \
+              --ks-key-alias cinestream --ks-pass env:KEYSTORE_PASSWORD \
+              --out CineStream-latest.apk "$RUNNER_TEMP/aligned.apk"
+            rm -f "$RUNNER_TEMP/release.p12"
+          else
+            echo "::warning::KEYSTORE_BASE64 secret missing; publishing debug-signed APK"
+            cp "$(ls android/app/build/outputs/apk/debug/*.apk | head -1)" CineStream-latest.apk
+          fi
+          "$BT/apksigner" verify CineStream-latest.apk
+          cp CineStream-latest.apk "CineStream-${SHORT}.apk"
           echo "SHORT=$SHORT" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
