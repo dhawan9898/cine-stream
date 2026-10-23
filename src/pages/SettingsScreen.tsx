@@ -127,7 +127,7 @@ export const SettingsScreen: React.FC = () => {
                   justifyContent: 'space-between',
                   padding: '12px 16px',
                   borderRadius: 'var(--radius-sm)',
-                  background: isSelected ? 'rgba(236, 28, 36, 0.16)' : 'rgba(255,255,255,0.03)',
+                  background: isSelected ? 'rgba(229, 9, 20, 0.16)' : 'rgba(255,255,255,0.03)',
                   border: isSelected ? '1px solid var(--accent-primary)' : '1px solid var(--border-subtle)',
                   textAlign: 'left'
                 }}
@@ -177,10 +177,10 @@ export const SettingsScreen: React.FC = () => {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '12px' }}>
           {[
-            { id: 'dark', label: 'Cinema Crimson', desc: 'CineHype signature dark', color: '#ec1c24' },
+            { id: 'dark', label: 'Cinema Crimson', desc: 'CineHype signature dark', color: '#e50914' },
             { id: 'obsidian', label: 'Obsidian OLED', desc: 'Deep black for OLEDs', color: '#ff1f29' },
             { id: 'slate', label: 'Midnight Slate', desc: 'Deep navy & sky blue', color: '#38bdf8' },
-            { id: 'light', label: 'Daylight', desc: 'Clean frosted light mode', color: '#ec1c24' }
+            { id: 'light', label: 'Daylight', desc: 'Clean frosted light mode', color: '#e50914' }
           ].map(t => {
             const isSelected = currentTheme === t.id;
             return (
@@ -292,7 +292,7 @@ export const SettingsScreen: React.FC = () => {
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)' }}>
             <span>Application:</span>
-            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>CineStream v1.0.0</span>
+            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>CineStream v{__APP_VERSION__}</span>
           </div>
         </div>
       </div>

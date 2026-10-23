@@ -299,7 +299,7 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({
                 className="btn-secondary interactive"
                 style={{
                   fontSize: '14px',
-                  background: bookmarked ? 'rgba(236, 28, 36, 0.2)' : undefined,
+                  background: bookmarked ? 'rgba(229, 9, 20, 0.2)' : undefined,
                   borderColor: bookmarked ? 'var(--accent-primary)' : undefined
                 }}
               >

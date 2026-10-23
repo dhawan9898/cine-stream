@@ -30,7 +30,7 @@ export const ErrorState: React.FC<ErrorStateProps> = ({
           width: 56,
           height: 56,
           borderRadius: '50%',
-          background: 'rgba(236, 28, 36, 0.12)',
+          background: 'rgba(229, 9, 20, 0.12)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',

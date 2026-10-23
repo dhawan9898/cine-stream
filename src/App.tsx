@@ -1,17 +1,20 @@
 // App.tsx - Main CineStream App Navigation & State Machine
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { Navbar } from './components/Navbar.tsx';
 import { BottomNav } from './components/BottomNav.tsx';
 import { HomeScreen } from './pages/HomeScreen.tsx';
-import { ExploreScreen } from './pages/ExploreScreen.tsx';
-import { SearchScreen } from './pages/SearchScreen.tsx';
-import { LibraryScreen } from './pages/LibraryScreen.tsx';
-import { SettingsScreen } from './pages/SettingsScreen.tsx';
-import { MediaDetailScreen } from './pages/MediaDetailScreen.tsx';
-import { VideoPlayer } from './components/VideoPlayer.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import type { MediaItem, EpisodeItem } from './core/cineHypeCore.ts';
 import { getSavedTheme, applyTheme } from './services/themeService.ts';
+
+// Everything except Home is loaded on demand so the first paint ships less JS;
+// the player chunk also carries hls.js.
+const ExploreScreen = lazy(() => import('./pages/ExploreScreen.tsx').then(m => ({ default: m.ExploreScreen })));
+const SearchScreen = lazy(() => import('./pages/SearchScreen.tsx').then(m => ({ default: m.SearchScreen })));
+const LibraryScreen = lazy(() => import('./pages/LibraryScreen.tsx').then(m => ({ default: m.LibraryScreen })));
+const SettingsScreen = lazy(() => import('./pages/SettingsScreen.tsx').then(m => ({ default: m.SettingsScreen })));
+const MediaDetailScreen = lazy(() => import('./pages/MediaDetailScreen.tsx').then(m => ({ default: m.MediaDetailScreen })));
+const VideoPlayer = lazy(() => import('./components/VideoPlayer.tsx').then(m => ({ default: m.VideoPlayer })));
 
 type NavigationTab = 'home' | 'explore' | 'search' | 'library' | 'settings';
 
@@ -126,6 +129,7 @@ export const App: React.FC = () => {
           className={selectedMedia ? 'screen-enter-detail' : 'screen-enter'}
           style={{ flex: 1 }}
         >
+          <Suspense fallback={<div className="skeleton" style={{ height: '50vh', borderRadius: 0 }} />}>
           {selectedMedia ? (
             <MediaDetailScreen
               media={selectedMedia}
@@ -158,24 +162,29 @@ export const App: React.FC = () => {
               {tab === 'settings' && <SettingsScreen />}
             </>
           )}
+          </Suspense>
         </main>
 
         {/* Mobile Navigation Dock */}
-        <BottomNav
-          currentTab={tab}
-          onNavigate={handleNavigate}
-        />
+        {!activePlayer && (
+          <BottomNav
+            currentTab={tab}
+            onNavigate={handleNavigate}
+          />
+        )}
 
         {/* Fullscreen Video Player (When active) */}
         {activePlayer && (
-          <VideoPlayer
-            media={activePlayer.media}
-            season={activePlayer.season}
-            episode={activePlayer.episode}
-            episodeList={activePlayer.episodeList}
-            onBack={handleClosePlayer}
-            onSelectEpisode={handleSelectEpisodeInPlayer}
-          />
+          <Suspense fallback={<div className="netflix-player-container" />}>
+            <VideoPlayer
+              media={activePlayer.media}
+              season={activePlayer.season}
+              episode={activePlayer.episode}
+              episodeList={activePlayer.episodeList}
+              onBack={handleClosePlayer}
+              onSelectEpisode={handleSelectEpisodeInPlayer}
+            />
+          </Suspense>
         )}
       </div>
     </ErrorBoundary>

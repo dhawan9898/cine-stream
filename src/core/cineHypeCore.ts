@@ -104,8 +104,20 @@ export function getProfileUrl(path?: string | null, size: 'w185' | 'h632' | 'ori
   return `${TMDB_IMAGE_BASE}/${size}${path}`;
 }
 
-// Request Helper
-async function tmdbFetch<T>(endpoint: string, params: Record<string, string | number | boolean> = {}): Promise<T> {
+// Request Helper. Identical requests made while one is in flight share it, so
+// screens that ask for the same list at once cost a single round-trip.
+const inFlight = new Map<string, Promise<unknown>>();
+
+function tmdbFetch<T>(endpoint: string, params: Record<string, string | number | boolean> = {}): Promise<T> {
+  const key = endpoint + JSON.stringify(params);
+  const pending = inFlight.get(key) as Promise<T> | undefined;
+  if (pending) return pending;
+  const request = tmdbFetchOnce<T>(endpoint, params).finally(() => inFlight.delete(key));
+  inFlight.set(key, request);
+  return request;
+}
+
+async function tmdbFetchOnce<T>(endpoint: string, params: Record<string, string | number | boolean> = {}): Promise<T> {
   const query = new URLSearchParams({
     api_key: CINEHYPE_TMDB_KEY,
     language: 'en-US',

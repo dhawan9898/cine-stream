@@ -84,8 +84,8 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
             position: 'absolute',
             inset: 0,
             background: `
-              linear-gradient(to top, var(--bg-main) 0%, rgba(10, 11, 15, 0.7) 40%, transparent 80%),
-              linear-gradient(to right, rgba(10, 11, 15, 0.95) 0%, rgba(10, 11, 15, 0.5) 45%, transparent 100%)
+              linear-gradient(to top, var(--bg-main) 0%, rgba(11, 11, 13, 0.7) 40%, transparent 80%),
+              linear-gradient(to right, rgba(11, 11, 13, 0.9) 0%, rgba(11, 11, 13, 0.45) 45%, transparent 100%)
             `
           }}
         />
@@ -107,9 +107,6 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
           <span className="badge badge-red">
             {current.mediaType === 'tv' ? 'TV SERIES' : 'FEATURE FILM'}
-          </span>
-          <span className="badge badge-glass">
-            CINEHYPE SELECTION
           </span>
           {year && (
             <span className="badge badge-glass">
@@ -169,10 +166,10 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
           <button
             onClick={() => onPlay(current)}
             className="btn-primary"
-            style={{ fontSize: '15px', padding: '12px 28px' }}
+            style={{ fontSize: '15px', padding: '12px 28px', background: '#fff', color: '#000', boxShadow: 'none' }}
           >
-            <Play size={18} fill="#ffffff" />
-            <span>Watch Now</span>
+            <Play size={18} fill="#000" />
+            <span>Play</span>
           </button>
 
           <button
@@ -189,7 +186,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
       {/* Navigation arrows (desktop) */}
       <button
         onClick={() => setCurrentIndex((currentIndex - 1 + heroItems.length) % heroItems.length)}
-        className="interactive"
+        className="interactive desktop-only"
         style={{
           position: 'absolute',
           top: '50%',
@@ -214,7 +211,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({
 
       <button
         onClick={() => setCurrentIndex((currentIndex + 1) % heroItems.length)}
-        className="interactive"
+        className="interactive desktop-only"
         style={{
           position: 'absolute',
           top: '50%',

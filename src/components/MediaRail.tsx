@@ -66,7 +66,8 @@ export const MediaRail: React.FC<MediaRailProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '2px',
-                padding: '4px 8px'
+                padding: '4px 8px',
+                whiteSpace: 'nowrap'
               }}
             >
               <span>Explore all</span>
@@ -75,7 +76,7 @@ export const MediaRail: React.FC<MediaRailProps> = ({
           )}
 
           {/* Desktop Left / Right buttons */}
-          <div style={{ display: 'flex', gap: '4px' }}>
+          <div className="desktop-only" style={{ display: 'flex', gap: '4px' }}>
             <button
               onClick={() => scroll('left')}
               className="interactive"

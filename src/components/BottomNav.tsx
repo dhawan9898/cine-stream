@@ -1,54 +1,45 @@
-// BottomNav.tsx - Mobile bottom navigation dock
+// BottomNav.tsx - Floating liquid-glass dock with a sliding selection pane
 import React from 'react';
 import { Home, Compass, Search, Bookmark, Settings } from 'lucide-react';
 
+type Tab = 'home' | 'explore' | 'search' | 'library' | 'settings';
+
 interface BottomNavProps {
-  currentTab: 'home' | 'explore' | 'search' | 'library' | 'settings';
-  onNavigate: (tab: 'home' | 'explore' | 'search' | 'library' | 'settings') => void;
+  currentTab: Tab;
+  onNavigate: (tab: Tab) => void;
 }
 
-export const BottomNav: React.FC<BottomNavProps> = ({ currentTab, onNavigate }) => {
-  return (
-    <nav className="bottom-dock">
-      <button
-        onClick={() => onNavigate('home')}
-        className={`dock-btn interactive ${currentTab === 'home' ? 'active' : ''}`}
-      >
-        <Home size={20} />
-        <span>Home</span>
-      </button>
+const TABS: { id: Tab; label: string; icon: typeof Home }[] = [
+  { id: 'home', label: 'Home', icon: Home },
+  { id: 'explore', label: 'Explore', icon: Compass },
+  { id: 'search', label: 'Search', icon: Search },
+  { id: 'library', label: 'Library', icon: Bookmark },
+  { id: 'settings', label: 'Settings', icon: Settings }
+];
 
-      <button
-        onClick={() => onNavigate('explore')}
-        className={`dock-btn interactive ${currentTab === 'explore' ? 'active' : ''}`}
-      >
-        <Compass size={20} />
-        <span>Explore</span>
-      </button>
-
-      <button
-        onClick={() => onNavigate('search')}
-        className={`dock-btn interactive ${currentTab === 'search' ? 'active' : ''}`}
-      >
-        <Search size={20} />
-        <span>Search</span>
-      </button>
-
-      <button
-        onClick={() => onNavigate('library')}
-        className={`dock-btn interactive ${currentTab === 'library' ? 'active' : ''}`}
-      >
-        <Bookmark size={20} />
-        <span>Library</span>
-      </button>
-
-      <button
-        onClick={() => onNavigate('settings')}
-        className={`dock-btn interactive ${currentTab === 'settings' ? 'active' : ''}`}
-      >
-        <Settings size={20} />
-        <span>Settings</span>
-      </button>
-    </nav>
-  );
-};
+export const BottomNav: React.FC<BottomNavProps> = ({ currentTab, onNavigate }) => (
+  <nav className="bottom-dock" aria-label="Main">
+    <div
+      className="dock-indicator"
+      style={{
+        width: `${100 / TABS.length}%`,
+        transform: `translateX(${TABS.findIndex(t => t.id === currentTab) * 100}%)`
+      }}
+    />
+    {TABS.map(({ id, label, icon: Icon }) => {
+      const active = currentTab === id;
+      return (
+        <button
+          key={id}
+          onClick={() => onNavigate(id)}
+          className={`dock-btn ${active ? 'active' : ''}`}
+          aria-label={label}
+          aria-current={active ? 'page' : undefined}
+        >
+          <Icon size={20} />
+          <span>{label}</span>
+        </button>
+      );
+    })}
+  </nav>
+);

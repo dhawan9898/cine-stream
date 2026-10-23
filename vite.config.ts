@@ -8,7 +8,8 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 export default defineConfig({
   plugins: [react()],
   define: {
-    __APP_VERSION__: JSON.stringify(pkg.version)
+    // CI sets APP_VERSION to the release version (e.g. 1.0.42) so Settings shows what is installed.
+    __APP_VERSION__: JSON.stringify(process.env.APP_VERSION || pkg.version)
   },
   build: {
     chunkSizeWarningLimit: 900
