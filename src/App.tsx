@@ -73,6 +73,9 @@ export const App: React.FC = () => {
 
   const handleClosePlayer = useCallback(() => {
     setActivePlayer(null);
+    if (window.history.state?.screen === 'player') {
+      window.history.back();
+    }
   }, []);
 
   const handleSelectEpisodeInPlayer = useCallback((ep: EpisodeItem) => {

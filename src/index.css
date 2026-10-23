@@ -1,4 +1,4 @@
-/* index.css - CineStream Design System & Visual Tokens */
+/* index.css - CineStream Liquid Glass Design System & Netflix Player Engine */
 @import '@fontsource/outfit/400.css';
 @import '@fontsource/outfit/500.css';
 @import '@fontsource/outfit/600.css';
@@ -7,37 +7,45 @@
 
 :root,
 :root[data-theme="dark"] {
-  --bg-main: #0a0b0f;
-  --bg-main-rgb: 10, 11, 15;
-  --bg-surface: #12141c;
-  --bg-surface-hover: #191c28;
-  --bg-glass: rgba(18, 20, 28, 0.75);
-  --bg-glass-heavy: rgba(10, 11, 15, 0.92);
-  --border-subtle: rgba(255, 255, 255, 0.08);
-  --border-hover: rgba(255, 255, 255, 0.18);
-  --border-glow: rgba(236, 28, 36, 0.4);
+  --bg-main: #07080c;
+  --bg-main-rgb: 7, 8, 12;
+  --bg-surface: #0f121d;
+  --bg-surface-hover: #171b2b;
+  --bg-glass: rgba(15, 18, 29, 0.72);
+  --bg-glass-heavy: rgba(9, 11, 18, 0.92);
+  --border-subtle: rgba(255, 255, 255, 0.09);
+  --border-hover: rgba(255, 255, 255, 0.22);
+  --border-glow: rgba(236, 28, 36, 0.45);
 
-  /* CineHype Signature Crimson Palette */
+  /* Liquid Glass Signature Tokens */
+  --liquid-glass-bg: rgba(20, 24, 38, 0.6);
+  --liquid-glass-border: rgba(255, 255, 255, 0.16);
+  --liquid-glass-specular: linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.05) 50%, rgba(236, 28, 36, 0.18) 100%);
+  --liquid-glass-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.6), inset 0 1px 1px 0 rgba(255, 255, 255, 0.25), inset 0 -1px 2px 0 rgba(0, 0, 0, 0.4);
+  --liquid-glass-blur: blur(28px) saturate(190%) contrast(102%);
+
+  /* CineStream Signature Crimson Palette */
   --accent-primary: #ec1c24;
   --accent-secondary: #ff3344;
   --accent-hover: #ff4757;
   --accent-dark: #b8141b;
   --accent-gold: #f59e0b;
   --accent-cyan: #06b6d4;
-  --accent-glow: 0 0 24px rgba(236, 28, 36, 0.45);
-  --accent-gradient: linear-gradient(135deg, #ec1c24 0%, #ff4b58 60%, #ff7882 100%);
+  --accent-glow: 0 0 28px rgba(236, 28, 36, 0.5);
+  --accent-gradient: linear-gradient(135deg, #ec1c24 0%, #ff3b49 60%, #ff6b76 100%);
 
   --text-primary: #ffffff;
   --text-secondary: #9aa3b5;
   --text-muted: #647087;
 
-  --card-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-  --dock-bg: rgba(14, 16, 23, 0.88);
-  --dock-border: rgba(255, 255, 255, 0.08);
+  --card-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  --dock-bg: rgba(14, 17, 27, 0.78);
+  --dock-border: rgba(255, 255, 255, 0.14);
 
   --radius-sm: 8px;
   --radius-md: 14px;
   --radius-lg: 20px;
+  --radius-xl: 28px;
   --radius-full: 9999px;
 
   --safe-top: env(safe-area-inset-top, 0px);
@@ -47,85 +55,103 @@
 :root[data-theme="obsidian"] {
   --bg-main: #000000;
   --bg-main-rgb: 0, 0, 0;
-  --bg-surface: #0a0a0a;
-  --bg-surface-hover: #141414;
-  --bg-glass: rgba(10, 10, 10, 0.85);
+  --bg-surface: #0a0a0e;
+  --bg-surface-hover: #14141c;
+  --bg-glass: rgba(10, 10, 14, 0.78);
   --bg-glass-heavy: rgba(0, 0, 0, 0.96);
-  --border-subtle: rgba(255, 255, 255, 0.1);
-  --border-hover: rgba(255, 255, 255, 0.22);
-  --border-glow: rgba(236, 28, 36, 0.5);
+  --border-subtle: rgba(255, 255, 255, 0.11);
+  --border-hover: rgba(255, 255, 255, 0.25);
+  --border-glow: rgba(255, 31, 41, 0.55);
+
+  --liquid-glass-bg: rgba(16, 16, 22, 0.65);
+  --liquid-glass-border: rgba(255, 255, 255, 0.18);
+  --liquid-glass-specular: linear-gradient(135deg, rgba(255, 255, 255, 0.3) 0%, rgba(255, 255, 255, 0.05) 50%, rgba(255, 31, 41, 0.25) 100%);
+  --liquid-glass-shadow: 0 18px 45px -8px rgba(0, 0, 0, 0.8), inset 0 1px 1px 0 rgba(255, 255, 255, 0.3);
+  --liquid-glass-blur: blur(30px) saturate(200%);
 
   --accent-primary: #ff1f29;
   --accent-secondary: #ff4d55;
   --accent-hover: #ff666e;
   --accent-dark: #cc1018;
   --accent-gold: #fbbf24;
-  --accent-glow: 0 0 28px rgba(255, 31, 41, 0.55);
+  --accent-glow: 0 0 32px rgba(255, 31, 41, 0.6);
   --accent-gradient: linear-gradient(135deg, #ff1f29 0%, #ff434c 100%);
 
   --text-primary: #ffffff;
   --text-secondary: #a3a3a3;
   --text-muted: #737373;
 
-  --card-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
-  --dock-bg: rgba(10, 10, 10, 0.92);
-  --dock-border: rgba(255, 255, 255, 0.12);
+  --card-shadow: 0 12px 34px rgba(0, 0, 0, 0.8);
+  --dock-bg: rgba(10, 10, 14, 0.85);
+  --dock-border: rgba(255, 255, 255, 0.16);
 }
 
 :root[data-theme="slate"] {
-  --bg-main: #0f172a;
-  --bg-main-rgb: 15, 23, 42;
-  --bg-surface: #1e293b;
-  --bg-surface-hover: #334155;
-  --bg-glass: rgba(30, 41, 59, 0.8);
-  --bg-glass-heavy: rgba(15, 23, 42, 0.94);
-  --border-subtle: rgba(255, 255, 255, 0.09);
-  --border-hover: rgba(255, 255, 255, 0.2);
-  --border-glow: rgba(56, 189, 248, 0.4);
+  --bg-main: #0a1120;
+  --bg-main-rgb: 10, 17, 32;
+  --bg-surface: #131e33;
+  --bg-surface-hover: #1e2e4d;
+  --bg-glass: rgba(19, 30, 51, 0.75);
+  --bg-glass-heavy: rgba(10, 17, 32, 0.94);
+  --border-subtle: rgba(255, 255, 255, 0.1);
+  --border-hover: rgba(255, 255, 255, 0.24);
+  --border-glow: rgba(56, 189, 248, 0.45);
+
+  --liquid-glass-bg: rgba(22, 36, 62, 0.62);
+  --liquid-glass-border: rgba(255, 255, 255, 0.17);
+  --liquid-glass-specular: linear-gradient(135deg, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.05) 50%, rgba(56, 189, 248, 0.25) 100%);
+  --liquid-glass-shadow: 0 16px 40px -8px rgba(0, 0, 0, 0.65), inset 0 1px 1px 0 rgba(255, 255, 255, 0.26);
+  --liquid-glass-blur: blur(28px) saturate(190%);
 
   --accent-primary: #38bdf8;
   --accent-secondary: #818cf8;
   --accent-hover: #60a5fa;
   --accent-dark: #0284c7;
   --accent-gold: #f59e0b;
-  --accent-glow: 0 0 24px rgba(56, 189, 248, 0.4);
+  --accent-glow: 0 0 28px rgba(56, 189, 248, 0.45);
   --accent-gradient: linear-gradient(135deg, #38bdf8 0%, #818cf8 100%);
 
   --text-primary: #f8fafc;
   --text-secondary: #94a3b8;
   --text-muted: #64748b;
 
-  --card-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  --dock-bg: rgba(30, 41, 59, 0.9);
-  --dock-border: rgba(255, 255, 255, 0.1);
+  --card-shadow: 0 10px 28px rgba(0, 0, 0, 0.6);
+  --dock-bg: rgba(19, 30, 51, 0.82);
+  --dock-border: rgba(255, 255, 255, 0.15);
 }
 
 :root[data-theme="light"] {
-  --bg-main: #f4f5f8;
-  --bg-main-rgb: 244, 245, 248;
+  --bg-main: #f2f4f8;
+  --bg-main-rgb: 242, 244, 248;
   --bg-surface: #ffffff;
-  --bg-surface-hover: #eaecee;
-  --bg-glass: rgba(255, 255, 255, 0.85);
-  --bg-glass-heavy: rgba(244, 245, 248, 0.96);
+  --bg-surface-hover: #e8ecf3;
+  --bg-glass: rgba(255, 255, 255, 0.78);
+  --bg-glass-heavy: rgba(242, 244, 248, 0.95);
   --border-subtle: rgba(0, 0, 0, 0.08);
-  --border-hover: rgba(0, 0, 0, 0.16);
-  --border-glow: rgba(236, 28, 36, 0.25);
+  --border-hover: rgba(0, 0, 0, 0.18);
+  --border-glow: rgba(236, 28, 36, 0.3);
+
+  --liquid-glass-bg: rgba(255, 255, 255, 0.68);
+  --liquid-glass-border: rgba(255, 255, 255, 0.85);
+  --liquid-glass-specular: linear-gradient(135deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.2) 60%, rgba(236, 28, 36, 0.15) 100%);
+  --liquid-glass-shadow: 0 12px 30px -6px rgba(0, 0, 0, 0.1), inset 0 1px 1px 0 rgba(255, 255, 255, 0.9);
+  --liquid-glass-blur: blur(24px) saturate(170%);
 
   --accent-primary: #ec1c24;
   --accent-secondary: #ff3344;
   --accent-hover: #d9141c;
   --accent-dark: #a80f15;
   --accent-gold: #d97706;
-  --accent-glow: 0 0 20px rgba(236, 28, 36, 0.25);
+  --accent-glow: 0 0 24px rgba(236, 28, 36, 0.3);
   --accent-gradient: linear-gradient(135deg, #ec1c24 0%, #f43f5e 100%);
 
   --text-primary: #0f172a;
   --text-secondary: #475569;
   --text-muted: #94a3b8;
 
-  --card-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
-  --dock-bg: rgba(255, 255, 255, 0.92);
-  --dock-border: rgba(0, 0, 0, 0.08);
+  --card-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --dock-bg: rgba(255, 255, 255, 0.85);
+  --dock-border: rgba(0, 0, 0, 0.1);
 }
 
 * {
@@ -162,24 +188,43 @@ input {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.16);
   border-radius: 9999px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.32);
 }
 
-/* Glass panel */
-.glass-panel {
-  background: var(--bg-glass);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--border-subtle);
+/* ==========================================================================
+   LIQUID GLASS DESIGN SYSTEM
+   ========================================================================== */
+
+/* Liquid Glass Base Panel */
+.liquid-glass {
+  background: var(--liquid-glass-bg);
+  backdrop-filter: var(--liquid-glass-blur);
+  -webkit-backdrop-filter: var(--liquid-glass-blur);
+  border: 1px solid var(--liquid-glass-border);
+  box-shadow: var(--liquid-glass-shadow);
+  position: relative;
+  overflow: hidden;
+}
+
+.liquid-glass::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.4) 30%, rgba(255, 255, 255, 0.6) 50%, rgba(255, 255, 255, 0.4) 70%, transparent 100%);
+  pointer-events: none;
+  opacity: 0.8;
 }
 
 /* Interactive elements */
 .interactive {
-  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.18s ease, background 0.18s ease;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease, background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 .interactive:active {
   transform: scale(0.96);
@@ -191,8 +236,8 @@ input {
   overflow-x: auto;
   overflow-y: hidden;
   scroll-behavior: smooth;
-  scrollbar-width: none; /* Firefox */
-  -ms-overflow-style: none; /* IE */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   padding-bottom: 8px;
 }
 .rail::-webkit-scrollbar {
@@ -214,7 +259,7 @@ input {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    rgba(255, 255, 255, 0.06) 50%,
+    rgba(255, 255, 255, 0.08) 50%,
     transparent 100%
   );
   animation: shimmer 1.6s infinite ease-in-out;
@@ -225,23 +270,26 @@ input {
   }
 }
 
-/* Poster Card */
+/* Liquid Poster Card */
 .poster-card {
   position: relative;
   border-radius: var(--radius-md);
   overflow: hidden;
-  transition: transform 0.25s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.25s ease;
+  transition: transform 0.28s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.28s ease, border-color 0.28s ease;
   cursor: pointer;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
+  background: var(--liquid-glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--liquid-glass-border);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.45), inset 0 1px 1px 0 rgba(255, 255, 255, 0.15);
 }
 .poster-card:hover {
-  transform: translateY(-5px) scale(1.02);
-  border-color: var(--border-hover);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5), var(--accent-glow);
+  transform: translateY(-6px) scale(1.025);
+  border-color: rgba(236, 28, 36, 0.55);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65), 0 0 24px rgba(236, 28, 36, 0.4);
 }
 
-/* Badge */
+/* Badges */
 .badge {
   display: inline-flex;
   align-items: center;
@@ -256,30 +304,61 @@ input {
 .badge-red {
   background: var(--accent-primary);
   color: #ffffff;
+  box-shadow: 0 2px 10px rgba(236, 28, 36, 0.4);
 }
 .badge-glass {
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(8px);
+  background: rgba(10, 13, 22, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2);
 }
 
-/* Bottom Navigation Dock */
+/* Liquid Pill */
+.liquid-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.2), 0 4px 12px rgba(0, 0, 0, 0.3);
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  transition: all 0.2s ease;
+}
+.liquid-pill:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  transform: translateY(-2px);
+}
+
+/* Bottom Navigation Liquid Dock */
 .bottom-dock {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: calc(64px + var(--safe-bottom));
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100% - 28px);
+  max-width: 500px;
+  height: calc(60px + var(--safe-bottom));
   padding-bottom: var(--safe-bottom);
   background: var(--dock-bg);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-top: 1px solid var(--dock-border);
+  backdrop-filter: blur(28px) saturate(200%);
+  -webkit-backdrop-filter: blur(28px) saturate(200%);
+  border: 1px solid var(--dock-border);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), inset 0 1px 1px rgba(255, 255, 255, 0.3), 0 0 30px rgba(236, 28, 36, 0.15);
   display: flex;
   align-items: center;
   justify-content: space-around;
   z-index: 900;
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 
 .dock-btn {
@@ -287,7 +366,7 @@ input {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
   background: none;
   border: none;
   color: var(--text-muted);
@@ -295,10 +374,21 @@ input {
   font-weight: 600;
   transition: color 0.2s ease, transform 0.15s ease;
   padding: 8px 14px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
+  position: relative;
 }
 .dock-btn.active {
-  color: var(--accent-primary);
+  color: #ffffff;
+}
+.dock-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  width: 14px;
+  height: 3px;
+  background: var(--accent-gradient);
+  border-radius: 9999px;
+  box-shadow: var(--accent-glow);
 }
 .dock-btn:hover {
   color: var(--text-primary);
@@ -310,21 +400,22 @@ input {
   top: 0;
   left: 0;
   right: 0;
-  height: calc(60px + var(--safe-top));
+  height: calc(64px + var(--safe-top));
   padding-top: var(--safe-top);
   background: var(--bg-glass-heavy);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-left: 20px;
-  padding-right: 20px;
+  padding-left: 24px;
+  padding-right: 24px;
   z-index: 800;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), inset 0 -1px 0 rgba(255, 255, 255, 0.05);
 }
 
-/* Primary Button */
+/* Primary Liquid Button */
 .btn-primary {
   display: inline-flex;
   align-items: center;
@@ -336,20 +427,21 @@ input {
   font-size: 14px;
   padding: 12px 24px;
   border-radius: var(--radius-md);
-  border: none;
-  box-shadow: 0 4px 16px rgba(236, 28, 36, 0.35);
-  transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 24px rgba(236, 28, 36, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.35);
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.18s ease, filter 0.18s ease;
+  cursor: pointer;
 }
 .btn-primary:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 22px rgba(236, 28, 36, 0.5);
-  filter: brightness(1.08);
+  box-shadow: 0 12px 28px rgba(236, 28, 36, 0.55), 0 0 20px rgba(236, 28, 36, 0.35);
+  filter: brightness(1.1);
 }
 .btn-primary:active {
   transform: scale(0.97);
 }
 
-/* Secondary Button */
+/* Secondary Liquid Glass Button */
 .btn-secondary {
   display: inline-flex;
   align-items: center;
@@ -361,17 +453,285 @@ input {
   font-size: 14px;
   padding: 12px 22px;
   border-radius: var(--radius-md);
-  border: 1px solid var(--border-subtle);
-  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.22), 0 4px 16px rgba(0, 0, 0, 0.3);
   transition: all 0.18s ease;
+  cursor: pointer;
 }
 .btn-secondary:hover {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: var(--border-hover);
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.3);
   transform: translateY(-2px);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.3), 0 6px 20px rgba(0, 0, 0, 0.4);
 }
 .btn-secondary:active {
   transform: scale(0.97);
+}
+
+/* ==========================================================================
+   NETFLIX NATIVE VIDEO PLAYER STYLES
+   ========================================================================== */
+
+.netflix-player-container {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #000000;
+  overflow: hidden;
+  user-select: none;
+  font-family: 'Outfit', sans-serif;
+}
+
+/* Auto-hiding HUD overlay - Container must NEVER block clicks to the video underneath */
+.netflix-hud {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none !important;
+  transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.35s ease;
+}
+.netflix-hud.visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: none !important;
+}
+.netflix-hud.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none !important;
+}
+
+/* Netflix Top Control Bar - Interactive elements have pointer-events: auto */
+.netflix-top-bar {
+  padding: 24px 32px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.92) 0%, rgba(0, 0, 0, 0.5) 70%, transparent 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: auto !important;
+  z-index: 30;
+}
+
+/* Netflix Center Big Play / Seek Feedback */
+.netflix-center-controls {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  gap: 36px;
+  pointer-events: auto;
+}
+
+.netflix-center-btn {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: rgba(14, 17, 28, 0.65);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7), inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.netflix-center-btn:hover {
+  transform: scale(1.12);
+  background: rgba(236, 28, 36, 0.3);
+  border-color: rgba(236, 28, 36, 0.8);
+  box-shadow: 0 16px 40px rgba(236, 28, 36, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.4);
+}
+.netflix-center-btn:active {
+  transform: scale(0.94);
+}
+
+.netflix-center-btn.play-pause-btn {
+  width: 88px;
+  height: 88px;
+  background: var(--accent-gradient);
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow: 0 16px 44px rgba(236, 28, 36, 0.6), inset 0 2px 2px rgba(255, 255, 255, 0.4);
+}
+.netflix-center-btn.play-pause-btn:hover {
+  transform: scale(1.1);
+  box-shadow: 0 20px 50px rgba(236, 28, 36, 0.8), inset 0 2px 2px rgba(255, 255, 255, 0.5);
+}
+
+/* Netflix Bottom Control Bar */
+.netflix-bottom-bar {
+  padding: 0 32px 28px 32px;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.7) 60%, transparent 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  pointer-events: auto !important;
+  z-index: 30;
+}
+
+/* Netflix Scrubber Bar */
+.netflix-scrubber-wrapper {
+  position: relative;
+  width: 100%;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.netflix-scrubber-track {
+  position: relative;
+  width: 100%;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 9999px;
+  overflow: visible;
+  transition: height 0.15s ease;
+}
+.netflix-scrubber-wrapper:hover .netflix-scrubber-track {
+  height: 8px;
+}
+
+.netflix-scrubber-buffer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: 9999px;
+  pointer-events: none;
+}
+
+.netflix-scrubber-progress {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--accent-gradient);
+  border-radius: 9999px;
+  pointer-events: none;
+  box-shadow: 0 0 12px rgba(236, 28, 36, 0.8);
+}
+
+.netflix-scrubber-thumb {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 3px solid var(--accent-primary);
+  box-shadow: 0 0 14px rgba(236, 28, 36, 0.9);
+  transition: transform 0.15s ease;
+  pointer-events: none;
+}
+.netflix-scrubber-wrapper:hover .netflix-scrubber-thumb {
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* Scrubber Hover Preview Tooltip */
+.netflix-time-tooltip {
+  position: absolute;
+  bottom: 26px;
+  transform: translateX(-50%);
+  background: rgba(14, 18, 28, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffffff;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Netflix Icon Control Buttons */
+.netflix-icon-btn {
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.85);
+  padding: 8px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  position: relative;
+}
+.netflix-icon-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.14);
+  transform: scale(1.08);
+}
+.netflix-icon-btn:active {
+  transform: scale(0.92);
+}
+
+/* Netflix Floating Skip Intro Button */
+.netflix-skip-intro {
+  position: absolute;
+  bottom: 96px;
+  right: 32px;
+  background: rgba(18, 22, 34, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 25;
+}
+.netflix-skip-intro:hover {
+  background: var(--accent-gradient);
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 12px 32px rgba(236, 28, 36, 0.5);
+  transform: translateY(-2px);
+}
+
+/* Netflix Episode/Server Glass Popover/Drawer */
+.netflix-glass-drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  width: 100%;
+  max-width: 440px;
+  background: rgba(10, 13, 22, 0.88);
+  backdrop-filter: blur(32px) saturate(200%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: -16px 0 50px rgba(0, 0, 0, 0.85), inset 1px 0 1px rgba(255, 255, 255, 0.15);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  animation: slideDrawer 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slideDrawer {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
 }
 
 /* Animations */
@@ -382,3 +742,55 @@ input {
 .animate-fade-in {
   animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+
+
+/* Netflix Buffering Loader */
+.netflix-buffering-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 28;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  pointer-events: none;
+}
+
+.netflix-spinner {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  border: 4px solid rgba(255, 255, 255, 0.15);
+  border-top-color: var(--accent-primary);
+  border-right-color: var(--accent-secondary);
+  animation: netflixSpin 0.8s linear infinite;
+  box-shadow: 0 0 20px rgba(236, 28, 36, 0.5);
+}
+
+@keyframes netflixSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Fullscreen and Landscape Enforcement */
+:fullscreen,
+::backdrop {
+  background: #000000;
+}
+
+/* Mobile Portrait Landscape Transformation */
+@media screen and (max-width: 768px) and (orientation: portrait) {
+  .netflix-player-container.force-landscape {
+    position: fixed !important;
+    top: 0 !important;
+    left: 100vw !important;
+    width: 100vh !important;
+    height: 100vw !important;
+    transform: rotate(90deg) !important;
+    transform-origin: top left !important;
+    z-index: 99999 !important;
+  }
+}
+
