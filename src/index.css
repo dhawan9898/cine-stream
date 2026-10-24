@@ -633,8 +633,9 @@ button { font-family: inherit; }
   transform: translateX(19px);
 }
 
-/* Input reset */
-input {
+/* Input reset (the global :focus-visible ring would otherwise box the field) */
+input,
+input:focus-visible {
   font-family: inherit;
   outline: none;
   user-select: text;
@@ -1376,3 +1377,76 @@ input {
 /* ==========================================================================
    MOTION & LIQUID GLASS POLISH
    ========================================================================== */
+
+/* ---- Netflix-style loading screen shown over the provider's iframe ---- */
+.nf-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 15;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 1;
+  transition: opacity 0.45s ease;
+}
+.nf-loading.done { opacity: 0; pointer-events: none; }
+.nf-loading-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.35;
+  transform: scale(1.04);
+}
+.nf-loading-shade {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.35) 0%, rgba(0, 0, 0, 0.92) 100%);
+}
+.nf-loading-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+  padding: 0 24px;
+}
+.nf-ring {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 4px solid rgba(255, 255, 255, 0.14);
+  border-top-color: var(--accent-primary);
+  animation: spin 0.9s linear infinite;
+}
+.nf-loading-title { font-size: 17px; font-weight: 800; color: #fff; max-width: 80vw; }
+.nf-loading-sub { font-size: 13px; font-weight: 600; color: #b3b3b3; margin-top: -8px; }
+
+.nf-switch-hint {
+  position: absolute;
+  top: calc(var(--safe-top) + 64px);
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: var(--radius-full);
+  background: rgba(24, 24, 28, 0.78);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 8px 24px rgba(0, 0, 0, 0.5);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  animation: fadeIn 0.3s ease-out both;
+}

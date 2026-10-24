@@ -1,6 +1,7 @@
 // TrailerModal.tsx - Modal player for official YouTube trailers
 import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
+import { useBackHandler } from '../services/backStack.ts';
 import type { VideoTrailer } from '../core/cineHypeCore.ts';
 
 interface TrailerModalProps {
@@ -21,6 +22,8 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
+
+  useBackHandler(trailer !== null, onClose);
 
   if (!trailer) return null;
 

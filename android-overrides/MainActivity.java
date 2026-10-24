@@ -6,6 +6,8 @@ import android.webkit.JsResult;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebView;
 
+import androidx.activity.OnBackPressedCallback;
+
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebChromeClient;
 import com.getcapacitor.BridgeWebViewClient;
@@ -28,6 +30,27 @@ public class MainActivity extends BridgeActivity {
                 String host = url.getHost();
                 boolean isApp = host != null && host.equals(getBridge().getHost());
                 return !isApp; // block top-level hijacks to ad/external sites
+            }
+        });
+
+        // Android back (button or gesture). Screens are in-memory state, so the
+        // web layer decides what "back" means (window.__cinestreamBack closes
+        // the top-most panel/player/page, or returns a tab to Home). Only when
+        // it has nothing left to close - i.e. on Home - is the app sent to the
+        // background instead of being closed.
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                final WebView webView = getBridge() != null ? getBridge().getWebView() : null;
+                if (webView == null) {
+                    moveTaskToBack(true);
+                    return;
+                }
+                webView.evaluateJavascript(
+                        "(function(){try{return window.__cinestreamBack?window.__cinestreamBack():false}catch(e){return false}})()",
+                        value -> {
+                            if (!"true".equals(value)) moveTaskToBack(true);
+                        });
             }
         });
 

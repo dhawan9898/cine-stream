@@ -3,6 +3,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { useBackHandler } from '../services/backStack.ts';
 import { MOVIE_GENRES, TV_GENRES, type Genre, type MediaType } from '../core/cineHypeCore.ts';
 
 interface GenrePickerProps {
@@ -15,6 +16,7 @@ interface GenrePickerProps {
 }
 
 export const GenrePicker: React.FC<GenrePickerProps> = ({ open, type, onTypeChange, selectedId, onSelect, onClose }) => {
+  useBackHandler(open, onClose);
   if (!open) return null;
   const genres = type === 'movie' ? MOVIE_GENRES : TV_GENRES;
 

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
 import { Capacitor } from '@capacitor/core';
 import { ScreenOrientation } from '@capacitor/screen-orientation';
+import { useBackHandler } from '../services/backStack.ts';
 import {
   ArrowLeft,
   Play,
@@ -81,6 +82,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [subtitleTracks, setSubtitleTracks] = useState<Array<{ id: number; label: string; lang: string }>>([]);
   const [selectedSubtitleTrack, setSelectedSubtitleTrack] = useState<number>(-1);
   const [iframeKey, setIframeKey] = useState<number>(0);
+  // The provider's page is cross-origin, so all we can observe is its load
+  // event. Our own loading screen covers the provider's placeholder until then.
+  const [frameReady, setFrameReady] = useState<boolean>(false);
+  const [showSwitchHint, setShowSwitchHint] = useState<boolean>(false);
+  const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [customHlsUrl, setCustomHlsUrl] = useState<string>('');
 
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -102,6 +108,34 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     episode,
     server: selectedServer
   });
+
+  // Android back closes an open panel first, then the player.
+  useBackHandler(showServerModal, () => setShowServerModal(false));
+  useBackHandler(showEpisodesDrawer, () => setShowEpisodesDrawer(false));
+  useBackHandler(showLinkInfoModal, () => setShowLinkInfoModal(false));
+
+  const frameKey = `${selectedServer}-${season}-${episode}-${iframeKey}`;
+
+  // New frame: show the loading screen again; never keep it longer than 12 s
+  // so a stuck provider can't hide its own error or controls forever.
+  useEffect(() => {
+    if (isNative) return;
+    setFrameReady(false);
+    setShowSwitchHint(false);
+    const cap = setTimeout(() => setFrameReady(true), 12000);
+    return () => {
+      clearTimeout(cap);
+      if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
+    };
+  }, [frameKey, isNative]);
+
+  // Once the player is revealed, offer a way out if the provider shows an error.
+  useEffect(() => {
+    if (isNative || !frameReady) return;
+    setShowSwitchHint(true);
+    const t = setTimeout(() => setShowSwitchHint(false), 9000);
+    return () => clearTimeout(t);
+  }, [frameReady, isNative]);
 
   // On the Android app, play in landscape while the player is open
   useEffect(() => {
@@ -648,8 +682,37 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             }}
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
             allowFullScreen
+            onLoad={() => {
+              if (loadTimerRef.current) clearTimeout(loadTimerRef.current);
+              loadTimerRef.current = setTimeout(() => setFrameReady(true), 2200);
+            }}
           />
         </div>
+      )}
+
+      {/* Netflix-style loading screen over the provider's own placeholder */}
+      {!isNative && (
+        <div className={`nf-loading ${frameReady ? 'done' : ''}`} aria-hidden={frameReady}>
+          {(media.backdrop || media.poster) && (
+            <img className="nf-loading-bg" src={media.backdrop || media.poster} alt="" decoding="async" />
+          )}
+          <div className="nf-loading-shade" />
+          <div className="nf-loading-body">
+            <div className="nf-ring" />
+            <div className="nf-loading-title">{media.title}</div>
+            {isSeries && <div className="nf-loading-sub">Season {season} · Episode {episode}</div>}
+          </div>
+        </div>
+      )}
+
+      {!isNative && showSwitchHint && (
+        <button
+          onClick={() => { setShowSwitchHint(false); setShowServerModal(true); }}
+          className="interactive nf-switch-hint"
+        >
+          <Server size={16} />
+          <span>Not playing? Try another server</span>
+        </button>
       )}
 
       {/* Netflix Buffering Spinner on Seek / Load */}
@@ -731,26 +794,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           aria-label="Back"
           style={{
             position: 'absolute',
-            top: '16px',
-            left: '16px',
+            top: 'calc(var(--safe-top) + 12px)',
+            left: 'calc(env(safe-area-inset-left, 0px) + 12px)',
             zIndex: 60,
-            background: 'rgba(10, 13, 22, 0.85)',
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-            border: '1px solid rgba(255, 255, 255, 0.25)',
-            borderRadius: '50px',
-            padding: '8px 16px',
+            width: '40px',
+            height: '40px',
+            borderRadius: '50%',
+            background: 'rgba(24, 24, 28, 0.6)',
+            border: '1px solid rgba(255, 255, 255, 0.2)',
+            boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.2)',
             display: 'flex',
             alignItems: 'center',
-            gap: '8px',
+            justifyContent: 'center',
             color: '#ffffff',
             cursor: 'pointer',
-            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.75)',
             pointerEvents: 'auto'
           }}
         >
-          <ArrowLeft size={18} color="#ffffff" />
-          <span style={{ fontSize: '12px', fontWeight: 700 }}>Back</span>
+          <ArrowLeft size={20} color="#ffffff" />
         </button>
       )}
 
@@ -772,6 +833,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
 
           <div className="netflix-top-actions">
+            {!isNative && (
+              <button onClick={() => setShowServerModal(true)} className="interactive netflix-icon-btn" aria-label={`Server: ${currentServerObj.name}`}>
+                <Server size={22} />
+              </button>
+            )}
+            {!isNative && isSeries && episodeList.length > 0 && (
+              <button onClick={() => setShowEpisodesDrawer(true)} className="interactive netflix-icon-btn" aria-label="Episodes">
+                <List size={22} />
+              </button>
+            )}
+            {!isNative && hasNextEpisode && (
+              <button onClick={handleNextEpisode} className="interactive netflix-icon-btn" aria-label="Next episode">
+                <SkipForward size={22} />
+              </button>
+            )}
             <button onClick={() => setShowLinkInfoModal(true)} className="interactive netflix-icon-btn" aria-label="Stream info">
               <Info size={22} />
             </button>
@@ -802,7 +878,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         )}
 
-        {/* Bottom Netflix Control Dock */}
+        {/* Bottom control dock (native player only: the provider's iframe draws
+            its own bottom controls and ours would sit on top of them) */}
+        {isNative && (
         <div className="netflix-bottom-bar">
           {isNative && (
             <div className="netflix-scrub-row">
@@ -1029,6 +1107,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             )}
           </div>
         </div>
+        )}
       </div>
 
       {/* Stream Link & Provider Inspector Modal */}

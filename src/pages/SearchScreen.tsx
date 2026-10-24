@@ -1,22 +1,19 @@
-// SearchScreen.tsx - Live search across the catalog, plus Browse by Genre.
+// SearchScreen.tsx - Netflix-style search: Top Searches while the box is
+// empty, a poster grid of live results once you type.
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, Search as SearchIcon, X, Loader2 } from 'lucide-react';
-import { MOVIE_GENRES, TV_GENRES, searchMedia, type MediaItem, type MediaType } from '../core/cineHypeCore.ts';
-import { genreSource, type BrowseSource } from '../services/browseSources.ts';
+import { ArrowLeft, Search as SearchIcon, X, Loader2, Play } from 'lucide-react';
+import { getTrending, searchMedia, type MediaItem, type MediaType } from '../core/cineHypeCore.ts';
 import { FadeImage } from '../components/FadeImage.tsx';
+import { PosterCard } from '../components/PosterCard.tsx';
 
 interface SearchScreenProps {
   // True while this tab is the visible one (tabs stay mounted when hidden).
   active: boolean;
   onBack: () => void;
   onSelectMedia: (item: MediaItem) => void;
-  onOpenSource: (source: BrowseSource) => void;
 }
 
-const POPULAR_TAGS = ['Deadpool & Wolverine', 'Stranger Things', 'Dune', 'Loki', 'Avengers', 'Batman', 'Spider-Man', 'Arcane', 'The Last of Us', 'John Wick'];
-const GENRE_TILE_COLORS = ['#b91c1c', '#7c3aed', '#0e7490', '#b45309', '#be185d', '#15803d', '#1d4ed8', '#9f1239'];
-
-export const SearchScreen: React.FC<SearchScreenProps> = ({ active, onBack, onSelectMedia, onOpenSource }) => {
+export const SearchScreen: React.FC<SearchScreenProps> = ({ active, onBack, onSelectMedia }) => {
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
   const [results, setResults] = useState<MediaItem[]>([]);
@@ -24,12 +21,20 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ active, onBack, onSe
   const [error, setError] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [filter, setFilter] = useState<'all' | MediaType>('all');
-  const [genreType, setGenreType] = useState<MediaType>('movie');
+  const [topSearches, setTopSearches] = useState<MediaItem[]>([]);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (active) inputRef.current?.focus();
   }, [active]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getTrending('all', 'week')
+      .then(list => { if (!cancelled) setTopSearches(list.slice(0, 12)); })
+      .catch(() => { /* the empty state simply stays blank */ });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query.trim()), 320);
@@ -49,7 +54,6 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ active, onBack, onSe
   }, [debounced, attempt]);
 
   const shown = filter === 'all' ? results : results.filter(r => r.mediaType === filter);
-  const genres = genreType === 'movie' ? MOVIE_GENRES : TV_GENRES;
   const typing = query.trim() !== debounced;
 
   return (
@@ -79,7 +83,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ active, onBack, onSe
             ref={inputRef}
             type="text"
             value={query}
-            placeholder="Search movies, shows…"
+            placeholder="Search for a show, movie, genre…"
             aria-label="Search movies and shows"
             enterKeyHint="search"
             onChange={(e) => setQuery(e.target.value)}
@@ -93,24 +97,8 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ active, onBack, onSe
         </div>
       </div>
 
-      <div className="rail" style={{ padding: '14px 20px', gap: '8px' }}>
-        {POPULAR_TAGS.map(tag => {
-          const on = query.toLowerCase() === tag.toLowerCase();
-          return (
-            <button
-              key={tag}
-              onClick={() => setQuery(tag)}
-              className={`interactive glass-pill chip ${on ? 'active' : ''}`}
-              style={{ padding: '6px 14px', borderRadius: 'var(--radius-full)', color: on ? undefined : 'var(--text-secondary)', fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap' }}
-            >
-              {tag}
-            </button>
-          );
-        })}
-      </div>
-
       {query && !loading && !error && results.length > 0 && (
-        <div style={{ padding: '0 20px 12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+        <div style={{ padding: '14px 20px 12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
           <div style={{ display: 'flex', gap: '8px' }}>
             {([['all', 'All'], ['movie', 'Movies'], ['tv', 'TV']] as const).map(([id, label]) => (
               <button
@@ -133,35 +121,28 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ active, onBack, onSe
           <span style={{ fontSize: '14px' }}>Searching…</span>
         </div>
       ) : !query ? (
-        <div style={{ padding: '4px 20px 0 20px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px', gap: '12px' }}>
-            <h2 style={{ fontSize: '16px', fontWeight: 800, color: 'var(--text-primary)' }}>Browse by Genre</h2>
-            <div className="seg-track" style={{ width: '170px' }}>
-              <button onClick={() => setGenreType('movie')} className={`interactive seg-pill ${genreType === 'movie' ? 'active' : ''}`} style={{ padding: '5px' }}>Movies</button>
-              <button onClick={() => setGenreType('tv')} className={`interactive seg-pill ${genreType === 'tv' ? 'active' : ''}`} style={{ padding: '5px' }}>TV</button>
-            </div>
-          </div>
-          <div className="grid-genres">
-            {genres.map((genre, i) => (
+        <div style={{ padding: '18px 20px 0 20px' }}>
+          <h2 style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '12px' }}>Top Searches</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {topSearches.length === 0 && Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="skeleton" style={{ height: '68px', borderRadius: '6px' }} />
+            ))}
+            {topSearches.map(media => (
               <button
-                key={genre.id}
-                onClick={() => onOpenSource(genreSource(genre, genreType))}
+                key={`${media.mediaType}-${media.id}`}
+                onClick={() => onSelectMedia(media)}
                 className="interactive"
-                style={{
-                  height: '64px',
-                  borderRadius: 'var(--radius-md)',
-                  border: 'none',
-                  padding: '0 14px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  background: `linear-gradient(135deg, ${GENRE_TILE_COLORS[i % GENRE_TILE_COLORS.length]} 0%, rgba(0,0,0,0.55) 140%)`,
-                  color: '#fff',
-                  fontSize: '15px',
-                  fontWeight: 800,
-                  textAlign: 'left'
-                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '14px', background: 'var(--bg-surface)', border: 'none', borderRadius: '6px', padding: 0, overflow: 'hidden', textAlign: 'left', color: 'var(--text-primary)' }}
               >
-                {genre.name}
+                <div style={{ position: 'relative', width: '120px', height: '68px', flexShrink: 0, backgroundColor: 'rgba(127,127,127,0.15)' }}>
+                  <FadeImage src={media.backdrop || media.poster} alt="" loading="lazy" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
+                </div>
+                <span style={{ flex: 1, minWidth: 0, fontSize: '14px', fontWeight: 700, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                  {media.title}
+                </span>
+                <span style={{ width: '34px', height: '34px', margin: '0 14px 0 4px', borderRadius: '50%', border: '2px solid rgba(255,255,255,0.8)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Play size={14} fill="#fff" color="#fff" style={{ marginLeft: '2px' }} />
+                </span>
               </button>
             ))}
           </div>
@@ -175,39 +156,18 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ active, onBack, onSe
           </button>
         </div>
       ) : shown.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-secondary)' }}>
-          <p style={{ fontSize: '16px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>Nothing found</p>
-          <p style={{ fontSize: '13px' }}>Try a different title or keyword.</p>
+        <div style={{ textAlign: 'center', padding: '60px 28px', color: 'var(--text-secondary)' }}>
+          <p style={{ fontSize: '16px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-primary)' }}>No results for "{query}"</p>
+          <p style={{ fontSize: '13px' }}>Try searching for another title, actor or genre.</p>
         </div>
       ) : (
-        <div className="grid-posters" style={{ padding: '0 20px' }}>
-          {shown.map(media => (
-            <div
-              key={`${media.mediaType}-${media.id}`}
-              onClick={() => onSelectMedia(media)}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectMedia(media); } }}
-              role="button"
-              tabIndex={0}
-              aria-label={media.title}
-              className="interactive glass-panel"
-              style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}
-            >
-              <div style={{ position: 'relative', width: '100%', paddingTop: '140%', overflow: 'hidden' }}>
-                <FadeImage src={media.poster} alt={media.title} loading="lazy" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover' }} />
-                <div style={{ position: 'absolute', top: '8px', right: '8px', backgroundColor: 'rgba(0,0,0,0.72)', padding: '2px 7px', borderRadius: '4px', fontSize: '11px', fontWeight: 700, color: '#e2e8f0' }}>
-                  {media.mediaType === 'tv' ? 'TV' : 'Movie'}
-                </div>
-              </div>
-              <div style={{ padding: '10px', flex: 1 }}>
-                <h3 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', lineHeight: '1.3', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', marginBottom: '6px' }}>
-                  {media.title}
-                </h3>
-                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                  {media.releaseDate ? media.releaseDate.slice(0, 4) : ''}{media.voteAverage > 0 ? ` · ★ ${media.voteAverage}` : ''}
-                </span>
-              </div>
-            </div>
-          ))}
+        <div style={{ padding: '0 16px' }}>
+          <h2 style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 4px 12px 4px' }}>Movies &amp; TV</h2>
+          <div className="grid-collection">
+            {shown.map(media => (
+              <PosterCard key={`${media.mediaType}-${media.id}`} media={media} onClick={() => onSelectMedia(media)} />
+            ))}
+          </div>
         </div>
       )}
     </div>

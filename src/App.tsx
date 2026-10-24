@@ -8,6 +8,7 @@ import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import type { MediaItem, EpisodeItem } from './core/cineHypeCore.ts';
 import type { BrowseSource } from './services/browseSources.ts';
 import { getSavedTheme, applyTheme } from './services/themeService.ts';
+import { handleLayerBack } from './services/backStack.ts';
 
 // Everything except Home is loaded on demand so the first paint ships less JS;
 // the player chunk also carries hls.js.
@@ -131,6 +132,24 @@ export const App: React.FC = () => {
     setActivePlayer(prev => prev ? { ...prev, episode: ep.episodeNumber, season: ep.seasonNumber ?? prev.season } : null);
   }, []);
 
+  // Android back. The native shell asks us what "back" means by calling
+  // window.__cinestreamBack(): it closes the top-most thing (a panel, the
+  // player, a title/browse page, or a tab -> Home) and returns true. Only on
+  // Home (nothing left to close) does the app go to the background.
+  const backStepRef = useRef<() => boolean>(() => false);
+  backStepRef.current = () => {
+    if (handleLayerBack()) return true;
+    if (activePlayer) { handleClosePlayer(); return true; }
+    if (layersRef.current.length > 0) { closeTopLayer(); return true; }
+    if (tab !== 'home') { switchTab('home'); return true; }
+    return false;
+  };
+  useEffect(() => {
+    const w = window as unknown as { __cinestreamBack?: () => boolean };
+    w.__cinestreamBack = () => backStepRef.current();
+    return () => { delete w.__cinestreamBack; };
+  }, []);
+
   // Screens underneath a covering layer (or the player) stop animating.
   const covered = layers.length > 0 || activePlayer !== null;
   const dockHidden = activePlayer !== null || layers.some(l => l.kind === 'detail');
@@ -181,7 +200,6 @@ export const App: React.FC = () => {
               active={tab === 'search' && !covered}
               onBack={() => switchTab('home')}
               onSelectMedia={openDetails}
-              onOpenSource={openSource}
             />
           ))}
           {pane('library', <LibraryScreen onPlayMedia={handlePlayMedia} onSelectMedia={openDetails} />)}
