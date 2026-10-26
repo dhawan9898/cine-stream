@@ -124,9 +124,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setSource(res);
         setLoading(false);
 
-        // On native Android, launch native Media3 Netflix ExoPlayer if direct video stream is resolved
-        const isDirectStream = isDirectVideoUrl(res.url) && !res.isFallbackEmbed;
-        if (isNative && res && res.url && isDirectStream) {
+        // On native Android, ALWAYS launch native Media3 Netflix ExoPlayer (ExoPlayerActivity sniffs direct .m3u8 if embed URL is passed)
+        if (isNative && res && res.url) {
           openNativeExoPlayer({
             url: res.url,
             title: media.title,
@@ -140,7 +139,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               default: i === 0
             })),
             episodes: isSeries ? episodes.map(e => ({ id: String(e.id), number: String(e.episodeNumber) })) : undefined,
-            isFallback: false,
+            isFallback: res.isFallbackEmbed ?? false,
             autoPlayNext: hasNextEpisode
           });
         }
@@ -215,10 +214,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     );
   }
 
-  // Direct Stream Mode on Native Android
-  const isDirectStream = isDirectVideoUrl(source.url) && !source.isFallbackEmbed;
-
-  if (isNative && isDirectStream) {
+  // Native Android Platform Mode (ExoPlayerActivity runs full screen above this view)
+  if (isNative) {
     return (
       <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', gap: '12px' }}>
         <Loader2 size={44} color="var(--accent-primary)" className="animate-spin" />
