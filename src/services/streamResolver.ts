@@ -1,4 +1,4 @@
-// streamResolver.ts - Background multi-source stream resolution engine
+// streamResolver.ts - Background multi-source stream resolution engine for exact TMDB titles
 import type { MediaType } from '../core/cineHypeCore.ts';
 import { extractorRegistry } from '../extractors/extractorRegistry.ts';
 import type { ExtractedStream } from '../extractors/types.ts';
@@ -21,25 +21,47 @@ const cache = new Map<string, { at: number; promise: Promise<ResolvedStream> }>(
 const REUSE_MS = 4 * 60 * 1000;
 const keyOf = (p: StreamParams) => `${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}`;
 
-async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
-  const extracted = await extractorRegistry.resolveBestStream({
-    id: params.id,
-    type: params.type,
-    season: params.season,
-    episode: params.episode
-  });
+function getTitleFallbackUrl(params: StreamParams): string {
+  const { id, type, season = 1, episode = 1 } = params;
+  if (type === 'tv') {
+    return `https://vidlink.pro/tv/${id}/${season}/${episode}?primaryColor=ec1c24&autoplay=true`;
+  }
+  return `https://vidlink.pro/movie/${id}?primaryColor=ec1c24&autoplay=true`;
+}
 
-  if (extracted && extracted.url) {
-    return {
-      ...extracted,
+async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
+  try {
+    const extracted = await extractorRegistry.resolveBestStream({
       id: params.id,
       type: params.type,
       season: params.season,
       episode: params.episode
-    };
+    });
+
+    if (extracted && extracted.url) {
+      return {
+        ...extracted,
+        id: params.id,
+        type: params.type,
+        season: params.season,
+        episode: params.episode
+      };
+    }
+  } catch (err) {
+    console.warn('[StreamResolver] Background extraction error:', err);
   }
 
-  throw new Error('Failed to resolve direct video stream for this title.');
+  // Exact TMDB title fallback URL
+  const fallbackUrl = getTitleFallbackUrl(params);
+  return {
+    url: fallbackUrl,
+    format: 'hls',
+    isFallbackEmbed: true,
+    id: params.id,
+    type: params.type,
+    season: params.season,
+    episode: params.episode
+  };
 }
 
 export function resolveStream(params: StreamParams, options: { fresh?: boolean } = {}): Promise<ResolvedStream> {

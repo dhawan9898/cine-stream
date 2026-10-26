@@ -1,18 +1,18 @@
-// extractorRegistry.ts - Central registry for stream extractors
+// extractorRegistry.ts - Central registry for real title-specific stream extractors
 import type { StreamExtractor, ExtractedStream } from './types.ts';
-import { FastHlsExtractor } from './fastHlsExtractor.ts';
 import { VidLinkExtractor } from './vidlinkExtractor.ts';
 import { VidSrcExtractor } from './vidsrcExtractor.ts';
 import { AutoEmbedExtractor } from './autoembedExtractor.ts';
+import { MultiEmbedExtractor } from './multiembedExtractor.ts';
 
 class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
 
   constructor() {
-    this.register(new FastHlsExtractor());
     this.register(new VidLinkExtractor());
     this.register(new VidSrcExtractor());
     this.register(new AutoEmbedExtractor());
+    this.register(new MultiEmbedExtractor());
   }
 
   register(extractor: StreamExtractor) {
@@ -29,14 +29,14 @@ class ExtractorRegistry {
     season?: number;
     episode?: number;
   }): Promise<ExtractedStream | null> {
-    // Run extractors in parallel with short timeout, returning the first valid direct stream
+    // Run extractors concurrently with a 4.5s timeout per extractor
     const promises = this.extractors.map(async extractor => {
       try {
         const stream = await Promise.race([
           extractor.extract(params),
-          new Promise<null>(resolve => setTimeout(() => resolve(null), 4000))
+          new Promise<null>(resolve => setTimeout(() => resolve(null), 4500))
         ]);
-        if (stream && stream.url && !stream.isFallbackEmbed) {
+        if (stream && stream.url) {
           return stream;
         }
       } catch {
@@ -52,9 +52,7 @@ class ExtractorRegistry {
       }
     }
 
-    // Default fast HLS fallback guarantee
-    const fastHls = new FastHlsExtractor();
-    return await fastHls.extract(params);
+    return null;
   }
 }
 

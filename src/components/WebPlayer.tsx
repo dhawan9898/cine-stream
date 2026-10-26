@@ -42,14 +42,8 @@ export interface EpisodeItem {
   title?: string;
 }
 
-const resolvePlayableUrl = (url?: string, referer?: string): string => {
-  if (!url) return '';
-  // In dev / web mode without native CapacitorHttp, proxy the stream to bypass browser CORS & Referer restrictions
-  if (!Capacitor.isNativePlatform() && !url.startsWith('/stream-proxy') && url.startsWith('http')) {
-    const ref = referer || '';
-    return `/stream-proxy?url=${encodeURIComponent(url)}&ref=${encodeURIComponent(ref)}`;
-  }
-  return url;
+const resolvePlayableUrl = (url?: string, _referer?: string): string => {
+  return url || '';
 };
 
 // VOD episodes, not a live broadcast - lowLatencyMode trims buffers to chase
@@ -75,8 +69,11 @@ function createHls(referer: string): Hls {
       }
     },
     xhrSetup: (xhr) => {
-      // CapacitorHttp intercepts this and allows setting custom headers like Referer
-      xhr.setRequestHeader('Referer', referer);
+      try {
+        if (referer && Capacitor.isNativePlatform()) {
+          xhr.setRequestHeader('Referer', referer);
+        }
+      } catch {}
     }
   });
 }
