@@ -4,17 +4,19 @@ import { VidLinkExtractor } from './vidlinkExtractor.ts';
 import { VidSrcExtractor } from './vidsrcExtractor.ts';
 import { AutoEmbedExtractor } from './autoembedExtractor.ts';
 import { MultiEmbedExtractor } from './multiembedExtractor.ts';
-import { FastHlsExtractor } from './fastHlsExtractor.ts';
+import { EmbedSuExtractor } from './embedSuExtractor.ts';
+import { SmashyExtractor } from './smashyExtractor.ts';
 
 class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
 
   constructor() {
-    this.register(new FastHlsExtractor());
     this.register(new VidLinkExtractor());
     this.register(new VidSrcExtractor());
     this.register(new AutoEmbedExtractor());
     this.register(new MultiEmbedExtractor());
+    this.register(new EmbedSuExtractor());
+    this.register(new SmashyExtractor());
   }
 
   register(extractor: StreamExtractor) {
@@ -58,7 +60,7 @@ class ExtractorRegistry {
       return directStream;
     }
 
-    // Otherwise return first valid fallback stream
+    // Otherwise return first valid title stream
     return fulfilled[0] ?? null;
   }
 }

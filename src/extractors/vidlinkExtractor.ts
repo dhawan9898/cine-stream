@@ -14,22 +14,21 @@ export class VidLinkExtractor extends BaseExtractor {
     episode?: number;
   }): Promise<ExtractedStream | null> {
     const { id, type, season = 1, episode = 1 } = params;
-    const apiUrl = type === 'tv'
-      ? `${this.mainUrl}/api/b/tv/${id}/${season}/${episode}`
-      : `${this.mainUrl}/api/b/movie/${id}`;
+    const embedUrl = type === 'tv'
+      ? `${this.mainUrl}/tv/${id}/${season}/${episode}?primaryColor=ec1c24&autoplay=true`
+      : `${this.mainUrl}/movie/${id}?primaryColor=ec1c24&autoplay=true`;
 
     try {
-      const responseText = await this.httpGet(apiUrl, {
-        Referer: `${this.mainUrl}/`,
-        Origin: this.mainUrl
-      });
-
-      const extracted = await this.resolveFromPage(apiUrl, { referer: `${this.mainUrl}/` });
+      const extracted = await this.resolveFromPage(embedUrl, { referer: `${this.mainUrl}/` });
       if (extracted) return extracted;
     } catch (err) {
-      console.warn(`[${this.id}] Direct extraction failed:`, err);
+      console.warn(`[${this.id}] Direct extraction fallback to embed:`, err);
     }
 
-    return null;
+    return {
+      url: embedUrl,
+      format: 'hls',
+      isFallbackEmbed: true
+    };
   }
 }
