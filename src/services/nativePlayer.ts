@@ -1,35 +1,18 @@
 // nativePlayer.ts - TypeScript Capacitor Plugin bridge for Native Media3 ExoPlayer
-import { Capacitor, registerPlugin } from '@capacitor/core';
+import { Capacitor } from '@capacitor/core';
+import { ExoPlayerPlugin, type PlayOptions } from '../plugins/exoPlayerPlugin.ts';
 
-export interface NativePlayerPluginInterface {
-  openPlayer(options: {
-    videoUrl: string;
-    title?: string;
-    headers?: Record<string, string>;
-  }): Promise<void>;
-}
-
-const NativePlayer = registerPlugin<NativePlayerPluginInterface>('NativePlayer');
-
-export async function openNativeExoPlayer(params: {
-  videoUrl: string;
-  title?: string;
-  headers?: Record<string, string>;
-}): Promise<boolean> {
+export async function openNativeExoPlayer(options: PlayOptions): Promise<boolean> {
   if (!Capacitor.isNativePlatform()) {
-    console.info('[NativePlayer] Web platform detected; using HTML5 / hls.js player fallback.');
+    console.info('[NativePlayer] Web platform detected; using WebPlayer / iframe fallback.');
     return false;
   }
 
   try {
-    await NativePlayer.openPlayer({
-      videoUrl: params.videoUrl,
-      title: params.title || 'CineStream Native',
-      headers: params.headers || {}
-    });
-    return true;
+    const res = await ExoPlayerPlugin.play(options);
+    return res?.success ?? true;
   } catch (err) {
-    console.warn('[NativePlayer] Native player plugin error:', err);
+    console.warn('[NativePlayer] Native ExoPlayer plugin error:', err);
     return false;
   }
 }
