@@ -19,6 +19,11 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
@@ -478,7 +483,98 @@ public class ExoPlayerActivity extends AppCompatActivity {
         resumeGuardSince = android.os.SystemClock.elapsedRealtime();
         autoRetryCount = 0;
         lastKnownPositionMs = Math.max(0L, startPositionMs);
-        initializePlayer(videoUrl, referer, subtitlesJson, Math.max(0L, startPositionMs), true);
+        if (isDirectVideoUrl(videoUrl)) {
+            initializePlayer(videoUrl, referer, subtitlesJson, Math.max(0L, startPositionMs), true);
+        } else {
+            startStreamSniffer(videoUrl, referer, subtitlesJson, Math.max(0L, startPositionMs), true);
+        }
+    }
+
+    private WebView sniffingWebView;
+    private boolean isSniffing = false;
+
+    private boolean isDirectVideoUrl(String url) {
+        if (url == null || url.isEmpty()) return false;
+        String lower = url.toLowerCase();
+        String path = lower.split("\\?")[0];
+        return path.endsWith(".m3u8") ||
+               path.endsWith(".mpd") ||
+               path.endsWith(".mp4") ||
+               path.endsWith(".webm") ||
+               path.endsWith(".mkv") ||
+               lower.contains(".m3u8") ||
+               lower.contains("master.m3u8") ||
+               lower.contains("index.m3u8") ||
+               lower.contains("playlist.m3u8");
+    }
+
+    private void startStreamSniffer(String embedUrl, String referer, String subtitlesJson, long startPositionMs, boolean playWhenReady) {
+        stopStreamSniffer();
+        isSniffing = true;
+        showLoadingState();
+
+        handler.post(() -> {
+            try {
+                sniffingWebView = new WebView(ExoPlayerActivity.this);
+                WebSettings webSettings = sniffingWebView.getSettings();
+                webSettings.setJavaScriptEnabled(true);
+                webSettings.setDomStorageEnabled(true);
+                webSettings.setMediaPlaybackRequiresUserGesture(false);
+                webSettings.setUserAgentString("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
+
+                Map<String, String> headers = new HashMap<>();
+                if (referer != null && !referer.isEmpty()) {
+                    headers.put("Referer", referer);
+                }
+
+                sniffingWebView.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                        if (isSniffing && request != null && request.getUrl() != null) {
+                            String reqUrl = request.getUrl().toString();
+                            if (isDirectVideoUrl(reqUrl) && !reqUrl.equalsIgnoreCase(embedUrl)) {
+                                Log.i(TAG, "Sniffed direct stream URL: " + reqUrl);
+                                isSniffing = false;
+                                String extractedReferer = request.getRequestHeaders() != null ? request.getRequestHeaders().get("Referer") : referer;
+
+                                handler.post(() -> {
+                                    stopStreamSniffer();
+                                    initializePlayer(reqUrl, extractedReferer != null ? extractedReferer : referer, subtitlesJson, startPositionMs, playWhenReady);
+                                });
+                            }
+                        }
+                        return super.shouldInterceptRequest(view, request);
+                    }
+                });
+
+                sniffingWebView.loadUrl(embedUrl, headers);
+
+                // Timeout fallback after 12s
+                handler.postDelayed(() -> {
+                    if (isSniffing) {
+                        Log.w(TAG, "Stream sniffing timed out for: " + embedUrl);
+                        stopStreamSniffer();
+                        initializePlayer(embedUrl, referer, subtitlesJson, startPositionMs, playWhenReady);
+                    }
+                }, 12_000);
+
+            } catch (Exception e) {
+                Log.e(TAG, "Error starting stream sniffer", e);
+                stopStreamSniffer();
+                initializePlayer(embedUrl, referer, subtitlesJson, startPositionMs, playWhenReady);
+            }
+        });
+    }
+
+    private void stopStreamSniffer() {
+        isSniffing = false;
+        if (sniffingWebView != null) {
+            try {
+                sniffingWebView.stopLoading();
+                sniffingWebView.destroy();
+            } catch (Exception ignored) {}
+            sniffingWebView = null;
+        }
     }
 
     // The screen must not time out while an episode is playing (or briefly
@@ -497,6 +593,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
     }
 
     private void releasePlayer() {
+        stopStreamSniffer();
         handler.removeCallbacks(progressTicker);
         handler.removeCallbacks(autoRetryRunnable);
         if (player != null) {
@@ -2275,6 +2372,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        stopStreamSniffer();
         super.onDestroy();
         if (isFinishing()) ExoPlayerPlugin.notifyPlayerClosed();
         if (currentActivity != null && currentActivity.get() == this) currentActivity = null;
