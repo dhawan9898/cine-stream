@@ -19,29 +19,10 @@ export class VidSrcExtractor extends BaseExtractor {
       : `${this.mainUrl}/embed/movie/${id}`;
 
     try {
-      const html = await this.httpGet(embedUrl, {
-        Referer: 'https://vidsrc.to/',
-        Origin: 'https://vidsrc.to'
-      });
-
-      // Look for embedded direct m3u8 or source endpoint references in page
-      const m3u8Match = html.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/i);
-      if (m3u8Match) {
-        return {
-          url: m3u8Match[0],
-          format: 'hls',
-          headers: {
-            Referer: 'https://vidsrc.to/',
-            Origin: 'https://vidsrc.to',
-            'User-Agent': this.defaultUserAgent
-          }
-        };
-      }
+      return await this.resolveFromPage(embedUrl, { referer: 'https://vidsrc.to/' });
     } catch (err) {
       console.warn(`[${this.id}] Direct extraction failed:`, err);
+      return null;
     }
-
-    // No direct stream on this provider: the resolver moves on to the next one.
-    return null;
   }
 }

@@ -1898,8 +1898,11 @@ public class ExoPlayerActivity extends AppCompatActivity {
         MediaItem.Builder mediaItemBuilder = new MediaItem.Builder().setUri(Uri.parse(videoUrl));
         // Explicitly set MIME type for HLS streams so DefaultMediaSourceFactory creates HlsMediaSource
         // even when the URL is proxied, redirected, or has query parameters without a literal .m3u8 extension
-        boolean isHls = videoUrl.contains("m3u8") || videoUrl.contains("/hls/") || videoUrl.contains("master") || videoUrl.contains("index") || !videoUrl.toLowerCase(java.util.Locale.US).contains(".mp4");
-        if (isHls) {
+        String lower = videoUrl.toLowerCase(java.util.Locale.US);
+        String path = lower.contains("?") ? lower.substring(0, lower.indexOf('?')) : lower;
+        if (path.endsWith(".mpd")) {
+            mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_MPD);
+        } else if (!path.endsWith(".mp4") && !path.endsWith(".webm") && !path.endsWith(".mkv")) {
             mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8);
         }
         if (subtitleConfigs != null && !subtitleConfigs.isEmpty()) {
@@ -2034,7 +2037,6 @@ public class ExoPlayerActivity extends AppCompatActivity {
         // Report before updatePostPlay(): it may switch to the next episode,
         // after which this position would be reported under the new one.
         maybeReportProgress(position, duration);
-        maybePrefetchNextNatively(duration, position);
         updatePostPlay(duration, position, shouldShowOutro);
     }
 

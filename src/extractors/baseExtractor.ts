@@ -1,6 +1,7 @@
 // baseExtractor.ts - Base class providing HTTP helper functions for stream extractors
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
-import type { StreamExtractor, ExtractedStream } from './types.ts';
+import type { StreamExtractor, ExtractedStream, ExtractorSubtitle } from './types.ts';
+import { discover, pickBest, type FoundStream } from './streamDiscovery.ts';
 
 export abstract class BaseExtractor implements StreamExtractor {
   abstract id: string;
@@ -46,6 +47,61 @@ export abstract class BaseExtractor implements StreamExtractor {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  /**
+   * Walks from a provider page to a direct stream: reads each response
+   * whatever its type (HTML, JSON, script, manifest), follows iframes / embed
+   * links / API urls up to `maxDepth` hops, and returns the best stream with
+   * the Referer/Origin of the page that held it. Null when nothing is found.
+   */
+  protected async resolveFromPage(
+    startUrl: string,
+    opts: { referer?: string; maxDepth?: number; maxPages?: number } = {}
+  ): Promise<ExtractedStream | null> {
+    const maxDepth = opts.maxDepth ?? 3;
+    const maxPages = opts.maxPages ?? 10;
+    const visited = new Set<string>();
+    const subtitles = new Map<string, ExtractorSubtitle>();
+    let queue: Array<{ url: string; referer: string }> = [{ url: startUrl, referer: opts.referer ?? this.mainUrl + '/' }];
+    const found: Array<FoundStream & { pageUrl: string }> = [];
+
+    for (let depth = 0; depth <= maxDepth && queue.length > 0 && visited.size < maxPages; depth++) {
+      const next: Array<{ url: string; referer: string }> = [];
+      for (const page of queue) {
+        if (visited.has(page.url) || visited.size >= maxPages) continue;
+        visited.add(page.url);
+        let body: string;
+        try {
+          body = await this.httpGet(page.url, { Referer: page.referer, Accept: '*/*' });
+        } catch (err) {
+          console.warn(`[${this.id}] ${page.url} unreachable:`, err);
+          continue;
+        }
+        const result = discover(body, page.url);
+        result.streams.forEach(s => found.push({ ...s, pageUrl: page.url }));
+        result.subtitles.forEach(s => subtitles.set(s.url, s));
+        result.pages.forEach(p => { if (!visited.has(p)) next.push({ url: p, referer: page.url }); });
+      }
+      // A stream on this level beats anything deeper.
+      if (found.length > 0) break;
+      queue = next;
+    }
+
+    const best = pickBest(found);
+    if (!best) return null;
+    const origin = new URL(found.find(f => f.url === best.url)!.pageUrl).origin;
+    return {
+      url: best.url,
+      format: best.format,
+      quality: best.quality,
+      headers: {
+        Referer: origin + '/',
+        Origin: origin,
+        'User-Agent': this.defaultUserAgent
+      },
+      subtitles: [...subtitles.values()]
+    };
   }
 
   abstract extract(params: {
