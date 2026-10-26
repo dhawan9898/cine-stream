@@ -427,10 +427,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
         if (currentMode == null || currentMode.isEmpty()) currentMode = "sub";
 
         textTitle.setText(animeTitle != null ? animeTitle : "CineStream");
-        // isFallback means every real source failed and this is the app's
-        // built-in demo clip, not the real episode - never let that look
-        // like real content.
-        applyEpisodeLabel(isFallback ? " · DEMO - SOURCE UNAVAILABLE" : "");
+        applyEpisodeLabel("");
 
         if (episodesJson != null) parseEpisodes(episodesJson);
         btnEpisodes.setVisibility(episodeOptions.size() > 1 ? View.VISIBLE : View.GONE);
@@ -1887,6 +1884,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
                     }
                 }
                 if (state == Player.STATE_READY) {
+                    handler.removeCallbacks(loadingWatchdog);
+                    awaitingStream = false;
                     // Recovered - a later hiccup gets the full retry budget.
                     autoRetryCount = 0;
                     enforceResumePosition();
