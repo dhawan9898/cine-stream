@@ -37,6 +37,7 @@ import {
 } from '../services/streamResolver.ts';
 import type { ExtractedStream } from '../extractors/types.ts';
 import { saveWatchProgress, getUserPreferences } from '../services/historyService.ts';
+import { openNativeExoPlayer } from '../services/nativePlayer.ts';
 
 interface VideoPlayerProps {
   media: MediaItem;
@@ -100,7 +101,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const currentEpisodeData = episodeList.find(e => e.episodeNumber === episode);
   const hasNextEpisode = isSeries && episodeList.some(e => e.episodeNumber === episode + 1);
 
-  // Attempt stream resolution via extractor registry
+  // Attempt stream resolution via extractor registry & open native ExoPlayer if available
   useEffect(() => {
     let active = true;
     resolveExtractedStream({
@@ -110,12 +111,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       episode,
       server: selectedServer
     }).then(res => {
-      if (active) setExtractedStream(res);
+      if (!active) return;
+      setExtractedStream(res);
+      if (res && !res.isFallbackEmbed && Capacitor.isNativePlatform()) {
+        openNativeExoPlayer({
+          videoUrl: res.url,
+          title: `${media.title}${isSeries ? ` S${season}:E${episode}` : ''}`,
+          headers: res.headers
+        });
+      }
     }).catch(err => {
       console.warn('[VideoPlayer] Extractor resolution error:', err);
     });
     return () => { active = false; };
-  }, [media.id, media.mediaType, season, episode, selectedServer]);
+  }, [media.id, media.mediaType, media.title, season, episode, selectedServer, isSeries]);
 
   // Use extracted stream URL if available, or fallback URL
   const activeStreamSource = extractedStream?.url || customHlsUrl || resolveStreamUrl({

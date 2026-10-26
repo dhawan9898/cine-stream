@@ -15,6 +15,7 @@ import com.getcapacitor.BridgeWebViewClient;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(NativePlayerPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Capacitor's default client hands every non-app URL to an external browser
