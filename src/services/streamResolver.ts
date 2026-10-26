@@ -8,6 +8,7 @@ export interface StreamParams {
   type: MediaType;
   season?: number;
   episode?: number;
+  languageMode?: string;
 }
 
 export interface ResolvedStream extends ExtractedStream {
@@ -15,11 +16,12 @@ export interface ResolvedStream extends ExtractedStream {
   type: MediaType;
   season?: number;
   episode?: number;
+  languageMode?: string;
 }
 
 const cache = new Map<string, { at: number; promise: Promise<ResolvedStream> }>();
 const REUSE_MS = 4 * 60 * 1000;
-const keyOf = (p: StreamParams) => `${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}`;
+const keyOf = (p: StreamParams) => `${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}`;
 
 function getTitleFallbackUrl(params: StreamParams): string {
   const { id, type, season = 1, episode = 1 } = params;

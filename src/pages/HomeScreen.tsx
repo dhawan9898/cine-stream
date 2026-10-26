@@ -10,6 +10,10 @@ import {
   POPULAR_MOVIES,
   POPULAR_TV,
   TOP_RATED_MOVIES,
+  TELUGU_MOVIES,
+  TAMIL_MOVIES,
+  HINDI_MOVIES,
+  MALAYALAM_MOVIES,
   type BrowseSource
 } from '../services/browseSources.ts';
 import { HeroCarousel } from '../components/HeroCarousel.tsx';
@@ -29,6 +33,10 @@ interface HomeScreenProps {
 
 const RAILS: { source: BrowseSource; icon: React.ReactNode }[] = [
   { source: POPULAR_MOVIES, icon: <Flame size={18} color="#f43f5e" /> },
+  { source: TELUGU_MOVIES, icon: <Film size={18} color="var(--accent-primary)" /> },
+  { source: TAMIL_MOVIES, icon: <Film size={18} color="var(--accent-amber)" /> },
+  { source: HINDI_MOVIES, icon: <Film size={18} color="var(--accent-cyan)" /> },
+  { source: MALAYALAM_MOVIES, icon: <Film size={18} color="#e11d48" /> },
   { source: POPULAR_TV, icon: <Tv size={18} color="var(--accent-primary)" /> },
   { source: TOP_RATED_MOVIES, icon: <Star size={18} color="var(--accent-amber)" /> },
   { source: ON_THE_AIR, icon: <Zap size={18} color="var(--accent-cyan)" /> },

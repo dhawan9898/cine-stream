@@ -2,9 +2,9 @@
 import { readPersistedAsync, writePersisted } from './persistentCache.ts';
 
 export const CINEHYPE_TMDB_KEY =
-  import.meta.env.VITE_TMDB_API_KEY || '90b2cae8d7161e8ba0f3836240d7d352';
+  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TMDB_API_KEY) || '90b2cae8d7161e8ba0f3836240d7d352';
 export const TMDB_API_BASE =
-  import.meta.env.DEV && import.meta.env.VITE_USE_TMDB_PROXY === 'true'
+  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV && import.meta.env.VITE_USE_TMDB_PROXY === 'true')
     ? '/api-tmdb'
     : 'https://api.themoviedb.org/3';
 export const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
@@ -388,8 +388,49 @@ export async function discoverByGenre(genreId: number, type: MediaType, page = 1
   return items;
 }
 
-// 9. Genres lists
+// 9. Regional Language Support
+export interface LanguageOption {
+  code: string;
+  name: string;
+}
+
+export const REGIONAL_LANGUAGES: LanguageOption[] = [
+  { code: 'te', name: 'Telugu' },
+  { code: 'ta', name: 'Tamil' },
+  { code: 'hi', name: 'Hindi' },
+  { code: 'ml', name: 'Malayalam' },
+  { code: 'kn', name: 'Kannada' },
+  { code: 'pa', name: 'Punjabi' },
+  { code: 'bn', name: 'Bengali' }
+];
+
+export async function discoverByLanguage(langCode: string, type: MediaType = 'movie', page = 1, sortBy = 'popularity.desc'): Promise<MediaItem[]> {
+  const cacheKey = `discover_lang_${type}_${langCode}_p${page}_${sortBy}`;
+  const cached = await readPersistedAsync<MediaItem[]>(cacheKey);
+  if (cached) return cached;
+
+  const endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
+  const data = await tmdbFetch<{ results: any[] }>(endpoint, {
+    with_original_language: langCode,
+    page,
+    sort_by: sortBy
+  });
+
+  const items = data.results
+    .filter(i => i.poster_path || i.backdrop_path)
+    .map(i => mapRawToMedia(i, type));
+
+  writePersisted(cacheKey, items, 60 * 60 * 1000);
+  return items;
+}
+
+// 10. Genres & Regional Categories
 export const MOVIE_GENRES: Genre[] = [
+  { id: 2001, name: 'Telugu Movies' },
+  { id: 2002, name: 'Tamil Movies' },
+  { id: 2003, name: 'Hindi Movies' },
+  { id: 2004, name: 'Malayalam Movies' },
+  { id: 2005, name: 'Kannada Movies' },
   { id: 28, name: 'Action' },
   { id: 12, name: 'Adventure' },
   { id: 16, name: 'Animation' },
@@ -411,6 +452,10 @@ export const MOVIE_GENRES: Genre[] = [
 ];
 
 export const TV_GENRES: Genre[] = [
+  { id: 2001, name: 'Telugu Shows' },
+  { id: 2002, name: 'Tamil Shows' },
+  { id: 2003, name: 'Hindi Shows' },
+  { id: 2004, name: 'Malayalam Shows' },
   { id: 10759, name: 'Action & Adventure' },
   { id: 16, name: 'Animation' },
   { id: 35, name: 'Comedy' },

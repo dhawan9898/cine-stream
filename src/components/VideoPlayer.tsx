@@ -43,6 +43,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState<number>(0);
+  const [langMode, setLangMode] = useState<string>('sub');
   const [frameReady, setFrameReady] = useState<boolean>(false);
   const [reloadKey, setReloadKey] = useState<number>(0);
   const [fetchedEpisodes, setFetchedEpisodes] = useState<EpisodeItem[]>([]);
@@ -226,7 +227,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     reloadResumeMsRef.current = null;
 
     resolveStream(
-      { id: media.id, type: media.mediaType, season, episode },
+      { id: media.id, type: media.mediaType, season, episode, languageMode: langMode },
       { fresh: attempt > 0 }
     )
       .then(res => {
@@ -244,6 +245,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             seasonPrefix: isSeries ? `S${season}:` : '',
             referer: res.headers?.Referer || res.headers?.referer || '',
             headers: res.headers,
+            mode: langMode,
             subtitles: (res.subtitles || []).map((t, i) => ({
               src: t.url,
               label: t.label || t.lang || 'Subtitle',
@@ -283,7 +285,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     episodes,
     hasNextEpisode,
     initialPositionMs,
-    prefetchNativeNextEpisode
+    prefetchNativeNextEpisode,
+    langMode
   ]);
 
   const handleNextEpisode = () => {
@@ -409,9 +412,33 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
 
-        <button onClick={() => setReloadKey(k => k + 1)} className="interactive nf-icon-btn" title="Reload Stream">
-          <RefreshCw size={20} color="#fff" />
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <select
+            value={langMode}
+            onChange={e => setLangMode(e.target.value)}
+            className="interactive"
+            style={{
+              padding: '6px 12px',
+              borderRadius: '20px',
+              color: '#fff',
+              background: 'rgba(0,0,0,0.65)',
+              border: '1px solid rgba(255,255,255,0.25)',
+              fontSize: '12px',
+              fontWeight: 700,
+              outline: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            <option value="sub">Sub / Orig</option>
+            <option value="dub">Dubbed</option>
+            <option value="hindi">Hindi Dub</option>
+            <option value="telugu">Telugu Dub</option>
+            <option value="tamil">Tamil Dub</option>
+          </select>
+          <button onClick={() => setReloadKey(k => k + 1)} className="interactive nf-icon-btn" title="Reload Stream">
+            <RefreshCw size={20} color="#fff" />
+          </button>
+        </div>
       </div>
 
       {/* Frame Container */}
