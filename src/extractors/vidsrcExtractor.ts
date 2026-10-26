@@ -19,10 +19,16 @@ export class VidSrcExtractor extends BaseExtractor {
       : `${this.mainUrl}/embed/movie/${id}`;
 
     try {
-      return await this.resolveFromPage(embedUrl, { referer: 'https://vidsrc.to/' });
+      const extracted = await this.resolveFromPage(embedUrl, { referer: 'https://vidsrc.to/' });
+      if (extracted) return extracted;
     } catch (err) {
-      console.warn(`[${this.id}] Direct extraction failed:`, err);
-      return null;
+      console.warn(`[${this.id}] Direct extraction fallback to embed:`, err);
     }
+
+    return {
+      url: embedUrl,
+      format: 'hls',
+      isFallbackEmbed: true
+    };
   }
 }

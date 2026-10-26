@@ -19,10 +19,16 @@ export class AutoEmbedExtractor extends BaseExtractor {
       : `${this.mainUrl}/movie/tmdb/${id}`;
 
     try {
-      return await this.resolveFromPage(embedUrl, { referer: 'https://autoembed.co/' });
+      const extracted = await this.resolveFromPage(embedUrl, { referer: 'https://autoembed.co/' });
+      if (extracted) return extracted;
     } catch (err) {
-      console.warn(`[${this.id}] Direct extraction failed:`, err);
-      return null;
+      console.warn(`[${this.id}] Direct extraction fallback to embed:`, err);
     }
+
+    return {
+      url: embedUrl,
+      format: 'hls',
+      isFallbackEmbed: true
+    };
   }
 }
