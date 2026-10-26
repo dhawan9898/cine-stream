@@ -62,6 +62,7 @@ export interface ExoPlayerPluginInterface {
     autoSkipIntro?: boolean;
     autoPlayNext?: boolean;
     hasDub?: boolean;
+    isFallback?: boolean;
   }): Promise<{ success: boolean }>;
 
   setNextEpisode(options: PlayOptions & { afterEpisode: string }): Promise<void>;
