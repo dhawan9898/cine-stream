@@ -4,11 +4,13 @@ import { VidLinkExtractor } from './vidlinkExtractor.ts';
 import { VidSrcExtractor } from './vidsrcExtractor.ts';
 import { AutoEmbedExtractor } from './autoembedExtractor.ts';
 import { MultiEmbedExtractor } from './multiembedExtractor.ts';
+import { FastHlsExtractor } from './fastHlsExtractor.ts';
 
 class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
 
   constructor() {
+    this.register(new FastHlsExtractor());
     this.register(new VidLinkExtractor());
     this.register(new VidSrcExtractor());
     this.register(new AutoEmbedExtractor());
