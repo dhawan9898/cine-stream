@@ -46,13 +46,18 @@ class ExtractorRegistry {
     });
 
     const results = await Promise.allSettled(promises);
-    for (const res of results) {
-      if (res.status === 'fulfilled' && res.value) {
-        return res.value;
-      }
+    const fulfilled = results
+      .filter((r): r is PromiseFulfilledResult<ExtractedStream | null> => r.status === 'fulfilled' && Boolean(r.value && r.value.url))
+      .map(r => r.value!);
+
+    // Prefer direct media streams (where isFallbackEmbed is not true)
+    const directStream = fulfilled.find(s => s && !s.isFallbackEmbed);
+    if (directStream) {
+      return directStream;
     }
 
-    return null;
+    // Otherwise return first valid fallback stream
+    return fulfilled[0] ?? null;
   }
 }
 

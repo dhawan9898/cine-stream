@@ -124,8 +124,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setSource(res);
         setLoading(false);
 
-        // If running on native Android, launch native Media3 Netflix-styled ExoPlayer
-        if (isNative && res && res.url) {
+        // Only open native Media3 Netflix ExoPlayer if a direct video stream manifest was resolved (.m3u8 / .mp4 / .mpd) and not an embed webpage
+        const isDirectStream = isDirectVideoUrl(res.url) && !res.isFallbackEmbed;
+        if (isNative && res && res.url && isDirectStream) {
           openNativeExoPlayer({
             url: res.url,
             title: media.title,
@@ -139,7 +140,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               default: i === 0
             })),
             episodes: isSeries ? episodes.map(e => ({ id: String(e.id), number: String(e.episodeNumber) })) : undefined,
-            isFallback: res.isFallbackEmbed ?? false,
+            isFallback: false,
             autoPlayNext: hasNextEpisode
           });
         }
@@ -214,37 +215,39 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     );
   }
 
-  // Native Android Platform Mode (ExoPlayerActivity runs above this view)
-  if (isNative) {
-    return (
-      <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', gap: '12px' }}>
-        <Loader2 size={44} color="var(--accent-primary)" className="animate-spin" />
-        <span style={{ fontSize: '14px', fontWeight: 600, color: 'rgba(255,255,255,0.8)' }}>Launching Netflix ExoPlayer...</span>
-      </div>
-    );
+  // Direct HLS / MP4 Media Stream Mode
+  const isDirectStream = isDirectVideoUrl(source.url) && !source.isFallbackEmbed;
+
+  if (isDirectStream) {
+    if (isNative) {
+      return (
+        <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', gap: '12px' }}>
+          <Loader2 size={44} color="var(--accent-primary)" className="animate-spin" />
+          <span style={{ fontSize: '14px', fontWeight: 600, color: 'rgba(255,255,255,0.8)' }}>Launching Netflix ExoPlayer...</span>
+        </div>
+      );
+    }
+    if (webSource) {
+      return (
+        <WebPlayer
+          streamSource={webSource}
+          title={media.title}
+          episode={isSeries ? currentWebEpisode ?? { id: String(episode), number: String(episode) } : undefined}
+          episodeList={isSeries ? webEpisodes : undefined}
+          onBack={onBack}
+          hasNextEpisode={hasNextEpisode}
+          onNextEpisode={handleNextEpisode}
+          onSelectEpisode={ep => {
+            const target = episodes.find(e => String(e.episodeNumber) === ep.number);
+            if (target) onSelectEpisode?.(target);
+          }}
+          onProgressUpdate={(time, dur) => saveProgress(time * 1000, dur * 1000)}
+        />
+      );
+    }
   }
 
-  // Direct HLS / MP4 Media Stream Mode for Web
-  if (isDirectVideoUrl(source.url) && webSource) {
-    return (
-      <WebPlayer
-        streamSource={webSource}
-        title={media.title}
-        episode={isSeries ? currentWebEpisode ?? { id: String(episode), number: String(episode) } : undefined}
-        episodeList={isSeries ? webEpisodes : undefined}
-        onBack={onBack}
-        hasNextEpisode={hasNextEpisode}
-        onNextEpisode={handleNextEpisode}
-        onSelectEpisode={ep => {
-          const target = episodes.find(e => String(e.episodeNumber) === ep.number);
-          if (target) onSelectEpisode?.(target);
-        }}
-        onProgressUpdate={(time, dur) => saveProgress(time * 1000, dur * 1000)}
-      />
-    );
-  }
-
-  // Embed Iframe Mode (Web Fallback)
+  // Embed Iframe Mode (For embed webpage URLs or fallback providers)
   return (
     <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000', zIndex: 9999, display: 'flex', flexDirection: 'column' }}>
       {/* Top Controls Overlay */}
