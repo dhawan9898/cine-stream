@@ -2,6 +2,7 @@
 // poster grids (browse pages, More Like This). Flat and opaque on purpose.
 import React from 'react';
 import type { MediaItem } from '../core/cineHypeCore.ts';
+import { prefetchMediaDetails } from '../core/cineHypeCore.ts';
 import { FadeImage } from './FadeImage.tsx';
 
 interface PosterCardProps {
@@ -16,6 +17,8 @@ interface PosterCardProps {
 export const PosterCard: React.FC<PosterCardProps> = ({ media, onClick, width, badge }) => (
   <div
     onClick={onClick}
+    onMouseEnter={() => prefetchMediaDetails(media.id, media.mediaType)}
+    onFocus={() => prefetchMediaDetails(media.id, media.mediaType)}
     onKeyDown={(e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();

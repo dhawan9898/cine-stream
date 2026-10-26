@@ -1,5 +1,7 @@
 // streamResolver.ts - CineStream multi-source streaming provider engine
 import type { MediaType } from '../core/cineHypeCore.ts';
+import { extractorRegistry } from '../extractors/extractorRegistry.ts';
+import type { ExtractedStream } from '../extractors/types.ts';
 
 export interface StreamServer {
   id: string;
@@ -159,4 +161,33 @@ export function resolveStreamUrl(params: StreamParams): string {
       return `https://vidsrc.to/embed/movie/${id}`;
     }
   }
+}
+
+/**
+ * Resolves an ExtractedStream via registered extractors or falls back to iframe URL.
+ */
+export async function resolveExtractedStream(params: StreamParams): Promise<ExtractedStream> {
+  const { server = 'native' } = params;
+  if (server === 'native') {
+    return {
+      url: NATIVE_HLS_STREAMS[0].url,
+      format: 'hls'
+    };
+  }
+
+  const result = await extractorRegistry.resolveStream(server, {
+    id: params.id,
+    type: params.type,
+    season: params.season,
+    episode: params.episode
+  });
+
+  if (result) return result;
+
+  // Fallback to iframe URL
+  return {
+    url: resolveStreamUrl(params),
+    format: 'hls',
+    isFallbackEmbed: true
+  };
 }

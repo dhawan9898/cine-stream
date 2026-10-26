@@ -321,6 +321,10 @@ export async function getMediaDetails(id: number, type: MediaType): Promise<Medi
   return details;
 }
 
+export function prefetchMediaDetails(id: number, type: MediaType): void {
+  getMediaDetails(id, type).catch(() => {});
+}
+
 // 6. TV Season Episodes
 export async function getTVSeasonEpisodes(tvId: number, seasonNumber: number): Promise<EpisodeItem[]> {
   const cacheKey = `tv_episodes_${tvId}_s${seasonNumber}`;

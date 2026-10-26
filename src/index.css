@@ -1450,3 +1450,21 @@ input:focus-visible {
   white-space: nowrap;
   animation: fadeIn 0.3s ease-out both;
 }
+
+/* ==========================================================================
+   ANDROID TV D-PAD FOCUS VISIBLE STYLING
+   ========================================================================== */
+:focus-visible {
+  outline: 3px solid var(--accent-primary) !important;
+  outline-offset: 4px !important;
+  border-radius: var(--radius-sm) !important;
+  box-shadow: 0 0 20px rgba(229, 9, 20, 0.6) !important;
+  transition: outline-offset 0.15s ease, transform 0.15s ease !important;
+}
+
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+  transform: scale(1.05);
+}
+

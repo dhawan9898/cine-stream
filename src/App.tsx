@@ -9,6 +9,7 @@ import type { MediaItem, EpisodeItem } from './core/cineHypeCore.ts';
 import type { BrowseSource } from './services/browseSources.ts';
 import { getSavedTheme, applyTheme } from './services/themeService.ts';
 import { handleLayerBack } from './services/backStack.ts';
+import { useTvNavigation } from './services/tvNavigationService.ts';
 
 // Everything except Home is loaded on demand so the first paint ships less JS;
 // the player chunk also carries hls.js.
@@ -49,6 +50,9 @@ export const App: React.FC = () => {
   const [layers, setLayers] = useState<Layer[]>([]);
   const [closing, setClosing] = useState<Layer[]>([]);
   const [activePlayer, setActivePlayer] = useState<ActivePlayerState | null>(null);
+
+  // Enable Android TV & Keyboard Remote D-Pad spatial navigation
+  useTvNavigation(true);
 
   useEffect(() => {
     applyTheme(getSavedTheme());

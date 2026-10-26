@@ -1,8 +1,6 @@
-// VideoPlayer.tsx - CineStream Netflix-Like Native Video Player Engine with Dual HLS & Cloud Provider Architecture
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Hls from 'hls.js';
 import { Capacitor } from '@capacitor/core';
-import { ScreenOrientation } from '@capacitor/screen-orientation';
 import { useBackHandler } from '../services/backStack.ts';
 import {
   ArrowLeft,
@@ -34,8 +32,10 @@ import type { MediaItem, EpisodeItem } from '../core/cineHypeCore.ts';
 import {
   STREAM_SERVERS,
   resolveStreamUrl,
+  resolveExtractedStream,
   NATIVE_HLS_STREAMS
 } from '../services/streamResolver.ts';
+import type { ExtractedStream } from '../extractors/types.ts';
 import { saveWatchProgress, getUserPreferences } from '../services/historyService.ts';
 
 interface VideoPlayerProps {
@@ -88,6 +88,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [showSwitchHint, setShowSwitchHint] = useState<boolean>(false);
   const loadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [customHlsUrl, setCustomHlsUrl] = useState<string>('');
+  const [extractedStream, setExtractedStream] = useState<ExtractedStream | null>(null);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -98,16 +99,34 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const isSeries = media.mediaType === 'tv';
   const currentEpisodeData = episodeList.find(e => e.episodeNumber === episode);
   const hasNextEpisode = isSeries && episodeList.some(e => e.episodeNumber === episode + 1);
-  const isNative = selectedServer === 'native';
 
-  // Compute stream URL
-  const streamUrl = resolveStreamUrl({
+  // Attempt stream resolution via extractor registry
+  useEffect(() => {
+    let active = true;
+    resolveExtractedStream({
+      id: media.id,
+      type: media.mediaType,
+      season,
+      episode,
+      server: selectedServer
+    }).then(res => {
+      if (active) setExtractedStream(res);
+    }).catch(err => {
+      console.warn('[VideoPlayer] Extractor resolution error:', err);
+    });
+    return () => { active = false; };
+  }, [media.id, media.mediaType, season, episode, selectedServer]);
+
+  // Use extracted stream URL if available, or fallback URL
+  const activeStreamSource = extractedStream?.url || customHlsUrl || resolveStreamUrl({
     id: media.id,
     type: media.mediaType,
     season,
     episode,
     server: selectedServer
   });
+  const streamUrl = activeStreamSource;
+  const isNative = selectedServer === 'native' || (extractedStream !== null && !extractedStream.isFallbackEmbed);
 
   // Android back closes an open panel first, then the player.
   useBackHandler(showServerModal, () => setShowServerModal(false));
@@ -140,9 +159,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // On the Android app, play in landscape while the player is open
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
-    ScreenOrientation.lock({ orientation: 'landscape' }).catch(() => {});
+    const plugin = (Capacitor as any).Plugins?.ScreenOrientation;
+    if (plugin) {
+      plugin.lock({ orientation: 'landscape' }).catch(() => {});
+    } else if (screen.orientation && 'lock' in screen.orientation) {
+      (screen.orientation as any).lock('landscape').catch(() => {});
+    }
     return () => {
-      ScreenOrientation.unlock().catch(() => {});
+      if (plugin) {
+        plugin.unlock().catch(() => {});
+      } else if (screen.orientation && 'unlock' in screen.orientation) {
+        screen.orientation.unlock();
+      }
     };
   }, []);
 
@@ -248,7 +276,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const video = videoRef.current;
     if (!video) return;
 
-    const streamSrc = customHlsUrl || NATIVE_HLS_STREAMS[0].url;
+    const streamSrc = activeStreamSource;
 
     if (Hls.isSupported()) {
       if (hlsRef.current) {
@@ -256,20 +284,30 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       }
 
       // Configure HLS with lowLatencyMode: false for rock-solid VOD scrubbing/seeking!
-      const hls = new Hls({
+      const hlsConfig: Partial<import('hls.js').HlsConfig> = {
         enableWorker: true,
-        lowLatencyMode: false, // Critical: live edge syncing disabled for VOD seeking
+        lowLatencyMode: false,
         backBufferLength: 60,
         maxBufferLength: 30,
         maxMaxBufferLength: 60,
         maxBufferSize: 60 * 1000 * 1000,
-        maxBufferHole: 0.8, // Bridge buffer holes automatically on seek
+        maxBufferHole: 0.8,
         highBufferWatchdogPeriod: 2,
-        nudgeOffset: 0.2, // Nudge forward if stuck on a frame after seek
+        nudgeOffset: 0.2,
         nudgeMaxRetry: 5,
         autoStartLoad: true
-      });
+      };
 
+      if (extractedStream?.headers && Object.keys(extractedStream.headers).length > 0) {
+        const headers = extractedStream.headers;
+        hlsConfig.xhrSetup = (xhr, _url) => {
+          Object.entries(headers).forEach(([k, v]) => {
+            xhr.setRequestHeader(k, v);
+          });
+        };
+      }
+
+      const hls = new Hls(hlsConfig);
       hls.loadSource(streamSrc);
       hls.attachMedia(video);
 
