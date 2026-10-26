@@ -248,7 +248,7 @@ export const App: React.FC = () => {
         </div>
 
         {activePlayer && (
-          <Suspense fallback={<div className="netflix-player-container" />}>
+          <Suspense fallback={<div className="player-state" />}>
             <VideoPlayer
               media={activePlayer.media}
               season={activePlayer.season}

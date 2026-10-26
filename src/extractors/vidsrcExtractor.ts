@@ -38,14 +38,10 @@ export class VidSrcExtractor extends BaseExtractor {
         };
       }
     } catch (err) {
-      console.warn(`[${this.id}] Native extraction failed, returning fallback embed URL:`, err);
+      console.warn(`[${this.id}] Direct extraction failed:`, err);
     }
 
-    // Return structured embed fallback if raw stream parsing falls back
-    return {
-      url: embedUrl,
-      format: 'hls',
-      isFallbackEmbed: true
-    };
+    // No direct stream on this provider: the resolver moves on to the next one.
+    return null;
   }
 }

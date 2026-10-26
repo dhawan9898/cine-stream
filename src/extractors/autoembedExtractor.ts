@@ -35,13 +35,10 @@ export class AutoEmbedExtractor extends BaseExtractor {
         };
       }
     } catch (err) {
-      console.warn(`[${this.id}] Direct extraction fallback to embed:`, err);
+      console.warn(`[${this.id}] Direct extraction failed:`, err);
     }
 
-    return {
-      url: embedUrl,
-      format: 'hls',
-      isFallbackEmbed: true
-    };
+    // No direct stream on this provider: the resolver moves on to the next one.
+    return null;
   }
 }

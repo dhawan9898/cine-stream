@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Native player window: opaque black, fullscreen, fades in/out. -->
+    <style name="Theme.CineStream.Player" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowAnimationStyle">@style/Animation.CineStream.Player</item>
+    </style>
+
+    <style name="Animation.CineStream.Player" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/player_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/player_hold</item>
+        <item name="android:activityCloseEnterAnimation">@anim/player_hold</item>
+        <item name="android:activityCloseExitAnimation">@anim/player_exit</item>
+    </style>
+
+    <!-- Netflix-style player: bottom action row ("Speed (1x)", "Lock", ...) -->
+    <style name="NetflixPlayerAction">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">44dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:gravity">center</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="android:background">?android:attr/selectableItemBackgroundBorderless</item>
+    </style>
+
+    <style name="NetflixPlayerActionIcon">
+        <item name="android:layout_width">22dp</item>
+        <item name="android:layout_height">22dp</item>
+        <item name="android:layout_marginEnd">8dp</item>
+    </style>
+
+    <style name="NetflixPlayerActionLabel">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- Netflix-style player: outlined "Skip Intro" / "Skip Outro" / "Watch Credits" -->
+    <style name="NetflixSkipButton">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">36dp</item>
+        <item name="android:layout_marginStart">8dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingStart">14dp</item>
+        <item name="android:paddingEnd">14dp</item>
+        <item name="android:textColor">#FFFFFF</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:visibility">gone</item>
+    </style>
+</resources>

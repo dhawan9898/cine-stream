@@ -68,14 +68,13 @@ jobs:
         run: |
           npx cap add android
           npx cap sync android
-          cp android-overrides/*.java android/app/src/main/java/com/cinehype/stream/
-          mkdir -p android/app/src/main/res/layout
-          cp android-overrides/activity_native_player.xml android/app/src/main/res/layout/
+          cp android-overrides/java/*.java android/app/src/main/java/com/cinehype/stream/
+          cp -r android-overrides/res/. android/app/src/main/res/
           MANIFEST=android/app/src/main/AndroidManifest.xml
-          sed -i '/<\/application>/i \        <activity android:name=".NativePlayerActivity" android:configChanges="orientation|keyboardHidden|screenSize" android:screenOrientation="landscape" android:theme="@style/Theme.AppCompat.NoActionBar" \/>' "$MANIFEST"
+          sed -i '/<\/application>/i \        <activity android:name=".ExoPlayerActivity" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" android:launchMode="singleTask" android:screenOrientation="sensorLandscape" android:theme="@style/Theme.CineStream.Player" android:exported="false" \/>' "$MANIFEST"
           GRADLE=android/app/build.gradle
           sed -i -E "s/versionCode [0-9]+/versionCode ${VERSION_CODE}/; s/versionName \"[^\"]*\"/versionName \"${VERSION}\"/" "$GRADLE"
-          echo 'dependencies { implementation "androidx.media3:media3-exoplayer:1.5.1"; implementation "androidx.media3:media3-ui:1.5.1"; implementation "androidx.media3:media3-exoplayer-hls:1.5.1"; implementation "androidx.media3:media3-datasource:1.5.1" }' >> "$GRADLE"
+          echo 'dependencies { implementation "androidx.media3:media3-exoplayer:1.5.1"; implementation "androidx.media3:media3-ui:1.5.1"; implementation "androidx.media3:media3-exoplayer-hls:1.5.1"; implementation "androidx.media3:media3-datasource:1.5.1"; implementation "androidx.media3:media3-common:1.5.1" }' >> "$GRADLE"
           grep -E 'versionCode|versionName' "$GRADLE"
 
       - name: Build Release APK

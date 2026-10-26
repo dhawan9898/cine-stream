@@ -25,7 +25,7 @@ const BOOKMARKS_KEY = 'cinestream_bookmarks';
 const PREFS_KEY = 'cinestream_preferences';
 
 const DEFAULT_PREFS: UserPreferences = {
-  defaultServer: 'vidfast',
+  defaultServer: 'vidsrc',
   autoplayNext: true,
   theme: 'dark'
 };
