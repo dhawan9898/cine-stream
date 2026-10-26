@@ -488,7 +488,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
     }
 
     private WebView sniffingWebView;
-    private boolean isSniffing = false;
+    private final java.util.concurrent.atomic.AtomicBoolean isSniffing =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
 
     private boolean isDirectVideoUrl(String url) {
         if (url == null || url.isEmpty()) return false;
@@ -507,7 +508,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
 
     private void startStreamSniffer(String embedUrl, String referer, String subtitlesJson, long startPositionMs, boolean playWhenReady) {
         stopStreamSniffer();
-        isSniffing = true;
+        isSniffing.set(true);
         showLoadingState();
 
         handler.post(() -> {
@@ -527,17 +528,18 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 sniffingWebView.setWebViewClient(new WebViewClient() {
                     @Override
                     public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                        if (isSniffing && request != null && request.getUrl() != null) {
+                        if (isSniffing.get() && request != null && request.getUrl() != null) {
                             String reqUrl = request.getUrl().toString();
                             if (isDirectVideoUrl(reqUrl) && !reqUrl.equalsIgnoreCase(embedUrl)) {
-                                Log.i(TAG, "Sniffed direct stream URL: " + reqUrl);
-                                isSniffing = false;
-                                String extractedReferer = request.getRequestHeaders() != null ? request.getRequestHeaders().get("Referer") : referer;
+                                if (isSniffing.compareAndSet(true, false)) {
+                                    Log.i(TAG, "Sniffed direct stream URL: " + reqUrl);
+                                    String extractedReferer = request.getRequestHeaders() != null ? request.getRequestHeaders().get("Referer") : referer;
 
-                                handler.post(() -> {
-                                    stopStreamSniffer();
-                                    initializePlayer(reqUrl, extractedReferer != null ? extractedReferer : referer, subtitlesJson, startPositionMs, playWhenReady);
-                                });
+                                    handler.post(() -> {
+                                        stopStreamSniffer();
+                                        initializePlayer(reqUrl, extractedReferer != null ? extractedReferer : referer, subtitlesJson, startPositionMs, playWhenReady);
+                                    });
+                                }
                             }
                         }
                         return super.shouldInterceptRequest(view, request);
@@ -548,7 +550,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
 
                 // Timeout fallback after 12s
                 handler.postDelayed(() -> {
-                    if (isSniffing) {
+                    if (isSniffing.compareAndSet(true, false)) {
                         Log.w(TAG, "Stream sniffing timed out for: " + embedUrl);
                         stopStreamSniffer();
                         initializePlayer(embedUrl, referer, subtitlesJson, startPositionMs, playWhenReady);
@@ -564,7 +566,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
     }
 
     private void stopStreamSniffer() {
-        isSniffing = false;
+        isSniffing.set(false);
         if (sniffingWebView != null) {
             try {
                 sniffingWebView.stopLoading();

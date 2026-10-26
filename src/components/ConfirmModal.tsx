@@ -32,6 +32,9 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      data-modal-root="true"
       style={{
         position: 'fixed',
         inset: 0,

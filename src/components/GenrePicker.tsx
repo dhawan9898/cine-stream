@@ -24,6 +24,9 @@ export const GenrePicker: React.FC<GenrePickerProps> = ({ open, type, onTypeChan
   // which would otherwise keep this overlay underneath the dock.
   return createPortal(
     <div
+      role="dialog"
+      aria-modal="true"
+      data-modal-root="true"
       className="animate-fade-in"
       style={{
         position: 'fixed',

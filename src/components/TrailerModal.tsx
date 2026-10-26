@@ -29,6 +29,9 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      data-modal-root="true"
       style={{
         position: 'fixed',
         inset: 0,

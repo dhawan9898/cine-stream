@@ -5,11 +5,7 @@ const config: CapacitorConfig = {
   appName: 'CineStream',
   webDir: 'dist',
   server: {
-    androidScheme: 'https',
-    cleartext: true,
-    allowNavigation: [
-      '*'
-    ]
+    androidScheme: 'https'
   },
   plugins: {
     CapacitorHttp: {

@@ -2,9 +2,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
-import type { MediaItem, EpisodeItem } from '../core/cineHypeCore.ts';
+import { getTVSeasonEpisodes, type MediaItem, type EpisodeItem } from '../core/cineHypeCore.ts';
 import { resolveStream, type ResolvedStream } from '../services/streamResolver.ts';
-import { saveWatchProgress } from '../services/historyService.ts';
+import { getResumePositionMs, getUserPreferences, saveWatchProgress } from '../services/historyService.ts';
 import { openNativeExoPlayer } from '../services/nativePlayer.ts';
 import { ExoPlayerPlugin } from '../plugins/exoPlayerPlugin.ts';
 import { WebPlayer, type StreamSource, type EpisodeItem as PlayerEpisode } from './WebPlayer.tsx';
@@ -45,30 +45,78 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [attempt, setAttempt] = useState<number>(0);
   const [frameReady, setFrameReady] = useState<boolean>(false);
   const [reloadKey, setReloadKey] = useState<number>(0);
+  const [fetchedEpisodes, setFetchedEpisodes] = useState<EpisodeItem[]>([]);
 
-  const currentEpisodeData = episodeList.find(e => e.episodeNumber === episode);
-  const hasNextEpisode = isSeries && episodeList.some(e => e.episodeNumber === episode + 1);
+  // Holds the resume position requested by ExoPlayerActivity when an HTTP error triggers a fresh reload
+  const reloadResumeMsRef = useRef<number | null>(null);
+  // Tracks when ExoPlayerActivity already started a prefetched next episode on its own
+  const nativePrefetchStartedEpRef = useRef<number | null>(null);
 
-  const episodes = useMemo(
-    () => (isSeries ? episodeList.filter(e => e.seasonNumber === season) : []),
-    [isSeries, episodeList, season]
+  // Ensure episode list is available even when playback starts directly from Home or Library
+  useEffect(() => {
+    if (!isSeries) return;
+    const hasSeasonEpisodes = episodeList.some(e => e.seasonNumber === season);
+    if (hasSeasonEpisodes) return;
+
+    let cancelled = false;
+    getTVSeasonEpisodes(media.id, season)
+      .then(eps => {
+        if (!cancelled) setFetchedEpisodes(eps);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isSeries, media.id, season, episodeList]);
+
+  const episodes = useMemo(() => {
+    if (!isSeries) return [];
+    const fromProp = episodeList.filter(e => e.seasonNumber === season);
+    if (fromProp.length > 0) return fromProp;
+    return fetchedEpisodes.filter(e => e.seasonNumber === season);
+  }, [isSeries, episodeList, fetchedEpisodes, season]);
+
+  const currentEpisodeData = episodes.find(e => e.episodeNumber === episode);
+  const hasNextEpisode = isSeries && episodes.some(e => e.episodeNumber === episode + 1);
+
+  const initialPositionMs = useMemo(
+    () => getResumePositionMs(media.id, media.mediaType, season, episode),
+    [media.id, media.mediaType, season, episode]
   );
 
   // Track watch progress
-  const saveProgress = useCallback((positionMs: number, durationMs: number) => {
+  const saveProgress = useCallback((positionMs: number, durationMs: number, epOverride?: number) => {
     if (durationMs <= 0) return;
+    const activeEp = epOverride ?? episode;
+    const epData = episodes.find(e => e.episodeNumber === activeEp);
     saveWatchProgress({
       media,
       season: isSeries ? season : undefined,
-      episode: isSeries ? episode : undefined,
-      episodeName: currentEpisodeData?.name,
-      progressPercent: (positionMs / durationMs) * 100
+      episode: isSeries ? activeEp : undefined,
+      episodeName: epData?.name,
+      progressPercent: (positionMs / durationMs) * 100,
+      positionMs,
+      durationMs
     });
-  }, [media, season, episode, isSeries, currentEpisodeData]);
+  }, [media, season, episode, isSeries, episodes]);
 
-  // Native ExoPlayer event listeners (playerClosed, progressUpdate, episode navigation)
+  const resolveEpisodeTarget = useCallback((epNum: number): EpisodeItem => {
+    const found = episodes.find(ep => ep.episodeNumber === epNum);
+    if (found) return found;
+    return {
+      id: epNum,
+      episodeNumber: epNum,
+      seasonNumber: season,
+      name: `Episode ${epNum}`,
+      overview: '',
+      still: ''
+    };
+  }, [episodes, season]);
+
+  // Native ExoPlayer event listeners (playerClosed, progressUpdate, episode navigation, reloadRequested)
   useEffect(() => {
     if (!isNative) return;
+    let disposed = false;
     let handles: PluginListenerHandle[] = [];
 
     const setupListeners = async () => {
@@ -78,24 +126,43 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         });
         const h2 = await ExoPlayerPlugin.addListener('progressUpdate', (e) => {
           if (e.positionMs > 0 && e.durationMs > 0) {
-            saveProgress(e.positionMs, e.durationMs);
+            const reportedEp = isSeries ? parseInt(e.episode, 10) : undefined;
+            saveProgress(
+              e.positionMs,
+              e.durationMs,
+              reportedEp && !isNaN(reportedEp) ? reportedEp : undefined
+            );
           }
         });
         const h3 = await ExoPlayerPlugin.addListener('episodeSelected', (e) => {
           const selectedNum = parseInt(e.selectedNumber || e.episode, 10);
-          if (!isNaN(selectedNum)) {
-            const target = episodeList.find(ep => ep.episodeNumber === selectedNum);
-            if (target && onSelectEpisode) onSelectEpisode(target);
+          if (!isNaN(selectedNum) && onSelectEpisode) {
+            onSelectEpisode(resolveEpisodeTarget(selectedNum));
           }
         });
-        const h4 = await ExoPlayerPlugin.addListener('nextEpisodeStarted', (e) => {
-          const currentNum = parseInt(e.episode, 10);
-          if (!isNaN(currentNum)) {
-            const nextTarget = episodeList.find(ep => ep.episodeNumber === currentNum);
-            if (nextTarget && onSelectEpisode) onSelectEpisode(nextTarget);
+        const h4 = await ExoPlayerPlugin.addListener('nextEpisodeRequested', (e) => {
+          const prevNum = parseInt(e.episode, 10);
+          const nextNum = !isNaN(prevNum) ? prevNum + 1 : episode + 1;
+          if (onSelectEpisode) {
+            onSelectEpisode(resolveEpisodeTarget(nextNum));
           }
         });
-        handles = [h1, h2, h3, h4];
+        const h5 = await ExoPlayerPlugin.addListener('nextEpisodeStarted', (e) => {
+          const startedNum = parseInt(e.episode, 10);
+          if (!isNaN(startedNum) && onSelectEpisode) {
+            nativePrefetchStartedEpRef.current = startedNum;
+            onSelectEpisode(resolveEpisodeTarget(startedNum));
+          }
+        });
+        const h6 = await ExoPlayerPlugin.addListener('reloadRequested', (e) => {
+          reloadResumeMsRef.current = e.positionMs > 0 ? e.positionMs : null;
+          setAttempt(n => n + 1);
+        });
+        if (disposed) {
+          [h1, h2, h3, h4, h5, h6].forEach(h => h.remove());
+          return;
+        }
+        handles = [h1, h2, h3, h4, h5, h6];
       } catch (err) {
         console.warn('[VideoPlayer] Error setting up ExoPlayer listeners:', err);
       }
@@ -104,16 +171,59 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setupListeners();
 
     return () => {
+      disposed = true;
       handles.forEach(h => h.remove());
     };
-  }, [isNative, onBack, saveProgress, episodeList, onSelectEpisode]);
+  }, [onBack, saveProgress, episode, isSeries, onSelectEpisode, resolveEpisodeTarget]);
+
+  // Helper to prefetch the next episode for Native ExoPlayer
+  const prefetchNativeNextEpisode = useCallback((currentEp: number) => {
+    if (!isNative || !isSeries) return;
+    const nextEpNum = currentEp + 1;
+    if (!episodes.some(e => e.episodeNumber === nextEpNum)) return;
+
+    resolveStream({ id: media.id, type: media.mediaType, season, episode: nextEpNum })
+      .then(nextRes => {
+        if (!nextRes?.url) return;
+        const prefs = getUserPreferences();
+        ExoPlayerPlugin.setNextEpisode({
+          afterEpisode: String(currentEp),
+          url: nextRes.url,
+          title: media.title,
+          episode: String(nextEpNum),
+          seasonPrefix: `S${season}:`,
+          referer: nextRes.headers?.Referer || nextRes.headers?.referer || '',
+          headers: nextRes.headers,
+          subtitles: (nextRes.subtitles || []).map((t, i) => ({
+            src: t.url,
+            label: t.label || t.lang || 'Subtitle',
+            default: i === 0
+          })),
+          isFallback: nextRes.isFallbackEmbed ?? false,
+          autoPlayNext: prefs.autoplayNext
+        }).catch(() => {});
+      })
+      .catch(() => {});
+  }, [isSeries, episodes, media.id, media.mediaType, media.title, season]);
 
   // Background stream resolution
   useEffect(() => {
     let active = true;
+
+    // If ExoPlayerActivity already transitioned to this episode via a prefetched intent,
+    // don't re-trigger play(); just prefetch the episode after it.
+    if (isNative && nativePrefetchStartedEpRef.current === episode) {
+      nativePrefetchStartedEpRef.current = null;
+      prefetchNativeNextEpisode(episode);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setFrameReady(false);
+
+    const startPositionMs = reloadResumeMsRef.current ?? initialPositionMs;
+    reloadResumeMsRef.current = null;
 
     resolveStream(
       { id: media.id, type: media.mediaType, season, episode },
@@ -124,8 +234,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         setSource(res);
         setLoading(false);
 
-        // On native Android, ALWAYS launch native Media3 Netflix ExoPlayer (ExoPlayerActivity sniffs direct .m3u8 if embed URL is passed)
+        // On native Android, launch native Media3 Netflix ExoPlayer
         if (isNative && res && res.url) {
+          const prefs = getUserPreferences();
           openNativeExoPlayer({
             url: res.url,
             title: media.title,
@@ -139,21 +250,41 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               default: i === 0
             })),
             episodes: isSeries ? episodes.map(e => ({ id: String(e.id), number: String(e.episodeNumber) })) : undefined,
+            startPositionMs: startPositionMs > 0 ? startPositionMs : undefined,
             isFallback: res.isFallbackEmbed ?? false,
-            autoPlayNext: hasNextEpisode
+            autoPlayNext: prefs.autoplayNext && hasNextEpisode
           });
+          if (hasNextEpisode) {
+            prefetchNativeNextEpisode(episode);
+          }
         }
       })
       .catch(err => {
         if (!active) return;
+        const message = err instanceof Error ? err.message : 'Failed to resolve streaming data.';
         setLoading(false);
-        setError(err instanceof Error ? err.message : 'Failed to resolve streaming data.');
+        setError(message);
+        if (isNative) {
+          ExoPlayerPlugin.fail({ message }).catch(() => {});
+        }
       });
 
     return () => {
       active = false;
     };
-  }, [media.id, media.mediaType, season, episode, attempt, isSeries, media.title, episodes, hasNextEpisode]);
+  }, [
+    media.id,
+    media.mediaType,
+    season,
+    episode,
+    attempt,
+    isSeries,
+    media.title,
+    episodes,
+    hasNextEpisode,
+    initialPositionMs,
+    prefetchNativeNextEpisode
+  ]);
 
   const handleNextEpisode = () => {
     if (!hasNextEpisode || !onSelectEpisode) return;
@@ -232,6 +363,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         title={media.title}
         episode={isSeries ? currentWebEpisode ?? { id: String(episode), number: String(episode) } : undefined}
         episodeList={isSeries ? webEpisodes : undefined}
+        initialTime={initialPositionMs > 0 ? initialPositionMs / 1000 : 0}
         onBack={onBack}
         hasNextEpisode={hasNextEpisode}
         onNextEpisode={handleNextEpisode}
@@ -264,7 +396,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button onClick={onBack} className="interactive netflix-icon-btn" aria-label="Back">
+          <button onClick={onBack} className="interactive nf-icon-btn" aria-label="Back">
             <ArrowLeft size={24} color="#fff" />
           </button>
           <div>
@@ -277,7 +409,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </div>
         </div>
 
-        <button onClick={() => setReloadKey(k => k + 1)} className="interactive netflix-icon-btn" title="Reload Stream">
+        <button onClick={() => setReloadKey(k => k + 1)} className="interactive nf-icon-btn" title="Reload Stream">
           <RefreshCw size={20} color="#fff" />
         </button>
       </div>

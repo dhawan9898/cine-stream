@@ -62,8 +62,15 @@ export async function readPersistedAsync<T>(key: string): Promise<T | null> {
         const record = req.result as CacheRecord<T> | undefined;
         if (!record) return resolve(null);
         if (Date.now() - record.savedAt > record.ttlMs) {
+          try {
+            const delTx = db.transaction(STORE_NAME, 'readwrite');
+            delTx.objectStore(STORE_NAME).delete(key);
+          } catch {}
           return resolve(null);
         }
+        try {
+          localStorage.setItem(`cinestream_cache_${key}`, JSON.stringify(record));
+        } catch {}
         resolve(record.data);
       };
       req.onerror = () => resolve(null);

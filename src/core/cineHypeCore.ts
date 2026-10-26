@@ -1,8 +1,12 @@
 // cineHypeCore.ts - CineHype Core Provider (TMDB API & Media Models)
-import { readPersisted, writePersisted } from './persistentCache.ts';
+import { readPersistedAsync, writePersisted } from './persistentCache.ts';
 
-export const CINEHYPE_TMDB_KEY = '90b2cae8d7161e8ba0f3836240d7d352';
-export const TMDB_API_BASE = 'https://api.themoviedb.org/3';
+export const CINEHYPE_TMDB_KEY =
+  import.meta.env.VITE_TMDB_API_KEY || '90b2cae8d7161e8ba0f3836240d7d352';
+export const TMDB_API_BASE =
+  import.meta.env.DEV && import.meta.env.VITE_USE_TMDB_PROXY === 'true'
+    ? '/api-tmdb'
+    : 'https://api.themoviedb.org/3';
 export const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
 
 export type MediaType = 'movie' | 'tv';
@@ -176,7 +180,7 @@ function mapRawToMedia(item: any, defaultType: MediaType = 'movie'): MediaItem {
 // 1. Trending
 export async function getTrending(type: 'all' | 'movie' | 'tv' = 'all', time: 'week' | 'day' = 'week'): Promise<MediaItem[]> {
   const cacheKey = `trending_${type}_${time}`;
-  const cached = readPersisted<MediaItem[]>(cacheKey);
+  const cached = await readPersistedAsync<MediaItem[]>(cacheKey);
   if (cached) return cached;
 
   const data = await tmdbFetch<{ results: any[] }>(`/trending/${type}/${time}`);
@@ -188,7 +192,7 @@ export async function getTrending(type: 'all' | 'movie' | 'tv' = 'all', time: 'w
 // 2. Popular Movies & TV
 export async function getPopularMovies(page = 1): Promise<MediaItem[]> {
   const cacheKey = `popular_movies_${page}`;
-  const cached = readPersisted<MediaItem[]>(cacheKey);
+  const cached = await readPersistedAsync<MediaItem[]>(cacheKey);
   if (cached) return cached;
 
   const data = await tmdbFetch<{ results: any[] }>('/movie/popular', { page });
@@ -199,7 +203,7 @@ export async function getPopularMovies(page = 1): Promise<MediaItem[]> {
 
 export async function getPopularTV(page = 1): Promise<MediaItem[]> {
   const cacheKey = `popular_tv_${page}`;
-  const cached = readPersisted<MediaItem[]>(cacheKey);
+  const cached = await readPersistedAsync<MediaItem[]>(cacheKey);
   if (cached) return cached;
 
   const data = await tmdbFetch<{ results: any[] }>('/tv/popular', { page });
@@ -211,7 +215,7 @@ export async function getPopularTV(page = 1): Promise<MediaItem[]> {
 // 3. Top Rated
 export async function getTopRatedMovies(page = 1): Promise<MediaItem[]> {
   const cacheKey = `top_rated_movies_${page}`;
-  const cached = readPersisted<MediaItem[]>(cacheKey);
+  const cached = await readPersistedAsync<MediaItem[]>(cacheKey);
   if (cached) return cached;
 
   const data = await tmdbFetch<{ results: any[] }>('/movie/top_rated', { page });
@@ -222,7 +226,7 @@ export async function getTopRatedMovies(page = 1): Promise<MediaItem[]> {
 
 export async function getTopRatedTV(page = 1): Promise<MediaItem[]> {
   const cacheKey = `top_rated_tv_${page}`;
-  const cached = readPersisted<MediaItem[]>(cacheKey);
+  const cached = await readPersistedAsync<MediaItem[]>(cacheKey);
   if (cached) return cached;
 
   const data = await tmdbFetch<{ results: any[] }>('/tv/top_rated', { page });
@@ -234,7 +238,7 @@ export async function getTopRatedTV(page = 1): Promise<MediaItem[]> {
 // 4. On The Air TV (new episodes)
 export async function getOnTheAirTV(page = 1): Promise<MediaItem[]> {
   const cacheKey = `on_air_tv_${page}`;
-  const cached = readPersisted<MediaItem[]>(cacheKey);
+  const cached = await readPersistedAsync<MediaItem[]>(cacheKey);
   if (cached) return cached;
 
   const data = await tmdbFetch<{ results: any[] }>('/tv/on_the_air', { page });
@@ -246,7 +250,7 @@ export async function getOnTheAirTV(page = 1): Promise<MediaItem[]> {
 // 5. Media Details (Movie & TV)
 export async function getMediaDetails(id: number, type: MediaType): Promise<MediaDetails> {
   const cacheKey = `details_${type}_${id}`;
-  const cached = readPersisted<MediaDetails>(cacheKey);
+  const cached = await readPersistedAsync<MediaDetails>(cacheKey);
   if (cached) return cached;
 
   const endpoint = type === 'movie' ? `/movie/${id}` : `/tv/${id}`;
@@ -328,7 +332,7 @@ export function prefetchMediaDetails(id: number, type: MediaType): void {
 // 6. TV Season Episodes
 export async function getTVSeasonEpisodes(tvId: number, seasonNumber: number): Promise<EpisodeItem[]> {
   const cacheKey = `tv_episodes_${tvId}_s${seasonNumber}`;
-  const cached = readPersisted<EpisodeItem[]>(cacheKey);
+  const cached = await readPersistedAsync<EpisodeItem[]>(cacheKey);
   if (cached) return cached;
 
   const data = await tmdbFetch<any>(`/tv/${tvId}/season/${seasonNumber}`);
@@ -366,7 +370,7 @@ export async function searchMedia(query: string, page = 1): Promise<MediaItem[]>
 // 8. Discover by Genre
 export async function discoverByGenre(genreId: number, type: MediaType, page = 1, sortBy = 'popularity.desc'): Promise<MediaItem[]> {
   const cacheKey = `discover_${type}_g${genreId}_p${page}_${sortBy}`;
-  const cached = readPersisted<MediaItem[]>(cacheKey);
+  const cached = await readPersistedAsync<MediaItem[]>(cacheKey);
   if (cached) return cached;
 
   const endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';

@@ -11,6 +11,8 @@ export interface WatchHistoryItem {
   episode?: number;
   episodeName?: string;
   progressPercent: number; // 0 to 100
+  positionMs?: number;
+  durationMs?: number;
   lastWatchedAt: number;
 }
 
@@ -54,12 +56,37 @@ export function getWatchHistory(): WatchHistoryItem[] {
   }
 }
 
+export function getMediaWatchHistory(id: number, type: MediaType): WatchHistoryItem | undefined {
+  return getWatchHistory().find(h => h.id === id && h.type === type);
+}
+
+export function getResumePositionMs(
+  id: number,
+  type: MediaType,
+  season?: number,
+  episode?: number
+): number {
+  const item = getMediaWatchHistory(id, type);
+  if (!item) return 0;
+  if (type === 'tv') {
+    const targetSeason = season ?? 1;
+    const targetEpisode = episode ?? 1;
+    if ((item.season ?? 1) !== targetSeason || (item.episode ?? 1) !== targetEpisode) {
+      return 0;
+    }
+  }
+  if (item.progressPercent >= 96) return 0;
+  return item.positionMs && item.positionMs > 0 ? Math.round(item.positionMs) : 0;
+}
+
 export function saveWatchProgress(item: {
   media: MediaItem;
   season?: number;
   episode?: number;
   episodeName?: string;
   progressPercent: number;
+  positionMs?: number;
+  durationMs?: number;
 }): void {
   try {
     const history = getWatchHistory();
@@ -75,6 +102,8 @@ export function saveWatchProgress(item: {
       episode: item.episode,
       episodeName: item.episodeName,
       progressPercent: Math.min(100, Math.max(0, item.progressPercent)),
+      positionMs: item.positionMs !== undefined ? Math.max(0, Math.round(item.positionMs)) : undefined,
+      durationMs: item.durationMs !== undefined ? Math.max(0, Math.round(item.durationMs)) : undefined,
       lastWatchedAt: Date.now()
     };
 

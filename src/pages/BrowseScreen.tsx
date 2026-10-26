@@ -23,7 +23,7 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerType, setPickerType] = useState<MediaType>(source.genre?.type ?? 'movie');
   const loadingRef = useRef(false);
-  // Bumped on sort change so a late response for the old sort is dropped.
+  // Bumped on sort/source change so a late response for the old request is dropped.
   const generationRef = useRef(0);
 
   const loadNext = useCallback(async (reset = false) => {
@@ -52,12 +52,17 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
     }
   }, [source, page, hasMore, sortBy]);
 
-  // First page on mount (App keys this screen by source, so switching
-  // remounts with fresh state).
+  // Reset and load first page on mount or if source.key changes.
   useEffect(() => {
-    loadNext();
+    generationRef.current++;
+    loadingRef.current = false;
+    setPickerType(source.genre?.type ?? 'movie');
+    setItems([]);
+    setPage(0);
+    setHasMore(true);
+    loadNext(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [source.key]);
 
   const changeSort = (next: SortBy) => {
     if (next === sortBy) return;

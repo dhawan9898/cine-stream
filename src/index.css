@@ -864,41 +864,5 @@ input:focus-visible {
   transition: transform var(--dur-base) var(--ease-out), background-color var(--dur-base) ease;
   cursor: pointer;
 }
-.btn-primary:active { transform: scale(0.96); transition-duration: var(--dur-fast); }
-
-/* Secondary button: liquid-glass pane. */
-.btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  background: var(--glass-fill);
-  color: var(--text-primary);
-  font-weight: 600;
-  font-size: 14px;
-  padding: 12px 22px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  transition: transform var(--dur-base) var(--ease-out), background-color var(--dur-base) ease;
-  cursor: pointer;
-}
-.btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  background: var(--glass-fill);
-  color: var(--text-primary);
-  font-weight: 600;
-  font-size: 14px;
-  padding: 12px 22px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
-  transition: transform var(--dur-base) var(--ease-out), background-color var(--dur-base) ease;
-  cursor: pointer;
-}
 .btn-secondary:hover { background: var(--bg-surface-hover); }
 .btn-secondary:active { transform: scale(0.96); transition-duration: var(--dur-fast); }
-

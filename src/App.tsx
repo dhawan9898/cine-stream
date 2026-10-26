@@ -7,6 +7,7 @@ import { HomeScreen } from './pages/HomeScreen.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import type { MediaItem, EpisodeItem } from './core/cineHypeCore.ts';
 import type { BrowseSource } from './services/browseSources.ts';
+import { getMediaWatchHistory } from './services/historyService.ts';
 import { getSavedTheme, applyTheme } from './services/themeService.ts';
 import { handleLayerBack } from './services/backStack.ts';
 import { useTvNavigation } from './services/tvNavigationService.ts';
@@ -104,7 +105,20 @@ export const App: React.FC = () => {
   }, []);
 
   const openDetails = useCallback((media: MediaItem) => pushLayer({ kind: 'detail', media }), [pushLayer]);
-  const openSource = useCallback((source: BrowseSource) => pushLayer({ kind: 'browse', source }), [pushLayer]);
+
+  const openSource = useCallback((source: BrowseSource) => {
+    const currentStack = layersRef.current;
+    const top = currentStack[currentStack.length - 1];
+    // If already viewing a BrowseScreen layer, replace it in place rather than stacking duplicate browse layers.
+    if (top && top.kind === 'browse') {
+      const next: Layer = { kind: 'browse', source, id: `layer-${++layerSeq}` };
+      const updated = [...currentStack.slice(0, -1), next];
+      setLayers(updated);
+      window.history.replaceState({ screen: 'layer', depth: updated.length }, '');
+      return;
+    }
+    pushLayer({ kind: 'browse', source });
+  }, [pushLayer]);
 
   const closeTopLayer = useCallback(() => {
     if (window.history.state?.screen === 'layer') window.history.back();
@@ -119,11 +133,20 @@ export const App: React.FC = () => {
 
   const handlePlayMedia = useCallback((
     media: MediaItem,
-    season: number = 1,
-    episode: number = 1,
+    season?: number,
+    episode?: number,
     episodeList: EpisodeItem[] = []
   ) => {
-    setActivePlayer({ media, season, episode, episodeList });
+    let resolvedSeason = season ?? 1;
+    let resolvedEpisode = episode ?? 1;
+    if (media.mediaType === 'tv' && season === undefined && episode === undefined) {
+      const saved = getMediaWatchHistory(media.id, 'tv');
+      if (saved?.season && saved?.episode) {
+        resolvedSeason = saved.season;
+        resolvedEpisode = saved.episode;
+      }
+    }
+    setActivePlayer({ media, season: resolvedSeason, episode: resolvedEpisode, episodeList });
     window.history.pushState({ screen: 'player', id: media.id }, '');
   }, []);
 
