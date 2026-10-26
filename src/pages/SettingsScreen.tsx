@@ -1,7 +1,6 @@
 // SettingsScreen.tsx - Appearance, playback and data settings.
 import React, { useState } from 'react';
 import { Settings as SettingsIcon, SkipForward, Trash2, Database } from 'lucide-react';
-import { STREAM_SERVERS } from '../services/streamResolver.ts';
 import { clearWatchHistory, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../core/persistentCache.ts';
@@ -98,34 +97,13 @@ export const SettingsScreen: React.FC = () => {
         <section>
           <SectionLabel>Playback</SectionLabel>
           <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 16px 6px 16px' }}>
-              <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>Default Server</h4>
-              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>Used first when a title starts playing.</p>
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '10px 16px 16px 16px' }}>
-              {STREAM_SERVERS.map(srv => {
-                const selected = prefs.defaultServer === srv.id;
-                return (
-                  <button
-                    key={srv.id}
-                    onClick={() => update({ defaultServer: srv.id })}
-                    className={`interactive glass-pill chip ${selected ? 'active' : ''}`}
-                    style={{ padding: '7px 14px', borderRadius: 'var(--radius-full)', color: selected ? undefined : 'var(--text-secondary)', fontSize: '12px', fontWeight: 700, whiteSpace: 'nowrap' }}
-                  >
-                    {srv.name}
-                  </button>
-                );
-              })}
-            </div>
-            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
-              <Row
-                icon={<SkipForward size={18} />}
-                title="Autoplay Next Episode"
-                text="Continue to the next episode when one ends"
-                onClick={() => update({ autoplayNext: !prefs.autoplayNext })}
-                trailing={<div className={`toggle-switch ${prefs.autoplayNext ? 'on' : ''}`}><div className="knob" /></div>}
-              />
-            </div>
+            <Row
+              icon={<SkipForward size={18} />}
+              title="Autoplay Next Episode"
+              text="Continue to the next episode when one ends"
+              onClick={() => update({ autoplayNext: !prefs.autoplayNext })}
+              trailing={<div className={`toggle-switch ${prefs.autoplayNext ? 'on' : ''}`}><div className="knob" /></div>}
+            />
           </div>
         </section>
 

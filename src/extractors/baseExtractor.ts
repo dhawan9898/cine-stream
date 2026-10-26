@@ -23,8 +23,8 @@ export abstract class BaseExtractor implements StreamExtractor {
         const response = await CapacitorHttp.get({
           url,
           headers: mergedHeaders,
-          connectTimeout: 10000,
-          readTimeout: 10000
+          connectTimeout: 3000,
+          readTimeout: 3000
         });
         if (response.status >= 200 && response.status < 300) {
           return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
@@ -36,7 +36,7 @@ export abstract class BaseExtractor implements StreamExtractor {
 
     // Standard web fetch fallback
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10000);
+    const timeout = setTimeout(() => controller.abort(), 3000);
     try {
       const res = await fetch(url, {
         headers: mergedHeaders,
@@ -49,18 +49,12 @@ export abstract class BaseExtractor implements StreamExtractor {
     }
   }
 
-  /**
-   * Walks from a provider page to a direct stream: reads each response
-   * whatever its type (HTML, JSON, script, manifest), follows iframes / embed
-   * links / API urls up to `maxDepth` hops, and returns the best stream with
-   * the Referer/Origin of the page that held it. Null when nothing is found.
-   */
   protected async resolveFromPage(
     startUrl: string,
     opts: { referer?: string; maxDepth?: number; maxPages?: number } = {}
   ): Promise<ExtractedStream | null> {
-    const maxDepth = opts.maxDepth ?? 3;
-    const maxPages = opts.maxPages ?? 10;
+    const maxDepth = opts.maxDepth ?? 2;
+    const maxPages = opts.maxPages ?? 4;
     const visited = new Set<string>();
     const subtitles = new Map<string, ExtractorSubtitle>();
     let queue: Array<{ url: string; referer: string }> = [{ url: startUrl, referer: opts.referer ?? this.mainUrl + '/' }];
@@ -74,8 +68,7 @@ export abstract class BaseExtractor implements StreamExtractor {
         let body: string;
         try {
           body = await this.httpGet(page.url, { Referer: page.referer, Accept: '*/*' });
-        } catch (err) {
-          console.warn(`[${this.id}] ${page.url} unreachable:`, err);
+        } catch {
           continue;
         }
         const result = discover(body, page.url);
@@ -83,7 +76,6 @@ export abstract class BaseExtractor implements StreamExtractor {
         result.subtitles.forEach(s => subtitles.set(s.url, s));
         result.pages.forEach(p => { if (!visited.has(p)) next.push({ url: p, referer: page.url }); });
       }
-      // A stream on this level beats anything deeper.
       if (found.length > 0) break;
       queue = next;
     }
