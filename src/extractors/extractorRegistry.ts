@@ -6,11 +6,13 @@ import { AutoEmbedExtractor } from './autoembedExtractor.ts';
 import { MultiEmbedExtractor } from './multiembedExtractor.ts';
 import { EmbedSuExtractor } from './embedSuExtractor.ts';
 import { SmashyExtractor } from './smashyExtractor.ts';
+import { FlixeoExtractor } from './flixeoExtractor.ts';
 
 class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
 
   constructor() {
+    this.register(new FlixeoExtractor());
     this.register(new VidLinkExtractor());
     this.register(new VidSrcExtractor());
     this.register(new AutoEmbedExtractor());
