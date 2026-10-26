@@ -16,6 +16,7 @@ import android.util.Log;
 import android.view.GestureDetector;
 import android.view.Gravity;
 import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
@@ -47,6 +48,7 @@ import androidx.media3.exoplayer.SeekParameters;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy;
+import androidx.media3.ui.AspectRatioFrameLayout;
 import androidx.media3.ui.CaptionStyleCompat;
 import androidx.media3.ui.PlayerView;
 import androidx.media3.ui.SubtitleView;
@@ -1909,6 +1911,14 @@ public class ExoPlayerActivity extends AppCompatActivity {
                     long position = player.getCurrentPosition();
                     if (position > 0) lastKnownPositionMs = position;
                 }
+                String errMessage = error != null ? error.getMessage() : "";
+                if (errMessage != null && (errMessage.contains("EXTM3U") || errMessage.contains("ParserException") || errMessage.contains("containsMalformed"))) {
+                    Log.w(TAG, "Malformed HLS manifest or HTML response, starting stream sniffer...");
+                    if (!isSniffing && pendingVideoUrl != null) {
+                        startStreamSniffer(pendingVideoUrl, pendingReferer, pendingSubtitlesJson, Math.max(0L, lastKnownPositionMs), true);
+                        return;
+                    }
+                }
                 // A side-loaded subtitle file that fails (e.g. 404) is fatal
                 // to ExoPlayer, while a browser just ignores it - drop that
                 // track and keep playing.
@@ -2255,6 +2265,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
         return chromeVisible;
     }
 
+    private ScaleGestureDetector scaleGestureDetector;
+
     private void setupGestures() {
         gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override
@@ -2281,9 +2293,34 @@ public class ExoPlayerActivity extends AppCompatActivity {
             }
         });
 
+        scaleGestureDetector = new ScaleGestureDetector(this, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            @Override
+            public boolean onScale(ScaleGestureDetector detector) {
+                if (screenLocked) return false;
+                float factor = detector.getScaleFactor();
+                if (factor > 1.05f) {
+                    if (playerView.getResizeMode() != AspectRatioFrameLayout.RESIZE_MODE_ZOOM) {
+                        playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_ZOOM);
+                        showGestureIndicator("Fit to Screen (Zoomed)");
+                    }
+                    return true;
+                } else if (factor < 0.95f) {
+                    if (playerView.getResizeMode() != AspectRatioFrameLayout.RESIZE_MODE_FIT) {
+                        playerView.setResizeMode(AspectRatioFrameLayout.RESIZE_MODE_FIT);
+                        showGestureIndicator("Original Ratio (Fit)");
+                    }
+                    return true;
+                }
+                return false;
+            }
+        });
+
         View overlay = findViewById(R.id.gesture_overlay);
         overlay.setOnTouchListener((v, event) -> {
-            gestureDetector.onTouchEvent(event);
+            scaleGestureDetector.onTouchEvent(event);
+            if (!scaleGestureDetector.isInProgress()) {
+                gestureDetector.onTouchEvent(event);
+            }
             return true;
         });
     }
