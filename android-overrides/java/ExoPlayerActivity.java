@@ -1914,7 +1914,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 String errMessage = error != null ? error.getMessage() : "";
                 if (errMessage != null && (errMessage.contains("EXTM3U") || errMessage.contains("ParserException") || errMessage.contains("containsMalformed"))) {
                     Log.w(TAG, "Malformed HLS manifest or HTML response, starting stream sniffer...");
-                    if (!isSniffing && pendingVideoUrl != null) {
+                    if (!isSniffing.get() && pendingVideoUrl != null) {
                         startStreamSniffer(pendingVideoUrl, pendingReferer, pendingSubtitlesJson, Math.max(0L, lastKnownPositionMs), true);
                         return;
                     }
