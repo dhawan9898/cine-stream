@@ -68,6 +68,21 @@ export const PosterCard: React.FC<PosterCardProps> = ({ media, onClick, width, b
           {badge}
         </span>
       )}
+      {media.voteAverage >= 1 && (
+        <span style={{
+          position: 'absolute',
+          bottom: '6px',
+          left: '6px',
+          backgroundColor: 'rgba(0,0,0,0.72)',
+          color: '#fbbf24',
+          fontSize: '10px',
+          fontWeight: 800,
+          padding: '2px 5px',
+          borderRadius: '3px'
+        }}>
+          ★ {media.voteAverage.toFixed(1)}
+        </span>
+      )}
       {!media.poster && (
         <span style={{
           position: 'absolute',
