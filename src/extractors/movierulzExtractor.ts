@@ -29,31 +29,27 @@ export class MovierulzExtractor extends BaseExtractor {
     episode?: number;
     title?: string;
   }): Promise<ExtractedStream | null> {
-    const { type, season = 1, episode = 1, title = '' } = params;
+    // Movierulz provides full feature movies. For TV Series, Movierulz posts
+    // combined full-season files rather than per-episode HLS manifests.
+    // Return null for TV Series episodes so per-episode providers (Flixeo, VidLink, VidSrc, AutoEmbed) resolve exact episode streams.
+    if (params.type === 'tv') {
+      return null;
+    }
+
+    const { title = '' } = params;
     const slug = this.slugify(title);
 
     for (const domain of this.domains) {
       try {
-        // Construct potential direct page candidates for Movierulz
-        const candidates: string[] = [];
+        // Direct candidate URL for Movierulz movies
         if (slug) {
-          if (type === 'tv') {
-            candidates.push(`${domain}/${slug}-season-${season}-episode-${episode}`);
-            candidates.push(`${domain}/${slug}-season-${season}`);
-            candidates.push(`${domain}/${slug}`);
-          } else {
-            candidates.push(`${domain}/${slug}`);
-          }
-        }
-
-        // Try candidate pages
-        for (const candidate of candidates) {
+          const candidate = `${domain}/${slug}`;
           try {
             const pageBody = await this.httpGet(candidate, { Referer: `${domain}/` });
             const stream = await this.extractFromPageBody(pageBody, candidate);
             if (stream) return stream;
           } catch {
-            // Try next candidate
+            // Try search fallback
           }
         }
 

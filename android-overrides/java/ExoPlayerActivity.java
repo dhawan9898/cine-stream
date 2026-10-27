@@ -1676,6 +1676,10 @@ public class ExoPlayerActivity extends AppCompatActivity {
     // failure. Needed because this app has no real device to test against;
     // this is what turns the next report into an actual diagnosis.
     private String describePlaybackError(androidx.media3.common.PlaybackException error) {
+        String errMessage = error != null ? error.getMessage() : "";
+        if (errMessage != null && (errMessage.contains("EXTM3U") || errMessage.contains("ParserException") || errMessage.contains("containsMalformed"))) {
+            return "Unable to parse media stream. Switching to backup server...";
+        }
         StringBuilder sb = new StringBuilder("Couldn't play this stream.\n");
         sb.append(error.getErrorCodeName());
         Throwable cause = error.getCause();
@@ -1913,9 +1917,19 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 }
                 String errMessage = error != null ? error.getMessage() : "";
                 if (errMessage != null && (errMessage.contains("EXTM3U") || errMessage.contains("ParserException") || errMessage.contains("containsMalformed"))) {
-                    Log.w(TAG, "Malformed HLS manifest or HTML response, starting stream sniffer...");
+                    Log.w(TAG, "Malformed HLS manifest or HTML response, re-resolving episode...");
                     if (!isSniffing.get() && pendingVideoUrl != null) {
                         startStreamSniffer(pendingVideoUrl, pendingReferer, pendingSubtitlesJson, Math.max(0L, lastKnownPositionMs), true);
+                        return;
+                    }
+                    final long resumeAt = lastKnownPositionMs;
+                    final String number = episodeNumber;
+                    final String mode = currentMode;
+                    final String title = animeTitle;
+                    releasePlayer();
+                    errorOverlay.setVisibility(View.GONE);
+                    showLoadingState();
+                    if (ExoPlayerPlugin.notifyReloadRequested(title, number, mode, resumeAt)) {
                         return;
                     }
                 }
