@@ -18,6 +18,12 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ExoPlayerPlugin.class);
         super.onCreate(savedInstanceState);
 
+        // Disable ad popups and window hijacks
+        if (getBridge() != null && getBridge().getWebView() != null) {
+            getBridge().getWebView().getSettings().setSupportMultipleWindows(false);
+            getBridge().getWebView().getSettings().setJavaScriptCanOpenWindowsAutomatically(false);
+        }
+
         // Capacitor's default client hands every non-app URL to an external browser
         // intent, which is what turns ad scripts inside the stream iframe into popups.
         // Never launch external intents; keep top-level navigation on the app itself.

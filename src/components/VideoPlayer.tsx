@@ -448,6 +448,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           src={source.url}
           title={`${media.title} Stream`}
           style={{ width: '100%', height: '100%', border: 'none', background: '#000000' }}
+          sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
           allowFullScreen
           onLoad={() => setFrameReady(true)}
