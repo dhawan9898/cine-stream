@@ -2,8 +2,10 @@
 // that keeps loading more as you scroll, with a "Categories" switcher.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ChevronDown, Loader2 } from 'lucide-react';
-import type { Genre, MediaItem, MediaType } from '../core/cineHypeCore.ts';
-import { SORT_OPTIONS, genreSource, type BrowseSource, type SortBy } from '../services/browseSources.ts';
+import type { MediaItem } from '../core/cineHypeCore.ts';
+import { SORT_OPTIONS, type BrowseSource, type SortBy } from '../services/browseSources.ts';
+import { categorySource, type Category, type TypeFilter } from '../services/categories.ts';
+import { computeTaste, EMPTY_TASTE, type Taste } from '../services/tasteService.ts';
 import { PosterCard } from '../components/PosterCard.tsx';
 import { GenrePicker } from '../components/GenrePicker.tsx';
 
@@ -21,7 +23,10 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
   const [loading, setLoading] = useState(false);
   const [sortBy, setSortBy] = useState<SortBy>('popularity.desc');
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerType, setPickerType] = useState<MediaType>(source.genre?.type ?? 'movie');
+  const [pickerFilter, setPickerFilter] = useState<TypeFilter>(source.category?.filter ?? 'all');
+  const [taste, setTaste] = useState<Taste>(EMPTY_TASTE);
+
+  useEffect(() => { computeTaste().then(setTaste).catch(() => {}); }, []);
   const loadingRef = useRef(false);
   // Bumped on sort/source change so a late response for the old request is dropped.
   const generationRef = useRef(0);
@@ -56,7 +61,7 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
   useEffect(() => {
     generationRef.current++;
     loadingRef.current = false;
-    setPickerType(source.genre?.type ?? 'movie');
+    setPickerFilter(source.category?.filter ?? 'all');
     setItems([]);
     setPage(0);
     setHasMore(true);
@@ -86,10 +91,10 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 600) loadNext();
   };
 
-  const pickGenre = (genre: Genre, type: MediaType) => {
+  const pickCategory = (category: Category, filter: TypeFilter) => {
     setPickerOpen(false);
-    if (source.genre?.id === genre.id && source.genre.type === type) return;
-    onOpenSource(genreSource(genre, type));
+    if (source.category?.key === category.key && source.category.filter === filter) return;
+    onOpenSource(categorySource(category, filter));
   };
 
   return (
@@ -123,7 +128,7 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
         </button>
       </div>
 
-      {source.genre && (
+      {source.category && (
         <div className="rail" style={{ gap: '8px', padding: '0 16px 12px 16px' }}>
           {SORT_OPTIONS.map(opt => (
             <button
@@ -160,11 +165,12 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
 
       <GenrePicker
         open={pickerOpen}
-        type={pickerType}
-        onTypeChange={setPickerType}
-        selectedId={source.genre?.type === pickerType ? source.genre.id : undefined}
+        filter={pickerFilter}
+        onFilterChange={setPickerFilter}
+        selectedKey={source.category && source.category.filter === pickerFilter ? source.category.key : undefined}
+        suggested={[...taste.languages, ...taste.genres]}
         onClose={() => setPickerOpen(false)}
-        onSelect={pickGenre}
+        onSelect={pickCategory}
       />
     </div>
   );
