@@ -36,6 +36,7 @@ class ExtractorRegistry {
     type: 'movie' | 'tv';
     season?: number;
     episode?: number;
+    title?: string;
   }): Promise<ExtractedStream | null> {
     // Run extractors concurrently with a 4.5s timeout per extractor
     const promises = this.extractors.map(async extractor => {

@@ -26,5 +26,6 @@ export interface StreamExtractor {
     type: 'movie' | 'tv';
     season?: number;
     episode?: number;
+    title?: string;
   }): Promise<ExtractedStream | null>;
 }

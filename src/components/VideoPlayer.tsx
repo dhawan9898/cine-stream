@@ -227,7 +227,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     reloadResumeMsRef.current = null;
 
     resolveStream(
-      { id: media.id, type: media.mediaType, season, episode, languageMode: langMode },
+      { id: media.id, type: media.mediaType, season, episode, languageMode: langMode, title: media.title },
       { fresh: attempt > 0 }
     )
       .then(res => {

@@ -9,6 +9,7 @@ export interface StreamParams {
   season?: number;
   episode?: number;
   languageMode?: string;
+  title?: string;
 }
 
 export interface ResolvedStream extends ExtractedStream {
@@ -17,11 +18,12 @@ export interface ResolvedStream extends ExtractedStream {
   season?: number;
   episode?: number;
   languageMode?: string;
+  title?: string;
 }
 
 const cache = new Map<string, { at: number; promise: Promise<ResolvedStream> }>();
 const REUSE_MS = 4 * 60 * 1000;
-const keyOf = (p: StreamParams) => `${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}`;
+const keyOf = (p: StreamParams) => `${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.title ?? ''}`;
 
 function getTitleFallbackUrl(params: StreamParams): string {
   const { id, type, season = 1, episode = 1 } = params;
@@ -37,7 +39,8 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
       id: params.id,
       type: params.type,
       season: params.season,
-      episode: params.episode
+      episode: params.episode,
+      title: params.title
     });
 
     if (extracted && extracted.url) {
@@ -46,7 +49,8 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
         id: params.id,
         type: params.type,
         season: params.season,
-        episode: params.episode
+        episode: params.episode,
+        title: params.title
       };
     }
   } catch (err) {
@@ -62,7 +66,8 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
     id: params.id,
     type: params.type,
     season: params.season,
-    episode: params.episode
+    episode: params.episode,
+    title: params.title
   };
 }
 
