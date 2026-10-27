@@ -19,6 +19,12 @@
         app:surface_type="texture_view"
         app:resize_mode="fit" />
 
+    <FrameLayout
+        android:id="@+id/embed_web_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
     <!-- Transparent touch surface for gestures: double-tap seek and tap to show or hide the controls (volume and brightness have sliders in the controls) -->
     <View
         android:id="@+id/gesture_overlay"

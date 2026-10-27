@@ -555,14 +555,68 @@ public class ExoPlayerActivity extends AppCompatActivity {
                     if (isSniffing.compareAndSet(true, false)) {
                         Log.w(TAG, "Stream sniffing timed out for: " + embedUrl);
                         stopStreamSniffer();
-                        initializePlayer(embedUrl, referer, subtitlesJson, startPositionMs, playWhenReady);
+                        showEmbedWebView(embedUrl, referer);
                     }
                 }, 12_000);
 
             } catch (Exception e) {
                 Log.e(TAG, "Error starting stream sniffer", e);
                 stopStreamSniffer();
-                initializePlayer(embedUrl, referer, subtitlesJson, startPositionMs, playWhenReady);
+                showEmbedWebView(embedUrl, referer);
+            }
+        });
+    }
+
+    private android.widget.FrameLayout embedWebContainer;
+    private WebView embedWebView;
+
+    private void showEmbedWebView(String embedUrl, String referer) {
+        handler.post(() -> {
+            try {
+                if (embedWebContainer == null) {
+                    embedWebContainer = findViewById(R.id.embed_web_container);
+                }
+                if (embedWebContainer != null) {
+                    embedWebContainer.removeAllViews();
+                    embedWebView = new WebView(ExoPlayerActivity.this);
+                    WebSettings webSettings = embedWebView.getSettings();
+                    webSettings.setJavaScriptEnabled(true);
+                    webSettings.setDomStorageEnabled(true);
+                    webSettings.setMediaPlaybackRequiresUserGesture(false);
+                    webSettings.setSupportMultipleWindows(false);
+                    webSettings.setJavaScriptCanOpenWindowsAutomatically(false);
+                    webSettings.setUserAgentString("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
+
+                    Map<String, String> headers = new HashMap<>();
+                    if (referer != null && !referer.isEmpty()) {
+                        headers.put("Referer", referer);
+                    }
+
+                    embedWebView.setWebViewClient(new WebViewClient() {
+                        @Override
+                        public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                            if (request != null && request.getUrl() != null) {
+                                String host = request.getUrl().getHost();
+                                if (host != null && (host.contains("ad") || host.contains("pop"))) {
+                                    return true; // Block ad popups
+                                }
+                            }
+                            return false;
+                        }
+                    });
+
+                    embedWebContainer.addView(embedWebView, new android.widget.FrameLayout.LayoutParams(
+                            android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
+                            android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+                    embedWebContainer.setVisibility(View.VISIBLE);
+                    bufferingSpinner.setVisibility(View.GONE);
+                    awaitingStream = false;
+
+                    embedWebView.loadUrl(embedUrl, headers);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error showing embed webview", e);
+                showPlaybackError("Unable to load video stream.");
             }
         });
     }
@@ -2434,6 +2488,13 @@ public class ExoPlayerActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         stopStreamSniffer();
+        if (embedWebView != null) {
+            try {
+                embedWebView.stopLoading();
+                embedWebView.destroy();
+            } catch (Exception ignored) {}
+            embedWebView = null;
+        }
         super.onDestroy();
         if (isFinishing()) ExoPlayerPlugin.notifyPlayerClosed();
         if (currentActivity != null && currentActivity.get() == this) currentActivity = null;
