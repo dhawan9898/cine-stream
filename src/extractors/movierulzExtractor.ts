@@ -14,6 +14,15 @@ export class MovierulzExtractor extends BaseExtractor {
     'https://www.3movierulz.in'
   ];
 
+  private categories = [
+    '/category/telugu-featured/',
+    '/category/tv-series/',
+    '/category/hindi-featured/',
+    '/category/tamil-featured/',
+    '/category/malayalam-featured/',
+    '/'
+  ];
+
   private slugify(title: string): string {
     return (title || '')
       .toLowerCase()
@@ -31,10 +40,11 @@ export class MovierulzExtractor extends BaseExtractor {
   }): Promise<ExtractedStream | null> {
     const { type, season = 1, episode = 1, title = '' } = params;
     const slug = this.slugify(title);
+    const keywords = (title || '').toLowerCase().split(/\s+/).filter(w => w.length > 2);
 
     for (const domain of this.domains) {
       try {
-        // Direct candidate URL for Movierulz movies or series
+        // 1. Try direct candidate URLs
         const candidates: string[] = [];
         if (slug) {
           if (type === 'tv') {
@@ -52,23 +62,29 @@ export class MovierulzExtractor extends BaseExtractor {
             const stream = await this.extractFromPageBody(pageBody, candidate);
             if (stream) return stream;
           } catch {
-            // Try search fallback
+            // Continue
           }
         }
 
-        // Search query fallback
-        const searchKeyword = title || String(params.id);
-        const searchUrl = `${domain}/?s=${encodeURIComponent(searchKeyword)}`;
-        const searchBody = await this.httpGet(searchUrl, { Referer: `${domain}/` });
+        // 2. Scan category feeds for title keywords
+        for (const catPath of this.categories) {
+          try {
+            const catUrl = `${domain}${catPath}`;
+            const catBody = await this.httpGet(catUrl, { Referer: `${domain}/` });
+            const postMatches = [...catBody.matchAll(/href=["'](https?:\/\/[^"']+\d+\.html)["']/gi)].map(m => m[1]);
 
-        const matches = [...searchBody.matchAll(/<a\b[^>]*href=["'](https?:\/\/[^"']+)["']/gi)]
-          .map(m => m[1])
-          .filter(u => u.includes(domain) && !u.includes('/category/') && !u.includes('/page/'));
-
-        for (const moviePageUrl of matches.slice(0, 3)) {
-          const movieBody = await this.httpGet(moviePageUrl, { Referer: searchUrl });
-          const stream = await this.extractFromPageBody(movieBody, moviePageUrl);
-          if (stream) return stream;
+            for (const postUrl of postMatches) {
+              const lowerUrl = postUrl.toLowerCase();
+              const matchedCount = keywords.filter(k => lowerUrl.includes(k)).length;
+              if (keywords.length === 0 || matchedCount >= 1) {
+                const postBody = await this.httpGet(postUrl, { Referer: catUrl });
+                const stream = await this.extractFromPageBody(postBody, postUrl);
+                if (stream) return stream;
+              }
+            }
+          } catch {
+            // Continue to next category
+          }
         }
       } catch {
         // Continue silently to next domain
