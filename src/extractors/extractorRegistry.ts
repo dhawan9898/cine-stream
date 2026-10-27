@@ -8,11 +8,13 @@ import { EmbedSuExtractor } from './embedSuExtractor.ts';
 import { SmashyExtractor } from './smashyExtractor.ts';
 import { FlixeoExtractor } from './flixeoExtractor.ts';
 import { MovierulzExtractor } from './movierulzExtractor.ts';
+import { TelegramExtractor } from './telegramExtractor.ts';
 
 class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
 
   constructor() {
+    this.register(new TelegramExtractor());
     this.register(new FlixeoExtractor());
     this.register(new MovierulzExtractor());
     this.register(new VidLinkExtractor());

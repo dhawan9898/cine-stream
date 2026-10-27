@@ -1,10 +1,12 @@
-// SettingsScreen.tsx - Appearance, playback and data settings.
-import React, { useState } from 'react';
-import { Settings as SettingsIcon, SkipForward, Trash2, Database } from 'lucide-react';
+// SettingsScreen.tsx - Appearance, playback, data, and Telegram integration settings.
+import React, { useState, useEffect } from 'react';
+import { Settings as SettingsIcon, SkipForward, Trash2, Database, Send, LogOut, CheckCircle2, ChevronRight } from 'lucide-react';
 import { clearWatchHistory, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../core/persistentCache.ts';
 import { ConfirmModal } from '../components/ConfirmModal.tsx';
+import { TelegramAuthModal } from '../components/TelegramAuthModal.tsx';
+import { telegramService } from '../services/telegramService.ts';
 
 const THEMES: { id: Theme; label: string }[] = [
   { id: 'dark', label: 'Dark' },
@@ -50,6 +52,26 @@ export const SettingsScreen: React.FC = () => {
   const [confirming, setConfirming] = useState(false);
   const [cacheCleared, setCacheCleared] = useState(false);
 
+  // Telegram Integration state
+  const [telegramAuthOpen, setTelegramAuthOpen] = useState(false);
+  const [tgStatus, setTgStatus] = useState<{ isLoggedIn: boolean; username?: string; phone?: string }>({ isLoggedIn: false });
+  const [selectedChannelsCount, setSelectedChannelsCount] = useState(0);
+
+  const refreshTgStatus = async () => {
+    const status = await telegramService.getAuthStatus();
+    setTgStatus(status);
+    if (status.isLoggedIn) {
+      const channels = await telegramService.getSelectedChannels();
+      setSelectedChannelsCount(channels.length);
+    } else {
+      setSelectedChannelsCount(0);
+    }
+  };
+
+  useEffect(() => {
+    refreshTgStatus();
+  }, []);
+
   const update = (patch: Partial<typeof prefs>) => {
     saveUserPreferences(patch);
     setPrefs(getUserPreferences());
@@ -59,6 +81,11 @@ export const SettingsScreen: React.FC = () => {
     applyTheme(t);
     setTheme(t);
     saveUserPreferences({ theme: t });
+  };
+
+  const handleTgLogout = async () => {
+    await telegramService.logout();
+    await refreshTgStatus();
   };
 
   return (
@@ -80,6 +107,41 @@ export const SettingsScreen: React.FC = () => {
       </div>
 
       <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <section>
+          <SectionLabel>Telegram Library</SectionLabel>
+          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+            {tgStatus.isLoggedIn ? (
+              <>
+                <Row
+                  icon={<Send size={18} />}
+                  title={`Telegram Connected (${tgStatus.username ? '@' + tgStatus.username : tgStatus.phone || 'User'})`}
+                  text={`${selectedChannelsCount} ${selectedChannelsCount === 1 ? 'channel' : 'channels'} selected for media scanning`}
+                  onClick={() => setTelegramAuthOpen(true)}
+                  trailing={<ChevronRight size={18} color="var(--text-muted)" />}
+                />
+                <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                  <Row
+                    icon={<LogOut size={18} />}
+                    title="Disconnect Telegram"
+                    text="Log out and clear saved channel indexing"
+                    onClick={handleTgLogout}
+                    danger
+                    trailing={<LogOut size={18} color="var(--accent-danger)" />}
+                  />
+                </div>
+              </>
+            ) : (
+              <Row
+                icon={<Send size={18} />}
+                title="Connect Telegram Account"
+                text="Stream movies and TV shows directly from your private Telegram channels"
+                onClick={() => setTelegramAuthOpen(true)}
+                trailing={<ChevronRight size={18} color="var(--text-muted)" />}
+              />
+            )}
+          </div>
+        </section>
+
         <section>
           <SectionLabel>Appearance</SectionLabel>
           <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', padding: '16px' }}>
@@ -151,6 +213,12 @@ export const SettingsScreen: React.FC = () => {
         danger
         onConfirm={() => { clearWatchHistory(); setHistoryCount(0); setConfirming(false); }}
         onCancel={() => setConfirming(false)}
+      />
+
+      <TelegramAuthModal
+        open={telegramAuthOpen}
+        onClose={() => setTelegramAuthOpen(false)}
+        onSuccess={refreshTgStatus}
       />
     </div>
   );
