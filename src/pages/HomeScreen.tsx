@@ -1,28 +1,33 @@
-// HomeScreen.tsx - Netflix-style home: hero banner, Continue Watching and
-// poster rails. Rails below the fold load when scrolled near.
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Play, Flame, Clock, ChevronRight, ChevronDown, Search as SearchIcon, Star, Tv, Film, Zap, Smile, Rocket, X, Heart, Sparkles, Ghost, Drama } from 'lucide-react';
-import { getTrending, getRecommendations, type MediaItem, type MediaType } from '../core/cineHypeCore.ts';
+// HomeScreen.tsx - Netflix-style home. Rows are built from one unified
+// category pool (movies + TV, every language and genre) and ordered by what
+// the viewer watches; rows below the fold load when scrolled near.
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Play, ChevronRight, ChevronDown, Search as SearchIcon, X } from 'lucide-react';
+import { getTrending, getRecommendations, type MediaItem } from '../core/cineHypeCore.ts';
 import { getWatchHistory, getBookmarks, removeWatchHistory, subscribeLibraryChanges, type WatchHistoryItem } from '../services/historyService.ts';
 import {
-  genreSource,
   ON_THE_AIR,
   POPULAR_MOVIES,
   POPULAR_TV,
   TOP_RATED_MOVIES,
-  TELUGU_MOVIES,
-  TAMIL_MOVIES,
-  HINDI_MOVIES,
-  MALAYALAM_MOVIES,
   TOP_RATED_TV,
   TRENDING_MOVIES,
   TRENDING_TV,
   TRENDING_ALL,
-  languageSource,
   type BrowseSource
 } from '../services/browseSources.ts';
+import {
+  MOODS,
+  categorySource,
+  categorySupports,
+  getCategory,
+  type Category,
+  type TypeFilter
+} from '../services/categories.ts';
+import { computeTaste, EMPTY_TASTE, type Taste } from '../services/tasteService.ts';
 import { HeroCarousel } from '../components/HeroCarousel.tsx';
 import { PosterCard } from '../components/PosterCard.tsx';
+import { QuickPreview } from '../components/QuickPreview.tsx';
 import { FadeImage } from '../components/FadeImage.tsx';
 import { ErrorState } from '../components/ErrorState.tsx';
 import { GenrePicker } from '../components/GenrePicker.tsx';
@@ -36,104 +41,98 @@ interface HomeScreenProps {
   paused: boolean;
 }
 
-type HomeMode = 'all' | 'movie' | 'tv';
-
-const MODES: { id: HomeMode; label: string }[] = [
+const MODES: { id: TypeFilter; label: string }[] = [
   { id: 'all', label: 'All' },
   { id: 'movie', label: 'Movies' },
   { id: 'tv', label: 'TV Shows' }
 ];
 
-type RailDef = { source: BrowseSource; icon: React.ReactNode };
+const MAX_RAILS = 16;
+const cat = (key: string) => getCategory(key)!;
 
-const g = (id: number, name: string, type: MediaType, icon: React.ReactNode): RailDef => ({ source: genreSource({ id, name }, type), icon });
-const dot = (color: string) => <Film size={18} color={color} />;
+// Language / genre rows people expect on first launch, before any history.
+const DEFAULT_LANGUAGES = ['lang-te', 'lang-hi', 'lang-ta', 'lang-ml'];
+const DEFAULT_GENRES = ['action', 'comedy', 'romance', 'scifi', 'thriller', 'horror', 'crime', 'animation'];
+const DEFAULT_MOODS = ['feel-good', 'edge-of-seat', 'mind-bending', 'family-night'];
 
-// Rails per tab, in display order. Personal rows (My List, Because You
-// Watched, Top 10) are inserted around these by HomeScreen.
-const RAILS: Record<HomeMode, RailDef[]> = {
-  all: [
-    { source: POPULAR_MOVIES, icon: <Flame size={18} color="#f43f5e" /> },
-    { source: POPULAR_TV, icon: <Tv size={18} color="var(--accent-primary)" /> },
-    { source: TELUGU_MOVIES, icon: dot('var(--accent-primary)') },
-    { source: HINDI_MOVIES, icon: dot('var(--accent-cyan)') },
-    { source: TAMIL_MOVIES, icon: dot('var(--accent-amber)') },
-    { source: MALAYALAM_MOVIES, icon: dot('#e11d48') },
-    { source: TOP_RATED_MOVIES, icon: <Star size={18} color="var(--accent-amber)" /> },
-    { source: ON_THE_AIR, icon: <Zap size={18} color="var(--accent-cyan)" /> },
-    g(28, 'Action', 'movie', dot('var(--accent-primary)')),
-    g(35, 'Comedy', 'movie', <Smile size={18} color="var(--accent-amber)" />),
-    g(10749, 'Romance', 'movie', <Heart size={18} color="#f43f5e" />),
-    g(878, 'Sci-Fi', 'movie', <Rocket size={18} color="var(--accent-cyan)" />),
-    g(27, 'Horror', 'movie', <Ghost size={18} color="var(--text-secondary)" />),
-    g(18, 'Drama', 'tv', <Drama size={18} color="var(--accent-amber)" />)
-  ],
-  movie: [
-    { source: POPULAR_MOVIES, icon: <Flame size={18} color="#f43f5e" /> },
-    { source: TOP_RATED_MOVIES, icon: <Star size={18} color="var(--accent-amber)" /> },
-    { source: TELUGU_MOVIES, icon: dot('var(--accent-primary)') },
-    { source: HINDI_MOVIES, icon: dot('var(--accent-cyan)') },
-    { source: TAMIL_MOVIES, icon: dot('var(--accent-amber)') },
-    { source: MALAYALAM_MOVIES, icon: dot('#e11d48') },
-    g(28, 'Action', 'movie', dot('var(--accent-primary)')),
-    g(35, 'Comedy', 'movie', <Smile size={18} color="var(--accent-amber)" />),
-    g(53, 'Thriller', 'movie', <Zap size={18} color="var(--accent-cyan)" />),
-    g(10749, 'Romance', 'movie', <Heart size={18} color="#f43f5e" />),
-    g(878, 'Sci-Fi', 'movie', <Rocket size={18} color="var(--accent-cyan)" />),
-    g(27, 'Horror', 'movie', <Ghost size={18} color="var(--text-secondary)" />),
-    g(16, 'Animation', 'movie', <Sparkles size={18} color="var(--accent-amber)" />)
-  ],
-  tv: [
-    { source: POPULAR_TV, icon: <Tv size={18} color="var(--accent-primary)" /> },
-    { source: ON_THE_AIR, icon: <Zap size={18} color="var(--accent-cyan)" /> },
-    { source: TOP_RATED_TV, icon: <Star size={18} color="var(--accent-amber)" /> },
-    g(10759, 'Action & Adventure', 'tv', dot('var(--accent-primary)')),
-    g(18, 'Drama', 'tv', <Drama size={18} color="var(--accent-amber)" />),
-    g(35, 'Comedy', 'tv', <Smile size={18} color="var(--accent-amber)" />),
-    g(80, 'Crime', 'tv', <Zap size={18} color="var(--accent-cyan)" />),
-    g(10765, 'Sci-Fi & Fantasy', 'tv', <Rocket size={18} color="var(--accent-cyan)" />),
-    g(16, 'Animation', 'tv', <Sparkles size={18} color="var(--accent-amber)" />)
-  ]
-};
+// Ordered list of rows for a tab. Taste-based rows come first so the top of
+// the feed feels personal; the rest fills in a varied, de-duplicated catalogue.
+function buildRails(filter: TypeFilter, taste: Taste): BrowseSource[] {
+  const rails: BrowseSource[] = [];
+  const add = (src: BrowseSource | null) => { if (src && !rails.some(r => r.key === src.key)) rails.push(src); };
+  const addCat = (c: Category, title?: string, language?: Category) => {
+    if (categorySupports(c, filter)) add(categorySource(c, filter, { title, language }));
+  };
 
-// Quick-jump chips next to the tabs: one tap to a full category page.
-const QUICK_CHIPS: BrowseSource[] = [
-  languageSource({ code: 'te', name: 'Telugu' }, 'movie'),
-  languageSource({ code: 'hi', name: 'Hindi' }, 'movie'),
-  languageSource({ code: 'ta', name: 'Tamil' }, 'movie'),
-  languageSource({ code: 'ml', name: 'Malayalam' }, 'movie'),
-  genreSource({ id: 28, name: 'Action' }, 'movie'),
-  genreSource({ id: 35, name: 'Comedy' }, 'movie'),
-  genreSource({ id: 10749, name: 'Romance' }, 'movie'),
-  genreSource({ id: 53, name: 'Thriller' }, 'movie'),
-  genreSource({ id: 27, name: 'Horror' }, 'movie'),
-  genreSource({ id: 16, name: 'Animation' }, 'movie')
-].map(src => ({ ...src, title: src.title.replace(/ (Movies|TV Shows|TV)$/, '') }));
+  if (taste.hasSignal) {
+    const [topGenre, secondGenre, thirdGenre] = taste.genres;
+    const [topLang, secondLang] = taste.languages;
+    if (topGenre && topLang) addCat(topGenre, `${topLang.name} ${topGenre.name} for You`, topLang);
+    if (topGenre) addCat(topGenre, `Because You Like ${topGenre.name}`);
+    if (topLang) addCat(topLang, `More in ${topLang.name}`);
+    if (secondGenre) addCat(secondGenre, `More ${secondGenre.name} for You`);
+    if (secondLang) addCat(secondLang, `More in ${secondLang.name}`);
+    if (thirdGenre) addCat(thirdGenre, `Because You Like ${thirdGenre.name}`);
+  }
 
-const RailHeader: React.FC<{ icon: React.ReactNode; title: string; onSeeAll: () => void }> = ({ icon, title, onSeeAll }) => (
+  if (filter === 'tv') {
+    add(POPULAR_TV); add(ON_THE_AIR); add(TOP_RATED_TV);
+  } else if (filter === 'movie') {
+    add(POPULAR_MOVIES); add(TOP_RATED_MOVIES);
+  } else {
+    add(POPULAR_MOVIES); add(POPULAR_TV); add(TOP_RATED_MOVIES); add(ON_THE_AIR);
+  }
+
+  // Interleave the three pools so the feed alternates language / mood / genre.
+  const langs = DEFAULT_LANGUAGES.map(cat);
+  const moods = DEFAULT_MOODS.map(cat);
+  const genres = DEFAULT_GENRES.map(cat);
+  for (let i = 0; i < Math.max(langs.length, moods.length, genres.length); i++) {
+    for (const c of [langs[i], moods[i], genres[i]]) if (c) addCat(c);
+  }
+  return rails.slice(0, MAX_RAILS);
+}
+
+// Chips next to the tabs: what the viewer likes first, then the popular picks.
+function buildChips(filter: TypeFilter, taste: Taste): BrowseSource[] {
+  const seen = new Set<string>();
+  const pool = [
+    ...taste.languages,
+    ...taste.genres,
+    ...DEFAULT_LANGUAGES.map(cat),
+    ...DEFAULT_GENRES.map(cat),
+    ...MOODS.slice(0, 2)
+  ];
+  return pool
+    .filter(c => categorySupports(c, filter) && !seen.has(c.key) && seen.add(c.key))
+    .slice(0, 12)
+    .map(c => categorySource(c, filter, { title: c.name }));
+}
+
+const RailHeader: React.FC<{ title: string; onSeeAll?: () => void }> = ({ title, onSeeAll }) => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', marginBottom: '10px' }}>
-    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-      {icon}
-      <h2 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)' }}>{title}</h2>
-    </div>
-    <button
-      onClick={onSeeAll}
-      className="interactive"
-      style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap' }}
-    >
-      <span>See all</span>
-      <ChevronRight size={16} />
-    </button>
+    <h2 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h2>
+    {onSeeAll && (
+      <button
+        onClick={onSeeAll}
+        className="interactive"
+        aria-label={`See all ${title}`}
+        style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', flexShrink: 0 }}
+      >
+        <span>See all</span>
+        <ChevronRight size={16} />
+      </button>
+    )}
   </div>
 );
 
 // One rail that fetches its first page only once it nears the viewport.
 const LazyRail: React.FC<{
   source: BrowseSource;
-  icon: React.ReactNode;
   onSelectMedia: (m: MediaItem) => void;
+  onPreview: (m: MediaItem) => void;
   onSeeAll: () => void;
-}> = ({ source, icon, onSelectMedia, onSeeAll }) => {
+}> = ({ source, onSelectMedia, onPreview, onSeeAll }) => {
   const holder = useRef<HTMLDivElement | null>(null);
   const [items, setItems] = useState<MediaItem[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -158,17 +157,18 @@ const LazyRail: React.FC<{
     return () => { cancelled = true; };
   }, [near, source]);
 
-  if (failed) return null;
+  // A row that loaded empty is dropped rather than shown as a blank header.
+  if (failed || (items !== null && items.length === 0)) return null;
   return (
     <div ref={holder} style={{ padding: '18px 0 4px 0', minHeight: '220px' }}>
-      <RailHeader icon={icon} title={source.title} onSeeAll={onSeeAll} />
+      <RailHeader title={source.title} onSeeAll={onSeeAll} />
       <div className="rail" style={{ gap: '10px', padding: '0 20px 6px 20px' }}>
         {items === null
           ? Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="skeleton" style={{ flex: '0 0 112px', height: '162px', borderRadius: '6px' }} />
             ))
           : items.map(m => (
-              <PosterCard key={`${m.mediaType}-${m.id}`} media={m} width={112} onClick={() => onSelectMedia(m)} />
+              <PosterCard key={`${m.mediaType}-${m.id}`} media={m} width={112} onClick={() => onSelectMedia(m)} onPreview={onPreview} />
             ))}
       </div>
     </div>
@@ -177,37 +177,30 @@ const LazyRail: React.FC<{
 
 // Rail whose items are already known (My List, Top 10, recommendations).
 const ItemRail: React.FC<{
-  icon: React.ReactNode;
   title: string;
   items: MediaItem[];
   onSelectMedia: (m: MediaItem) => void;
+  onPreview: (m: MediaItem) => void;
   onSeeAll?: () => void;
   ranked?: boolean;
-}> = ({ icon, title, items, onSelectMedia, onSeeAll, ranked }) => (
+}> = ({ title, items, onSelectMedia, onPreview, onSeeAll, ranked }) => (
   <div style={{ padding: '18px 0 4px 0' }}>
-    {onSeeAll
-      ? <RailHeader icon={icon} title={title} onSeeAll={onSeeAll} />
-      : (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0 20px', marginBottom: '10px' }}>
-          {icon}
-          <h2 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)' }}>{title}</h2>
-        </div>
-      )}
+    <RailHeader title={title} onSeeAll={onSeeAll} />
     <div className="rail" style={{ gap: ranked ? '4px' : '10px', padding: '0 20px 6px 20px' }}>
       {items.map((m, i) => ranked ? (
         <div key={`${m.mediaType}-${m.id}`} className="top10-item">
           <span className="top10-num">{i + 1}</span>
-          <PosterCard media={m} width={104} onClick={() => onSelectMedia(m)} />
+          <PosterCard media={m} width={104} onClick={() => onSelectMedia(m)} onPreview={onPreview} />
         </div>
       ) : (
-        <PosterCard key={`${m.mediaType}-${m.id}`} media={m} width={112} onClick={() => onSelectMedia(m)} />
+        <PosterCard key={`${m.mediaType}-${m.id}`} media={m} width={112} onClick={() => onSelectMedia(m)} onPreview={onPreview} />
       ))}
     </div>
   </div>
 );
 
 // "Because you watched X": TMDB recommendations for the latest title in history.
-const BecauseYouWatched: React.FC<{ seed: WatchHistoryItem; onSelectMedia: (m: MediaItem) => void }> = ({ seed, onSelectMedia }) => {
+const BecauseYouWatched: React.FC<{ seed: WatchHistoryItem; filter: TypeFilter; onSelectMedia: (m: MediaItem) => void; onPreview: (m: MediaItem) => void }> = ({ seed, filter, onSelectMedia, onPreview }) => {
   const [items, setItems] = useState<MediaItem[]>([]);
   useEffect(() => {
     let cancelled = false;
@@ -217,20 +210,14 @@ const BecauseYouWatched: React.FC<{ seed: WatchHistoryItem; onSelectMedia: (m: M
       .catch(() => {});
     return () => { cancelled = true; };
   }, [seed.id, seed.type]);
-  if (items.length < 4) return null;
-  return (
-    <ItemRail
-      icon={<Sparkles size={18} color="var(--accent-primary)" />}
-      title={`Because you watched ${seed.title}`}
-      items={items}
-      onSelectMedia={onSelectMedia}
-    />
-  );
+  const shown = filter === 'all' ? items : items.filter(m => m.mediaType === filter);
+  if (shown.length < 4) return null;
+  return <ItemRail title={`Because You Watched ${seed.title}`} items={shown} onSelectMedia={onSelectMedia} onPreview={onPreview} />;
 };
 
 // "Top picks for you": recommendations blended from the last few titles
 // watched, minus anything already in history, best-rated first.
-const PicksForYou: React.FC<{ seeds: WatchHistoryItem[]; watched: Set<string>; onSelectMedia: (m: MediaItem) => void }> = ({ seeds, watched, onSelectMedia }) => {
+const PicksForYou: React.FC<{ seeds: WatchHistoryItem[]; watched: Set<string>; filter: TypeFilter; onSelectMedia: (m: MediaItem) => void; onPreview: (m: MediaItem) => void }> = ({ seeds, watched, filter, onSelectMedia, onPreview }) => {
   const [items, setItems] = useState<MediaItem[]>([]);
   const seedKey = seeds.map(h => `${h.type}-${h.id}`).join(',');
   useEffect(() => {
@@ -254,15 +241,9 @@ const PicksForYou: React.FC<{ seeds: WatchHistoryItem[]; watched: Set<string>; o
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seedKey]);
-  if (items.length < 4) return null;
-  return (
-    <ItemRail
-      icon={<Sparkles size={18} color="var(--accent-amber)" />}
-      title="Top Picks for You"
-      items={items}
-      onSelectMedia={onSelectMedia}
-    />
-  );
+  const shown = filter === 'all' ? items : items.filter(m => m.mediaType === filter);
+  if (shown.length < 4) return null;
+  return <ItemRail title="Top Picks for You" items={shown} onSelectMedia={onSelectMedia} onPreview={onPreview} />;
 };
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMedia, onOpenSearch, onOpenSource, paused }) => {
@@ -270,12 +251,23 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
   const [trendingError, setTrendingError] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [history, setHistory] = useState<WatchHistoryItem[]>(() => getWatchHistory());
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerType, setPickerType] = useState<MediaType>('movie');
-  const [mode, setMode] = useState<HomeMode>('all');
   const [myList, setMyList] = useState<MediaItem[]>(() => getBookmarks());
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerFilter, setPickerFilter] = useState<TypeFilter>('all');
+  const [mode, setMode] = useState<TypeFilter>('all');
+  const [taste, setTaste] = useState<Taste>(EMPTY_TASTE);
+  const [preview, setPreview] = useState<MediaItem | null>(null);
 
   useEffect(() => subscribeLibraryChanges(() => { setHistory(getWatchHistory()); setMyList(getBookmarks()); }), []);
+
+  // Re-learn taste when the set of watched / saved titles changes (not on
+  // every progress tick, which only moves percentages).
+  const tasteKey = `${history.map(h => `${h.type}-${h.id}`).join(',')}|${myList.length}`;
+  useEffect(() => {
+    let cancelled = false;
+    computeTaste().then(t => { if (!cancelled) setTaste(t); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [tasteKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -286,10 +278,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
     return () => { cancelled = true; };
   }, [attempt, mode]);
 
+  const retry = useCallback(() => { setTrendingError(false); setAttempt(n => n + 1); }, []);
+
+  const rails = useMemo(() => buildRails(mode, taste), [mode, taste]);
+  const chips = useMemo(() => buildChips(mode, taste), [mode, taste]);
+  const watched = useMemo(() => new Set(history.map(h => `${h.type}-${h.id}`)), [history]);
   const seed = history.find(h => h.progressPercent > 5);
   const top10Source = mode === 'tv' ? TRENDING_TV : mode === 'movie' ? TRENDING_MOVIES : TRENDING_ALL;
+  const suggested = useMemo(() => [...taste.languages, ...taste.genres], [taste]);
 
-  const retry = useCallback(() => { setTrendingError(false); setAttempt(n => n + 1); }, []);
+  const openPicker = () => { setPickerFilter(mode); setPickerOpen(true); };
 
   return (
     <div className="screen-scroll" style={{ paddingBottom: '110px', position: 'relative' }}>
@@ -315,7 +313,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
-            onClick={() => setPickerOpen(true)}
+            onClick={openPicker}
             className="interactive glass-pill-dark"
             style={{ padding: '7px 12px', borderRadius: 'var(--radius-full)', display: 'flex', alignItems: 'center', gap: '4px', color: '#fff', fontSize: '13px', fontWeight: 600 }}
           >
@@ -347,7 +345,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
           </button>
         ))}
         <span aria-hidden style={{ width: '1px', background: 'rgba(255,255,255,0.18)', margin: '4px 2px', flexShrink: 0 }} />
-        {QUICK_CHIPS.map(src => (
+        {chips.map(src => (
           <button
             key={src.key}
             onClick={() => onOpenSource(src)}
@@ -371,7 +369,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
         <div style={{ padding: '24px 20px 8px 20px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Clock size={18} color="var(--accent-primary)" />
               <h2 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--text-primary)' }}>Continue Watching</h2>
             </div>
             <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{history.length} {history.length === 1 ? 'title' : 'titles'}</span>
@@ -436,49 +433,53 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
 
       {myList.length > 0 && (
         <ItemRail
-          icon={<Heart size={18} color="#f43f5e" />}
           title="My List"
-          items={myList}
+          items={mode === 'all' ? myList : myList.filter(m => m.mediaType === mode)}
           onSelectMedia={onSelectMedia}
+          onPreview={setPreview}
         />
       )}
 
       {trending.length >= 5 && (
         <ItemRail
-          icon={<Flame size={18} color="#f43f5e" />}
           title={mode === 'tv' ? 'Top 10 TV Shows This Week' : mode === 'movie' ? 'Top 10 Movies This Week' : 'Top 10 Today'}
           items={trending.slice(0, 10)}
           onSelectMedia={onSelectMedia}
+          onPreview={setPreview}
           onSeeAll={() => onOpenSource(top10Source)}
           ranked
         />
       )}
 
-      {seed && <BecauseYouWatched seed={seed} onSelectMedia={onSelectMedia} />}
+      {seed && <BecauseYouWatched seed={seed} filter={mode} onSelectMedia={onSelectMedia} onPreview={setPreview} />}
       {history.length > 1 && (
-        <PicksForYou
-          seeds={history.slice(1, 4)}
-          watched={new Set(history.map(h => `${h.type}-${h.id}`))}
-          onSelectMedia={onSelectMedia}
-        />
+        <PicksForYou seeds={history.slice(1, 4)} watched={watched} filter={mode} onSelectMedia={onSelectMedia} onPreview={setPreview} />
       )}
 
-      {RAILS[mode].map(({ source, icon }) => (
+      {rails.map(source => (
         <LazyRail
           key={source.key}
           source={source}
-          icon={icon}
           onSelectMedia={onSelectMedia}
+          onPreview={setPreview}
           onSeeAll={() => onOpenSource(source)}
         />
       ))}
 
       <GenrePicker
         open={pickerOpen}
-        type={pickerType}
-        onTypeChange={setPickerType}
+        filter={pickerFilter}
+        onFilterChange={setPickerFilter}
+        suggested={suggested}
         onClose={() => setPickerOpen(false)}
-        onSelect={(genre, type) => { setPickerOpen(false); onOpenSource(genreSource(genre, type)); }}
+        onSelect={(category, filter) => { setPickerOpen(false); onOpenSource(categorySource(category, filter)); }}
+      />
+
+      <QuickPreview
+        media={preview}
+        onClose={() => setPreview(null)}
+        onPlay={m => onPlayMedia(m)}
+        onOpenDetails={onSelectMedia}
       />
     </div>
   );

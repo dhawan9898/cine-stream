@@ -1,6 +1,6 @@
 // PosterCard.tsx - Compact poster tile used by the horizontal rails and the
 // poster grids (browse pages, More Like This). Flat and opaque on purpose.
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import type { MediaItem } from '../core/cineHypeCore.ts';
 import { prefetchMediaDetails } from '../core/cineHypeCore.ts';
 import { FadeImage } from './FadeImage.tsx';
@@ -12,17 +12,56 @@ interface PosterCardProps {
   // (grid cells also show the title underneath).
   width?: number;
   badge?: string;
+  // Long-press (or the context-menu key) opens a quick preview.
+  onPreview?: (media: MediaItem) => void;
 }
 
-export const PosterCard: React.FC<PosterCardProps> = ({ media, onClick, width, badge }) => (
+const LONG_PRESS_MS = 450;
+const MOVE_TOLERANCE_PX = 10;
+
+export const PosterCard: React.FC<PosterCardProps> = ({ media, onClick, width, badge, onPreview }) => {
+  const timer = useRef<number>(0);
+  const origin = useRef({ x: 0, y: 0 });
+  // Set when a long press fired so the click that follows the release is ignored.
+  const fired = useRef(false);
+
+  const cancel = () => { window.clearTimeout(timer.current); timer.current = 0; };
+  useEffect(() => cancel, []);
+
+  return (
   <div
-    onClick={onClick}
+    onClick={() => {
+      if (fired.current) { fired.current = false; return; }
+      onClick();
+    }}
+    onPointerDown={e => {
+      if (!onPreview) return;
+      fired.current = false;
+      origin.current = { x: e.clientX, y: e.clientY };
+      cancel();
+      timer.current = window.setTimeout(() => {
+        fired.current = true;
+        navigator.vibrate?.(15);
+        onPreview(media);
+      }, LONG_PRESS_MS);
+    }}
+    onPointerMove={e => {
+      if (!timer.current) return;
+      if (Math.hypot(e.clientX - origin.current.x, e.clientY - origin.current.y) > MOVE_TOLERANCE_PX) cancel();
+    }}
+    onPointerUp={cancel}
+    onPointerCancel={cancel}
+    onPointerLeave={cancel}
+    onContextMenu={e => { if (onPreview) e.preventDefault(); }}
     onMouseEnter={() => prefetchMediaDetails(media.id, media.mediaType)}
     onFocus={() => prefetchMediaDetails(media.id, media.mediaType)}
     onKeyDown={(e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         onClick();
+      } else if (onPreview && (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey))) {
+        e.preventDefault();
+        onPreview(media);
       }
     }}
     role="button"
@@ -34,7 +73,9 @@ export const PosterCard: React.FC<PosterCardProps> = ({ media, onClick, width, b
       width: width ? `${width}px` : '100%',
       display: 'flex',
       flexDirection: 'column',
-      gap: '6px'
+      gap: '6px',
+      WebkitTouchCallout: 'none',
+      userSelect: 'none'
     }}
   >
     <div style={{
@@ -115,4 +156,5 @@ export const PosterCard: React.FC<PosterCardProps> = ({ media, onClick, width, b
       </div>
     )}
   </div>
-);
+  );
+};

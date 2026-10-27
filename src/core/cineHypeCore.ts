@@ -28,6 +28,7 @@ export interface MediaItem {
   voteAverage: number;
   voteCount?: number;
   genreIds?: number[];
+  language?: string; // original language code, e.g. 'te'
   genres?: string[];
   runtime?: number; // In minutes
   tagline?: string;
@@ -165,7 +166,8 @@ function mapRawToMedia(item: any, defaultType: MediaType = 'movie'): MediaItem {
     releaseDate: item.release_date || item.first_air_date || '',
     voteAverage: typeof item.vote_average === 'number' ? Math.round(item.vote_average * 10) / 10 : 0,
     voteCount: item.vote_count,
-    genreIds: item.genre_ids || [],
+    genreIds: item.genre_ids || item.genres?.map((g: any) => g.id) || [],
+    language: item.original_language,
     genres: item.genres?.map((g: any) => g.name) || [],
     runtime: item.runtime || (item.episode_run_time && item.episode_run_time[0]),
     tagline: item.tagline,
@@ -434,6 +436,40 @@ export async function discoverByLanguage(langCode: string, type: MediaType = 'mo
     .filter(i => i.poster_path || i.backdrop_path)
     .map(i => mapRawToMedia(i, type));
 
+  writePersisted(cacheKey, items, 60 * 60 * 1000);
+  return items;
+}
+
+// 9b. Unified discover: any mix of genre(s), language and type in one call.
+// `genres` uses TMDB syntax: "35,10749" = both, "35|10749" = either.
+export interface DiscoverOptions {
+  type: MediaType;
+  genres?: string;
+  language?: string;
+  page?: number;
+  sortBy?: string;
+  // Drop titles with too few votes so "top rated" isn't dominated by 1-vote 10s.
+  minVotes?: number;
+}
+
+export async function discoverMedia(opts: DiscoverOptions): Promise<MediaItem[]> {
+  const { type, genres, language, page = 1, sortBy = 'popularity.desc' } = opts;
+  // TV has no primary_release_date.
+  const sort = type === 'tv' ? sortBy.replace('primary_release_date', 'first_air_date') : sortBy;
+  const minVotes = opts.minVotes ?? (sort.startsWith('vote_average') ? 200 : 0);
+  const cacheKey = `discover2_${type}_${genres ?? ''}_${language ?? ''}_p${page}_${sort}_${minVotes}`;
+  const cached = await readPersistedAsync<MediaItem[]>(cacheKey);
+  if (cached) return cached;
+
+  const params: Record<string, string | number> = { page, sort_by: sort };
+  if (genres) params.with_genres = genres;
+  if (language) params.with_original_language = language;
+  if (minVotes) params['vote_count.gte'] = minVotes;
+
+  const data = await tmdbFetch<{ results: any[] }>(type === 'movie' ? '/discover/movie' : '/discover/tv', params);
+  const items = data.results
+    .filter(i => i.poster_path)
+    .map(i => mapRawToMedia(i, type));
   writePersisted(cacheKey, items, 60 * 60 * 1000);
   return items;
 }

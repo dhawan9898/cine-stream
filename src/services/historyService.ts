@@ -7,6 +7,9 @@ export interface WatchHistoryItem {
   title: string;
   poster: string;
   backdrop: string;
+  // Kept so taste can be learned without refetching details.
+  genreIds?: number[];
+  language?: string;
   season?: number;
   episode?: number;
   episodeName?: string;
@@ -98,6 +101,8 @@ export function saveWatchProgress(item: {
       title: item.media.title,
       poster: item.media.poster,
       backdrop: item.media.backdrop,
+      genreIds: item.media.genreIds?.length ? item.media.genreIds : history[existingIndex]?.genreIds,
+      language: item.media.language ?? history[existingIndex]?.language,
       season: item.season,
       episode: item.episode,
       episodeName: item.episodeName,
