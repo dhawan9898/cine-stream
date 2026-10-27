@@ -232,6 +232,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     )
       .then(res => {
         if (!active) return;
+
+        // Embed fallbacks are HTML pages, not HLS manifests; ExoPlayer can't parse them.
+        if (isNative && res?.isFallbackEmbed) {
+          setLoading(false);
+          setError('No playable stream was found for this title. Try again later.');
+          return;
+        }
+
         setSource(res);
         setLoading(false);
 
