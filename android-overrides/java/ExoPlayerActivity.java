@@ -2386,9 +2386,18 @@ public class ExoPlayerActivity extends AppCompatActivity {
         }
     }
 
+    private final Runnable hideGestureIndicatorRunnable = () -> {
+        if (gestureIndicator != null) {
+            gestureIndicator.setVisibility(View.GONE);
+        }
+    };
+
     private void showGestureIndicator(String text) {
+        if (gestureIndicator == null) return;
         gestureIndicator.setText(text);
         gestureIndicator.setVisibility(View.VISIBLE);
+        handler.removeCallbacks(hideGestureIndicatorRunnable);
+        handler.postDelayed(hideGestureIndicatorRunnable, 1_500);
     }
 
     @Override
