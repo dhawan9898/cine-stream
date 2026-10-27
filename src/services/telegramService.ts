@@ -32,7 +32,6 @@ export interface TelegramMediaFile {
 class TelegramService {
   private client: TelegramClient | null = null;
   private currentSessionString: string = '';
-  private initializedPromise: Promise<void> | null = null;
 
   private async getApiCredentials(): Promise<{ apiId: number; apiHash: string }> {
     const { value } = await Preferences.get({ key: API_CREDENTIALS_KEY });
@@ -134,9 +133,10 @@ class TelegramService {
       if (err?.message?.includes('SESSION_PASSWORD_NEEDED') && password) {
         try {
           const client = await this.initClient();
+          const credentials = await this.getApiCredentials();
           await client.signInWithPassword(
-            { apiId: (await this.getApiCredentials()).apiId, apiHash: (await this.getApiCredentials()).apiHash },
-            { password, onError: (e) => console.warn('2FA Error:', e) }
+            { apiId: credentials.apiId, apiHash: credentials.apiHash },
+            { password: async () => password, onError: (e) => console.warn('2FA Error:', e) }
           );
 
           const sessionString = (client.session as StringSession).save();
@@ -175,7 +175,7 @@ class TelegramService {
 
       const channels: TelegramChannelInfo[] = [];
       for (const dialog of dialogs) {
-        if (dialog.isChannel || dialog.isGroup) {
+        if (dialog.id && (dialog.isChannel || dialog.isGroup)) {
           const entity = dialog.entity;
           if (entity && 'title' in entity) {
             channels.push({
@@ -252,11 +252,14 @@ class TelegramService {
 
                 // Check if file is a video or playable media format
                 if (mimeType.startsWith('video/') || /\.(mp4|mkv|avi|mov|webm|m3u8|001)$/i.test(fileName)) {
+                  const docIdNum = typeof (doc.id as any).toJSNumber === 'function' ? (doc.id as any).toJSNumber() : Number(doc.id);
+                  const docSizeNum = typeof (doc.size as any).toJSNumber === 'function' ? (doc.size as any).toJSNumber() : Number(doc.size);
+
                   return {
-                    id: doc.id.toNumber(),
+                    id: docIdNum,
                     channelId,
                     fileName,
-                    fileSize: doc.size.toNumber(),
+                    fileSize: docSizeNum,
                     mimeType,
                     media: msg.media
                   };
