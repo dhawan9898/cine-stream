@@ -247,6 +247,20 @@ export async function getOnTheAirTV(page = 1): Promise<MediaItem[]> {
   return items;
 }
 
+// 4b. Personalized: titles TMDB recommends from one the viewer watched
+export async function getRecommendations(id: number, type: MediaType): Promise<MediaItem[]> {
+  const cacheKey = `recs_${type}_${id}`;
+  const cached = await readPersistedAsync<MediaItem[]>(cacheKey);
+  if (cached) return cached;
+
+  const data = await tmdbFetch<{ results: any[] }>(`/${type}/${id}/recommendations`);
+  const items = data.results
+    .filter(i => i.poster_path)
+    .map(i => mapRawToMedia(i, type));
+  writePersisted(cacheKey, items, 60 * 60 * 1000);
+  return items;
+}
+
 // 5. Media Details (Movie & TV)
 export async function getMediaDetails(id: number, type: MediaType): Promise<MediaDetails> {
   const cacheKey = `details_${type}_${id}`;

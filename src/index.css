@@ -866,3 +866,23 @@ input:focus-visible {
 }
 .btn-secondary:hover { background: var(--bg-surface-hover); }
 .btn-secondary:active { transform: scale(0.96); transition-duration: var(--dur-fast); }
+
+/* ---- Top 10 rail (HomeScreen): big outlined rank number behind the poster ---- */
+.top10-item {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+}
+.top10-num {
+  font-size: 84px;
+  font-weight: 900;
+  line-height: 0.8;
+  letter-spacing: -6px;
+  margin-right: -14px;
+  color: var(--bg-main);
+  -webkit-text-stroke: 2px rgba(255,255,255,0.55);
+  position: relative;
+  z-index: 0;
+  user-select: none;
+}
+.top10-item > :not(.top10-num) { position: relative; z-index: 1; }
