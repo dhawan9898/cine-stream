@@ -17,6 +17,7 @@ import {
   TOP_RATED_TV,
   TRENDING_MOVIES,
   TRENDING_TV,
+  TRENDING_ALL,
   languageSource,
   type BrowseSource
 } from '../services/browseSources.ts';
@@ -227,6 +228,43 @@ const BecauseYouWatched: React.FC<{ seed: WatchHistoryItem; onSelectMedia: (m: M
   );
 };
 
+// "Top picks for you": recommendations blended from the last few titles
+// watched, minus anything already in history, best-rated first.
+const PicksForYou: React.FC<{ seeds: WatchHistoryItem[]; watched: Set<string>; onSelectMedia: (m: MediaItem) => void }> = ({ seeds, watched, onSelectMedia }) => {
+  const [items, setItems] = useState<MediaItem[]>([]);
+  const seedKey = seeds.map(h => `${h.type}-${h.id}`).join(',');
+  useEffect(() => {
+    let cancelled = false;
+    Promise.allSettled(seeds.map(h => getRecommendations(h.id, h.type))).then(results => {
+      if (cancelled) return;
+      const seen = new Set<string>();
+      const merged: MediaItem[] = [];
+      for (const r of results) {
+        if (r.status !== 'fulfilled') continue;
+        for (const m of r.value) {
+          const k = `${m.mediaType}-${m.id}`;
+          if (seen.has(k) || watched.has(k)) continue;
+          seen.add(k);
+          merged.push(m);
+        }
+      }
+      merged.sort((a, b) => b.voteAverage - a.voteAverage);
+      setItems(merged.slice(0, 20));
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seedKey]);
+  if (items.length < 4) return null;
+  return (
+    <ItemRail
+      icon={<Sparkles size={18} color="var(--accent-amber)" />}
+      title="Top Picks for You"
+      items={items}
+      onSelectMedia={onSelectMedia}
+    />
+  );
+};
+
 export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMedia, onOpenSearch, onOpenSource, paused }) => {
   const [trending, setTrending] = useState<MediaItem[]>([]);
   const [trendingError, setTrendingError] = useState(false);
@@ -249,7 +287,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
   }, [attempt, mode]);
 
   const seed = history.find(h => h.progressPercent > 5);
-  const top10Source = mode === 'tv' ? TRENDING_TV : TRENDING_MOVIES;
+  const top10Source = mode === 'tv' ? TRENDING_TV : mode === 'movie' ? TRENDING_MOVIES : TRENDING_ALL;
 
   const retry = useCallback(() => { setTrendingError(false); setAttempt(n => n + 1); }, []);
 
@@ -326,7 +364,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
           <ErrorState message="Couldn't load movies and shows. Check your connection and try again." onRetry={retry} />
         </div>
       ) : (
-        <HeroCarousel items={trending} onPlay={item => onPlayMedia(item)} onOpenDetails={onSelectMedia} paused={paused} />
+        <HeroCarousel items={trending} onPlay={item => onPlayMedia(item)} onOpenDetails={onSelectMedia} paused={paused} rankLabel={mode === 'tv' ? 'TV Today' : mode === 'movie' ? 'Movies Today' : 'Trending'} />
       )}
 
       {history.length > 0 && (
@@ -402,12 +440,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
           title={mode === 'tv' ? 'Top 10 TV Shows This Week' : mode === 'movie' ? 'Top 10 Movies This Week' : 'Top 10 Today'}
           items={trending.slice(0, 10)}
           onSelectMedia={onSelectMedia}
-          onSeeAll={mode === 'all' ? undefined : () => onOpenSource(top10Source)}
+          onSeeAll={() => onOpenSource(top10Source)}
           ranked
         />
       )}
 
       {seed && <BecauseYouWatched seed={seed} onSelectMedia={onSelectMedia} />}
+      {history.length > 1 && (
+        <PicksForYou
+          seeds={history.slice(1, 4)}
+          watched={new Set(history.map(h => `${h.type}-${h.id}`))}
+          onSelectMedia={onSelectMedia}
+        />
+      )}
 
       {RAILS[mode].map(({ source, icon }) => (
         <LazyRail

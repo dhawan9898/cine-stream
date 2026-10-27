@@ -20,6 +20,7 @@ interface HeroCarouselProps {
   onOpenDetails: (item: MediaItem) => void;
   // True while another screen covers this one - no auto-advance then.
   paused?: boolean;
+  rankLabel?: string;
 }
 
 const GENRE_NAMES = new Map<number, string>(
@@ -30,7 +31,7 @@ const genreLine = (m: MediaItem) =>
 
 const key = (m: MediaItem) => `${m.mediaType}-${m.id}`;
 
-export const HeroCarousel: React.FC<HeroCarouselProps> = ({ items, onPlay, onOpenDetails, paused = false }) => {
+export const HeroCarousel: React.FC<HeroCarouselProps> = ({ items, onPlay, onOpenDetails, paused = false, rankLabel = 'Trending' }) => {
   const slides = items.slice(0, MAX_SLIDES);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const lastTouchRef = useRef<number>(0);
@@ -106,7 +107,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({ items, onPlay, onOpe
               />
               <div className="hero-overlay">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                  <span className="hero-rank">#{i + 1} in Trending</span>
+                  <span className="hero-rank">#{i + 1} in {rankLabel}</span>
                   <span className="glass-pill-dark" style={{ fontSize: '11px', fontWeight: 600, padding: '3px 8px', borderRadius: '6px', color: '#cbd5e1' }}>
                     {media.mediaType === 'tv' ? 'Series' : 'Movie'}
                   </span>

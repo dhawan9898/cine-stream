@@ -67,3 +67,4 @@ export const TOP_RATED_TV: BrowseSource = { key: 'top-rated-tv', title: 'Top Rat
 // Trending has a single page; later pages are empty so Browse stops paging.
 export const TRENDING_MOVIES: BrowseSource = { key: 'trending-movies', title: 'Trending Movies', load: page => (page > 1 ? Promise.resolve([]) : getTrending('movie', 'week')) };
 export const TRENDING_TV: BrowseSource = { key: 'trending-tv', title: 'Trending TV Shows', load: page => (page > 1 ? Promise.resolve([]) : getTrending('tv', 'week')) };
+export const TRENDING_ALL: BrowseSource = { key: 'trending-all', title: 'Trending Now', load: page => (page > 1 ? Promise.resolve([]) : getTrending('all', 'week')) };
