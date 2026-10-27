@@ -378,19 +378,27 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
           </div>
 
           <div className="rail" style={{ gap: '14px', paddingBottom: '10px' }}>
-            {history.map(item => (
+            {history.map(item => {
+              const resume = () => onPlayMedia({
+                id: item.id,
+                title: item.title,
+                mediaType: item.type,
+                poster: item.poster,
+                backdrop: item.backdrop,
+                overview: '',
+                releaseDate: '',
+                voteAverage: 0
+              }, item.season, item.episode);
+              return (
               <div
                 key={`${item.type}-${item.id}`}
-                onClick={() => onPlayMedia({
-                  id: item.id,
-                  title: item.title,
-                  mediaType: item.type,
-                  poster: item.poster,
-                  backdrop: item.backdrop,
-                  overview: '',
-                  releaseDate: '',
-                  voteAverage: 0
-                }, item.season, item.episode)}
+                onClick={resume}
+                onKeyDown={e => {
+                  if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); resume(); }
+                }}
+                role="button"
+                tabIndex={0}
+                aria-label={`Resume ${item.title}`}
                 className="interactive glass-panel"
                 style={{ flex: '0 0 200px', borderRadius: 'var(--radius-md)', overflow: 'hidden', position: 'relative' }}
               >
@@ -420,7 +428,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
                   </span>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
