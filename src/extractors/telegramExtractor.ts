@@ -1,7 +1,9 @@
 // telegramExtractor.ts - Direct stream extractor for user's indexed Telegram channels
+import { Preferences } from '@capacitor/preferences';
 import { BaseExtractor } from './baseExtractor.ts';
 import type { ExtractedStream } from './types.ts';
-import { telegramService } from '../services/telegramService.ts';
+
+const SESSION_KEY = 'telegram_session_string';
 
 export class TelegramExtractor extends BaseExtractor {
   id = 'telegram';
@@ -16,13 +18,26 @@ export class TelegramExtractor extends BaseExtractor {
     title?: string;
   }): Promise<ExtractedStream | null> {
     try {
-      const auth = await telegramService.getAuthStatus();
-      if (!auth.isLoggedIn) return null;
+      // 1. Instant check: if running outside browser/WebView or user has no saved Telegram session, skip immediately (0ms)
+      if (typeof window === 'undefined') {
+        return null;
+      }
+
+      const { value: session } = await Preferences.get({ key: SESSION_KEY });
+      if (!session || !session.trim()) {
+        return null;
+      }
+
+      if (!params.title) return null;
+
+      // 2. Lazily load telegramService so the heavy Telegram client bundle is not in the critical path
+      const { telegramService } = await import('../services/telegramService.ts');
 
       const channels = await telegramService.getSelectedChannels();
       if (!channels || channels.length === 0) return null;
 
-      if (!params.title) return null;
+      const auth = await telegramService.getAuthStatus();
+      if (!auth.isLoggedIn) return null;
 
       const file = await telegramService.searchMediaInChannels(
         params.title,

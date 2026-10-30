@@ -54,21 +54,33 @@ class TelegramService {
     }
   }
 
+  public async hasSavedSession(): Promise<boolean> {
+    if (typeof window === 'undefined') return false;
+    const { value } = await Preferences.get({ key: SESSION_KEY });
+    return Boolean(value && value.trim().length > 0);
+  }
+
   private async initClient(): Promise<TelegramClient> {
-    if (this.client) return this.client;
+    if (this.client && this.client.connected) return this.client;
 
     const { apiId, apiHash } = await this.getApiCredentials();
     const { value } = await Preferences.get({ key: SESSION_KEY });
     this.currentSessionString = value || '';
 
-    const stringSession = new StringSession(this.currentSessionString);
-    this.client = new TelegramClient(stringSession, apiId, apiHash, {
-      connectionRetries: 5,
-      useWSS: true
-    });
+    try {
+      const stringSession = new StringSession(this.currentSessionString);
+      const client = new TelegramClient(stringSession, apiId, apiHash, {
+        connectionRetries: 3,
+        useWSS: true
+      });
 
-    await this.client.connect();
-    return this.client;
+      await client.connect();
+      this.client = client;
+      return this.client;
+    } catch (err) {
+      this.client = null;
+      throw err;
+    }
   }
 
   public async getAuthStatus(): Promise<{
@@ -78,6 +90,12 @@ class TelegramService {
     phone?: string;
   }> {
     try {
+      // Fast check: avoid connecting to Telegram if user hasn't saved a session
+      const hasSession = await this.hasSavedSession();
+      if (!hasSession) {
+        return { isLoggedIn: false };
+      }
+
       const client = await this.initClient();
       const me = await client.getMe();
       if (me && 'username' in me) {
@@ -232,7 +250,16 @@ class TelegramService {
       for (const channelId of selectedChannelIds) {
         for (const query of searchTerms) {
           try {
-            const messages = await client.getMessages(channelId, {
+            // Resolve entity to ensure valid InputPeer with accessHash
+            let peer: any = channelId;
+            try {
+              peer = await client.getEntity(channelId);
+            } catch {
+              // Fallback to raw identifier
+              peer = channelId;
+            }
+
+            const messages = await client.getMessages(peer, {
               search: query,
               limit: 10,
               filter: new Api.InputMessagesFilterDocument()
@@ -282,10 +309,15 @@ class TelegramService {
     try {
       const client = await this.initClient();
 
-      // Download file bytes as a Blob URL or direct stream buffer
-      const buffer = await client.downloadMedia(file.media, {
+      // Download file bytes as a Blob URL with a 15-second safety timeout
+      const downloadPromise = client.downloadMedia(file.media, {
         progressCallback: () => {}
       });
+
+      const buffer = await Promise.race([
+        downloadPromise,
+        new Promise<null>((_, reject) => setTimeout(() => reject(new Error('Download timeout')), 15000))
+      ]);
 
       if (!buffer) return null;
 

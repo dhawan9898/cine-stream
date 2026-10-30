@@ -1,20 +1,20 @@
 // extractorRegistry.ts - Central registry for real title-specific stream extractors
 import type { StreamExtractor, ExtractedStream } from './types.ts';
+import { FlixeoExtractor } from './flixeoExtractor.ts';
+import { MovierulzExtractor } from './movierulzExtractor.ts';
 import { VidLinkExtractor } from './vidlinkExtractor.ts';
 import { VidSrcExtractor } from './vidsrcExtractor.ts';
 import { AutoEmbedExtractor } from './autoembedExtractor.ts';
 import { MultiEmbedExtractor } from './multiembedExtractor.ts';
 import { EmbedSuExtractor } from './embedSuExtractor.ts';
 import { SmashyExtractor } from './smashyExtractor.ts';
-import { FlixeoExtractor } from './flixeoExtractor.ts';
-import { MovierulzExtractor } from './movierulzExtractor.ts';
 import { TelegramExtractor } from './telegramExtractor.ts';
 
 class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
 
   constructor() {
-    this.register(new TelegramExtractor());
+    // Primary streaming sources
     this.register(new FlixeoExtractor());
     this.register(new MovierulzExtractor());
     this.register(new VidLinkExtractor());
@@ -23,6 +23,8 @@ class ExtractorRegistry {
     this.register(new MultiEmbedExtractor());
     this.register(new EmbedSuExtractor());
     this.register(new SmashyExtractor());
+    // Secondary / private channel source
+    this.register(new TelegramExtractor());
   }
 
   register(extractor: StreamExtractor) {
@@ -61,13 +63,19 @@ class ExtractorRegistry {
       .filter((r): r is PromiseFulfilledResult<ExtractedStream | null> => r.status === 'fulfilled' && Boolean(r.value && r.value.url))
       .map(r => r.value!);
 
-    // Prefer direct media streams (where isFallbackEmbed is not true)
-    const directStream = fulfilled.find(s => s && !s.isFallbackEmbed);
-    if (directStream) {
-      return directStream;
+    // 1. Prefer direct media streams from primary sources (where isFallbackEmbed is not true and not blob)
+    const primaryDirectStream = fulfilled.find(s => s && !s.isFallbackEmbed && !s.url.startsWith('blob:'));
+    if (primaryDirectStream) {
+      return primaryDirectStream;
     }
 
-    // Otherwise return first valid title stream
+    // 2. Secondary direct stream (e.g. verified Telegram media file)
+    const secondaryDirectStream = fulfilled.find(s => s && !s.isFallbackEmbed);
+    if (secondaryDirectStream) {
+      return secondaryDirectStream;
+    }
+
+    // 3. Otherwise return first valid title stream (embed fallback)
     return fulfilled[0] ?? null;
   }
 }

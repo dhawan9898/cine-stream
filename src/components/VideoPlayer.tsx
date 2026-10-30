@@ -22,6 +22,7 @@ const isNative = Capacitor.isNativePlatform();
 
 function isDirectVideoUrl(url: string): boolean {
   if (!url) return false;
+  if (url.startsWith('blob:') || url.startsWith('file:')) return true;
   const lower = url.toLowerCase();
   const path = lower.split('?')[0];
   return (
@@ -233,10 +234,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       .then(res => {
         if (!active) return;
 
-        // Embed fallbacks are HTML pages, not HLS manifests; ExoPlayer can't parse them.
-        if (isNative && res?.isFallbackEmbed) {
+        // Telegram in-memory Blob URLs cannot be directly read by Android ExoPlayer
+        if (isNative && res?.url?.startsWith('blob:')) {
           setLoading(false);
-          setError('No playable stream was found for this title. Try again later.');
+          setError('Telegram in-memory streams cannot be opened directly in native ExoPlayer.');
           return;
         }
 
