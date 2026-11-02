@@ -41,6 +41,51 @@ export class MovierulzExtractor extends BaseExtractor {
     return Array.from(new Set(slugs));
   }
 
+  private async fetchWithin(url: string, ms: number): Promise<string | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.httpGet(url, { Referer: `${this.mainUrl}/` }),
+        new Promise<null>(r => { timer = setTimeout(() => r(null), ms); })
+      ]);
+    } catch {
+      return null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  // Release pages for a title: guessed slug URLs (multi-audio first) fetched in
+  // parallel, plus the site's own search results, so titles whose slug we
+  // cannot guess still resolve to the multi-language page.
+  private async findReleasePages(
+    title: string, slugs: string[], type: 'movie' | 'tv', season: number, episode: number
+  ): Promise<Array<{ url: string; body: string }>> {
+    const urls = slugs.slice(0, 4).map(slug => type === 'tv'
+      ? `${this.mainUrl}/${slug}-season-${season}-episode-${episode}/`
+      : `${this.mainUrl}/${slug}-movie-watch-online-free/`);
+
+    const guessed = await Promise.all(urls.map(async url => ({ url, body: await this.fetchWithin(url, 4000) })));
+    const pages = guessed.filter((p): p is { url: string; body: string } => Boolean(p.body && p.body.length > 500));
+
+    if (pages.length === 0) {
+      const search = await this.fetchWithin(`${this.mainUrl}/?s=${encodeURIComponent(title)}`, 4000);
+      if (search) {
+        const words = title.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 2);
+        const links = [...search.matchAll(/<a\b[^>]*?href\s*=\s*["'](https?:\/\/[^"']*movierulz[^"']+)["']/gi)]
+          .map(m => m[1])
+          .filter(u => { const l = u.toLowerCase(); return words.length > 0 && words.every(w => l.includes(w)) && !/[?#]|\/(category|tag|page)\//.test(l); });
+        // Multi-audio releases first.
+        const ranked = [...new Set(links)].sort((a, b) => Number(/multi|dual/i.test(b)) - Number(/multi|dual/i.test(a))).slice(0, 3);
+        const found = await Promise.all(ranked.map(async url => ({ url, body: await this.fetchWithin(url, 4000) })));
+        pages.push(...found.filter((p): p is { url: string; body: string } => Boolean(p.body)));
+      }
+    }
+    // Pages that advertise several languages go first.
+    const score = (b: string, u: string) => (/multi|dual/i.test(u) ? 2 : 0) + (b.match(/\b(telugu|tamil|hindi|malayalam|kannada)\b/gi)?.length ? 1 : 0);
+    return pages.sort((a, b) => score(b.body, b.url) - score(a.body, a.url));
+  }
+
   async extract(params: {
     id: number;
     type: 'movie' | 'tv';
@@ -55,24 +100,14 @@ export class MovierulzExtractor extends BaseExtractor {
 
     if (cleanTitle) {
       const slugs = this.generateSlugs(cleanTitle, languageMode);
-      const primaryDomain = this.mainUrl;
-
-      // Quick candidate check
-      const candidate = type === 'tv'
-        ? `${primaryDomain}/${slugs[0]}-season-${season}-episode-${episode}/`
-        : `${primaryDomain}/${slugs[0]}-movie-watch-online-free/`;
-
-      try {
-        const pageBody = await Promise.race([
-          this.httpGet(candidate, { Referer: `${primaryDomain}/` }),
-          new Promise<string>((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500))
-        ]);
-        const stream = await this.extractFromPageBody(pageBody, candidate, params.language);
-        if (stream) {
-          return { ...stream, serverId: this.id, serverName: this.name };
+      const pages = await this.findReleasePages(cleanTitle, slugs, type, season, episode);
+      for (const page of pages) {
+        try {
+          const stream = await this.extractFromPageBody(page.body, page.url, params.language);
+          if (stream) return { ...stream, serverId: this.id, serverName: this.name };
+        } catch {
+          // try the next candidate page
         }
-      } catch {
-        // Fast fallback to regional embed stream
       }
     }
 

@@ -16,6 +16,7 @@ import { TelegramExtractor } from './telegramExtractor.ts';
 
 const MAX_SNIFF_ATTEMPTS = 4;
 const PROVIDER_TIMEOUT_MS = 7000;
+const SNIFF_TIMEOUT_MS = 15000;
 // After a direct stream arrives, wait this long for a better one then stop.
 const EARLY_EXIT_GRACE_MS = 350;
 const HEALTH_KEY = 'cinestream_provider_health_v1';
@@ -116,10 +117,14 @@ export class ExtractorRegistry {
       if (pending === 0) { finish(); return; }
 
       active.forEach(extractor => {
-        const timeout = new Promise<null>(r => setTimeout(() => r(null), PROVIDER_TIMEOUT_MS));
-        Promise.race([extractor.extract(params), timeout])
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<null>(r => { timer = setTimeout(() => r(null), PROVIDER_TIMEOUT_MS); });
+        // extract() may throw synchronously; wrap so one bad provider never breaks the lookup.
+        const attempt = (async () => extractor.extract(params))();
+        Promise.race([attempt, timeout])
           .catch(() => null)
           .then(stream => {
+            if (timer) clearTimeout(timer);
             const ok = Boolean(stream && stream.url && (isDirect(stream) || !directOnly));
             this.recordResult(extractor.id, ok);
             if (stream && stream.url) {
@@ -150,7 +155,15 @@ export class ExtractorRegistry {
     if (direct.length === 0 && params.allowSniff !== false) {
       const embeds = sorted.filter(s => s.isFallbackEmbed).slice(0, MAX_SNIFF_ATTEMPTS);
       for (const embed of embeds) {
-        const sniffed = await this.sniffer(embed);
+        let sniffed: ExtractedStream | null = null;
+        try {
+          sniffed = await Promise.race([
+            this.sniffer(embed),
+            new Promise<null>(r => setTimeout(() => r(null), SNIFF_TIMEOUT_MS))
+          ]);
+        } catch {
+          sniffed = null;
+        }
         if (sniffed?.url) {
           direct.push(sniffed);
           break;

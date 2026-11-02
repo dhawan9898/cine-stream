@@ -29,7 +29,7 @@ export interface ResolvedStream extends ExtractedStream {
   availableServers?: Array<{ serverId: string; serverName: string; isFallbackEmbed?: boolean }>;
 }
 
-const memoryCache = new Map<string, { at: number; promise: Promise<ResolvedStream> }>();
+const memoryCache = new Map<string, { at: number; prefetch: boolean; promise: Promise<ResolvedStream> }>();
 const REUSE_MS = 30 * 60 * 1000; // 30 minutes in-memory
 const CACHE_VERSION = 'v5';
 const keyOf = (p: StreamParams) => `${CACHE_VERSION}|${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.language ?? ''}|${p.title ?? ''}|${p.preferredServerId ?? ''}`;
@@ -131,11 +131,20 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean }
 
     const existing = memoryCache.get(key);
     if (existing && Date.now() - existing.at < REUSE_MS) {
+      // A background prefetch never uses the web-view sniffer, so if it came
+      // up empty a real playback request must try again with the full pipeline.
+      if (existing.prefetch && !params.prefetch) {
+        const retry = existing.promise.catch(() => resolveUncached({ ...params, prefetch: false }));
+        const entry = { at: Date.now(), prefetch: false, promise: retry };
+        memoryCache.set(key, entry);
+        retry.catch(() => { if (memoryCache.get(key) === entry) memoryCache.delete(key); });
+        return retry.then(s => ({ ...s }));
+      }
       return existing.promise.then(s => ({ ...s }));
     }
   }
 
-  const entry = { at: Date.now(), promise: resolveUncached(params) };
+  const entry = { at: Date.now(), prefetch: Boolean(params.prefetch), promise: resolveUncached(params) };
   memoryCache.set(key, entry);
   entry.promise.catch(() => {
     if (memoryCache.get(key) === entry) memoryCache.delete(key);
@@ -167,4 +176,45 @@ export async function resolveAllAvailableStreams(params: StreamParams): Promise<
     title: params.title,
     language: params.language
   }));
+}
+
+// Warms the stream cache for titles on screen (e.g. the first home rail) so
+// the first tap plays quickly. Runs a couple at a time, only when idle, and
+// never uses the web-view sniffer.
+const WARM_CONCURRENCY = 2;
+const warmQueue: StreamParams[] = [];
+const warmSeen = new Set<string>();
+let warmActive = 0;
+
+const whenIdle = (fn: () => void) => {
+  const w = globalThis as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void };
+  if (w.requestIdleCallback) w.requestIdleCallback(fn, { timeout: 3000 });
+  else setTimeout(fn, 400);
+};
+
+function pumpWarmQueue() {
+  while (warmActive < WARM_CONCURRENCY && warmQueue.length > 0) {
+    const params = warmQueue.shift()!;
+    warmActive++;
+    resolveStream({ ...params, prefetch: true })
+      .catch(() => {})
+      .finally(() => { warmActive--; whenIdle(pumpWarmQueue); });
+  }
+}
+
+export function warmStreams(items: Array<{ id: number; mediaType: MediaType; title: string; language?: string }>, limit = 8): void {
+  for (const m of items.slice(0, limit)) {
+    const params: StreamParams = {
+      id: m.id,
+      type: m.mediaType,
+      title: m.title,
+      language: m.language,
+      ...(m.mediaType === 'tv' ? { season: 1, episode: 1 } : {})
+    };
+    const key = keyOf(params);
+    if (warmSeen.has(key)) continue;
+    warmSeen.add(key);
+    warmQueue.push(params);
+  }
+  whenIdle(pumpWarmQueue);
 }

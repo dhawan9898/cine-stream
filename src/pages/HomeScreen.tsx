@@ -4,6 +4,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Play, ChevronRight, ChevronDown, Search as SearchIcon, X, RefreshCw } from 'lucide-react';
 import { clearPersistedCache } from '../core/persistentCache.ts';
+import { warmStreams } from '../services/streamResolver.ts';
 import { getTrending, getRecommendations, type MediaItem } from '../core/cineHypeCore.ts';
 import { getWatchHistory, getBookmarks, removeWatchHistory, subscribeLibraryChanges, type WatchHistoryItem } from '../services/historyService.ts';
 import {
@@ -153,7 +154,7 @@ const LazyRail: React.FC<{
     if (!near) return;
     let cancelled = false;
     source.load(1, 'popularity.desc')
-      .then(list => { if (!cancelled) setItems(list); })
+      .then(list => { if (!cancelled) { setItems(list); warmStreams(list, 3); } })
       .catch(() => { if (!cancelled) setFailed(true); });
     return () => { cancelled = true; };
   }, [near, source]);
@@ -207,7 +208,7 @@ const BecauseYouWatched: React.FC<{ seed: WatchHistoryItem; filter: TypeFilter; 
     let cancelled = false;
     setItems([]);
     getRecommendations(seed.id, seed.type)
-      .then(list => { if (!cancelled) setItems(list); })
+      .then(list => { if (!cancelled) { setItems(list); warmStreams(list, 3); } })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [seed.id, seed.type]);
@@ -274,7 +275,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
     let cancelled = false;
     setTrending([]);
     getTrending(mode, 'week')
-      .then(items => { if (!cancelled) { setTrending(items); setTrendingError(false); } })
+      .then(items => { if (!cancelled) { setTrending(items); setTrendingError(false); warmStreams(items, 6); } })
       .catch(() => { if (!cancelled) setTrendingError(true); });
     return () => { cancelled = true; };
   }, [attempt, mode]);
