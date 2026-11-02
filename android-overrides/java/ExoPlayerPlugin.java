@@ -1,6 +1,16 @@
 package com.cinehype.stream;
 
 import android.content.Intent;
+import android.os.Handler;
+import android.os.Looper;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
+import android.webkit.WebSettings;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -128,6 +138,133 @@ public class ExoPlayerPlugin extends Plugin {
         intent.putExtra("mode", call.getString("mode", "sub"));
         getActivity().startActivity(intent);
         call.resolve();
+    }
+
+    private static boolean isMediaUrl(String url) {
+        String lower = url.toLowerCase();
+        String path = lower.split("\\?")[0];
+        if (lower.contains("manifest.webm") || lower.contains("placeholder") || lower.contains("dummy.")
+                || lower.contains("sample.") || lower.contains("intro.mp4") || lower.contains("blank.mp4")) {
+            return false;
+        }
+        return path.endsWith(".m3u8") || path.endsWith(".mpd") || path.endsWith(".mp4")
+                || path.endsWith(".webm") || path.endsWith(".mkv") || lower.contains(".m3u8");
+    }
+
+    private static boolean isManifestUrl(String url) {
+        String lower = url.toLowerCase();
+        return lower.contains(".m3u8") || lower.split("\\?")[0].endsWith(".mpd");
+    }
+
+    // Loads an embed page in a hidden WebView and reports the first real media
+    // request it makes, so ExoPlayer is only ever given a direct stream URL.
+    @PluginMethod
+    public void sniffStream(PluginCall call) {
+        final String pageUrl = call.getString("url");
+        final String referer = call.getString("referer", "");
+        final int timeoutMs = call.getInt("timeoutMs", 15000);
+        if (pageUrl == null || pageUrl.isEmpty()) {
+            call.reject("Must provide a url");
+            return;
+        }
+        final Handler main = new Handler(Looper.getMainLooper());
+        final AtomicBoolean done = new AtomicBoolean(false);
+        final WebView[] holder = new WebView[1];
+        final String[] mp4Candidate = new String[1];
+        final Map<String, String>[] mp4Headers = new Map[1];
+
+        final Runnable[] finish = new Runnable[1];
+        final java.util.function.BiConsumer<String, Map<String, String>> succeed = (media, reqHeaders) -> {
+            if (!done.compareAndSet(false, true)) return;
+            main.post(() -> {
+                destroySniffer(holder[0]);
+                JSObject ret = new JSObject();
+                ret.put("found", true);
+                ret.put("url", media);
+                String ref = reqHeaders != null ? reqHeaders.get("Referer") : null;
+                ret.put("referer", ref != null ? ref : referer);
+                JSObject h = new JSObject();
+                if (reqHeaders != null) {
+                    for (String k : new String[]{"Referer", "Origin", "User-Agent"}) {
+                        String v = reqHeaders.get(k);
+                        if (v != null) h.put(k, v);
+                    }
+                }
+                ret.put("headers", h);
+                call.resolve(ret);
+            });
+        };
+        finish[0] = () -> {
+            if (mp4Candidate[0] != null) { succeed.accept(mp4Candidate[0], mp4Headers[0]); return; }
+            if (!done.compareAndSet(false, true)) return;
+            destroySniffer(holder[0]);
+            JSObject ret = new JSObject();
+            ret.put("found", false);
+            call.resolve(ret);
+        };
+
+        getActivity().runOnUiThread(() -> {
+            try {
+                WebView web = new WebView(getContext());
+                holder[0] = web;
+                WebSettings ws = web.getSettings();
+                ws.setJavaScriptEnabled(true);
+                ws.setDomStorageEnabled(true);
+                ws.setMediaPlaybackRequiresUserGesture(false);
+                ws.setSupportMultipleWindows(false);
+                ws.setJavaScriptCanOpenWindowsAutomatically(false);
+                ws.setUserAgentString("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
+                final String autoplay = "(function(){try{document.querySelectorAll('video').forEach(function(v){v.muted=true;var p=v.play();if(p&&p.catch)p.catch(function(){});});"
+                        + "['.jw-icon-display','.vjs-big-play-button','.plyr__control--overlaid','.play-button','#play','[aria-label=Play]','button.play'].forEach(function(s){var e=document.querySelector(s);if(e)e.click();});}catch(e){}})();";
+                web.setWebViewClient(new WebViewClient() {
+                    @Override
+                    public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                        if (!done.get() && request != null && request.getUrl() != null) {
+                            String req = request.getUrl().toString();
+                            if (isMediaUrl(req) && !req.equalsIgnoreCase(pageUrl)) {
+                                if (isManifestUrl(req)) {
+                                    succeed.accept(req, request.getRequestHeaders());
+                                } else if (mp4Candidate[0] == null) {
+                                    mp4Candidate[0] = req;
+                                    mp4Headers[0] = request.getRequestHeaders();
+                                    main.postDelayed(() -> { if (!done.get()) finish[0].run(); }, 4000);
+                                }
+                            }
+                        }
+                        return super.shouldInterceptRequest(view, request);
+                    }
+
+                    @Override
+                    public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                        // Keep the top frame on the embed; block ad redirects.
+                        return request != null && request.isForMainFrame() && request.getUrl() != null
+                                && !request.getUrl().toString().equalsIgnoreCase(pageUrl);
+                    }
+
+                    @Override
+                    public void onPageFinished(WebView view, String url) {
+                        for (int delay : new int[]{500, 2000, 4000, 7000}) {
+                            main.postDelayed(() -> { if (!done.get()) view.evaluateJavascript(autoplay, null); }, delay);
+                        }
+                    }
+                });
+                Map<String, String> headers = new HashMap<>();
+                if (!referer.isEmpty()) headers.put("Referer", referer);
+                web.loadUrl(pageUrl, headers);
+                main.postDelayed(() -> { if (!done.get()) finish[0].run(); }, timeoutMs);
+            } catch (Exception e) {
+                finish[0].run();
+            }
+        });
+    }
+
+    private static void destroySniffer(WebView web) {
+        if (web == null) return;
+        try {
+            web.stopLoading();
+            web.loadUrl("about:blank");
+            web.destroy();
+        } catch (Exception ignored) {}
     }
 
     // Stream resolution failed - show it inside the open player.

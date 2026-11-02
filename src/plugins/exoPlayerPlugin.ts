@@ -71,6 +71,15 @@ export interface ExoPlayerPluginInterface {
   // Opens the player in its loading state while the stream is resolved.
   open(options: { title?: string; episode?: string; seasonPrefix?: string; mode?: string }): Promise<void>;
 
+  // Loads an embed page in a hidden WebView and returns the first real
+  // media request (.m3u8/.mpd/.mp4) it makes. found=false if none appears.
+  sniffStream(options: { url: string; referer?: string; timeoutMs?: number }): Promise<{
+    found: boolean;
+    url?: string;
+    referer?: string;
+    headers?: Record<string, string>;
+  }>;
+
   // Shows a playback error inside the open player.
   fail(options: { message: string }): Promise<void>;
 

@@ -1,5 +1,7 @@
 // extractorRegistry.ts - Central registry for real title-specific stream extractors
+import { Capacitor } from '@capacitor/core';
 import type { StreamExtractor, ExtractedStream } from './types.ts';
+import { sniffDirectStream } from '../services/webSniffer.ts';
 import { FlixeoExtractor } from './flixeoExtractor.ts';
 import { MovierulzExtractor } from './movierulzExtractor.ts';
 import { VidLinkExtractor } from './vidlinkExtractor.ts';
@@ -12,10 +14,21 @@ import { RiveExtractor } from './riveExtractor.ts';
 import { InsertUnitExtractor } from './insertunitExtractor.ts';
 import { TelegramExtractor } from './telegramExtractor.ts';
 
-class ExtractorRegistry {
-  private extractors: StreamExtractor[] = [];
+const MAX_SNIFF_ATTEMPTS = 4;
 
-  constructor() {
+type Sniffer = (embed: ExtractedStream) => Promise<ExtractedStream | null>;
+
+export class ExtractorRegistry {
+  private extractors: StreamExtractor[] = [];
+  private sniffer: Sniffer = embed => sniffDirectStream(embed);
+
+  // Lets tests (or other platforms) swap the embed -> direct stream resolver.
+  setSniffer(fn: Sniffer) {
+    this.sniffer = fn;
+  }
+
+  constructor(withDefaults = true) {
+    if (!withDefaults) return;
     // Primary multi-server embed sources with 100% TMDB coverage first
     this.register(new MultiEmbedExtractor());
     this.register(new AutoEmbedExtractor());
@@ -46,6 +59,9 @@ class ExtractorRegistry {
     episode?: number;
     title?: string;
     language?: string;
+    // Only return direct stream data (never iframe/embed pages). Defaults to
+    // true on native Android, where the result is handed straight to ExoPlayer.
+    directOnly?: boolean;
   }): Promise<ExtractedStream[]> {
     const timeoutMs = 7000;
     const promises = this.extractors.map(async (extractor): Promise<ExtractedStream | null> => {
@@ -76,11 +92,29 @@ class ExtractorRegistry {
     }
 
     // Sort streams: direct non-blob streams first, then other direct streams, then fallback embeds
-    return fulfilled.sort((a, b) => {
+    const sorted = fulfilled.sort((a, b) => {
       const aDirect = !a.isFallbackEmbed && !a.url.startsWith('blob:') ? 2 : (!a.isFallbackEmbed ? 1 : 0);
       const bDirect = !b.isFallbackEmbed && !b.url.startsWith('blob:') ? 2 : (!b.isFallbackEmbed ? 1 : 0);
       return bDirect - aDirect;
     });
+
+    const directOnly = params.directOnly ?? Capacitor.isNativePlatform();
+    if (!directOnly) return sorted;
+
+    // Method 2: no provider gave a direct stream from its page/API, so load the
+    // embed pages in a hidden WebView and capture the real media request.
+    const direct = sorted.filter(s => !s.isFallbackEmbed);
+    if (direct.length === 0) {
+      const embeds = sorted.filter(s => s.isFallbackEmbed).slice(0, MAX_SNIFF_ATTEMPTS);
+      for (const embed of embeds) {
+        const sniffed = await this.sniffer(embed);
+        if (sniffed?.url) {
+          direct.push(sniffed);
+          break;
+        }
+      }
+    }
+    return direct;
   }
 
   async resolveBestStream(params: {
@@ -92,8 +126,9 @@ class ExtractorRegistry {
     language?: string;
     languageMode?: string;
     preferredServerId?: string;
-  }): Promise<ExtractedStream | null> {
-    const all = await this.resolveAllStreams(params);
+    directOnly?: boolean;
+  }, precomputed?: ExtractedStream[]): Promise<ExtractedStream | null> {
+    const all = precomputed ?? await this.resolveAllStreams(params);
     if (all.length === 0) return null;
 
     if (params.preferredServerId) {

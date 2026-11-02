@@ -1,4 +1,5 @@
 // streamResolver.ts - Background multi-source stream resolution engine for exact TMDB titles
+import { Capacitor } from '@capacitor/core';
 import type { MediaType } from '../core/cineHypeCore.ts';
 import { readPersisted, readPersistedAsync, writePersisted } from '../core/persistentCache.ts';
 import { extractorRegistry } from '../extractors/extractorRegistry.ts';
@@ -68,7 +69,7 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
 
   let selectedStream: ExtractedStream | null = null;
   try {
-    selectedStream = await extractorRegistry.resolveBestStream(params);
+    selectedStream = await extractorRegistry.resolveBestStream(params, allStreams);
   } catch {
     selectedStream = null;
   }
@@ -86,6 +87,9 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
       language: params.language,
       availableServers
     };
+  } else if (Capacitor.isNativePlatform()) {
+    // ExoPlayer only ever receives direct stream data, never an iframe page.
+    throw new Error('No direct stream found for this title. Try again or pick another server.');
   } else {
     // Exact TMDB title fallback URL (2embed clean multi-server embed)
     const fallbackUrl = getTitleFallbackUrl(params);
