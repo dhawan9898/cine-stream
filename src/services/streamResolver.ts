@@ -1,6 +1,6 @@
 // streamResolver.ts - Background multi-source stream resolution engine for exact TMDB titles
 import type { MediaType } from '../core/cineHypeCore.ts';
-import { readPersistedAsync, writePersisted } from '../core/persistentCache.ts';
+import { readPersisted, readPersistedAsync, writePersisted } from '../core/persistentCache.ts';
 import { extractorRegistry } from '../extractors/extractorRegistry.ts';
 import type { ExtractedStream } from '../extractors/types.ts';
 
@@ -40,7 +40,7 @@ function getTitleFallbackUrl(params: StreamParams): string {
 
 async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
   const cacheKey = `stream_${keyOf(params)}`;
-  const persisted = await readPersistedAsync<ResolvedStream>(cacheKey);
+  const persisted = readPersisted<ResolvedStream>(cacheKey) ?? await readPersistedAsync<ResolvedStream>(cacheKey);
   if (persisted && persisted.url) {
     return persisted;
   }
@@ -113,9 +113,18 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
 
 export function resolveStream(params: StreamParams, options: { fresh?: boolean } = {}): Promise<ResolvedStream> {
   const key = keyOf(params);
-  const existing = memoryCache.get(key);
-  if (!options.fresh && existing && Date.now() - existing.at < REUSE_MS) {
-    return existing.promise.then(s => ({ ...s }));
+  const cacheKey = `stream_${key}`;
+
+  if (!options.fresh) {
+    const syncPersisted = readPersisted<ResolvedStream>(cacheKey);
+    if (syncPersisted && syncPersisted.url) {
+      return Promise.resolve({ ...syncPersisted });
+    }
+
+    const existing = memoryCache.get(key);
+    if (existing && Date.now() - existing.at < REUSE_MS) {
+      return existing.promise.then(s => ({ ...s }));
+    }
   }
 
   const entry = { at: Date.now(), promise: resolveUncached(params) };

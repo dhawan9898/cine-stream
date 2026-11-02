@@ -35,6 +35,11 @@ const DEFAULT_PREFS: UserPreferences = {
   theme: 'dark'
 };
 
+// In-Memory state caches to eliminate redundant JSON parsing on renders
+let cachedHistory: WatchHistoryItem[] | null = null;
+let cachedBookmarks: MediaItem[] | null = null;
+let cachedPrefs: UserPreferences | null = null;
+
 // Listeners
 const listeners = new Set<() => void>();
 
@@ -51,11 +56,14 @@ export function subscribeLibraryChanges(cb: () => void): () => void {
 
 // 1. Watch History
 export function getWatchHistory(): WatchHistoryItem[] {
+  if (cachedHistory !== null) return cachedHistory;
   try {
     const raw = localStorage.getItem(HISTORY_KEY);
-    return raw ? JSON.parse(raw) : [];
+    cachedHistory = raw ? JSON.parse(raw) : [];
+    return cachedHistory!;
   } catch {
-    return [];
+    cachedHistory = [];
+    return cachedHistory;
   }
 }
 
@@ -92,7 +100,7 @@ export function saveWatchProgress(item: {
   durationMs?: number;
 }): void {
   try {
-    const history = getWatchHistory();
+    const history = getWatchHistory().slice();
     const existingIndex = history.findIndex(h => h.id === item.media.id && h.type === item.media.mediaType);
 
     const record: WatchHistoryItem = {
@@ -119,6 +127,7 @@ export function saveWatchProgress(item: {
 
     // Keep top 30 history items
     const trimmed = history.slice(0, 30);
+    cachedHistory = trimmed;
     localStorage.setItem(HISTORY_KEY, JSON.stringify(trimmed));
     notify();
   } catch {}
@@ -127,6 +136,7 @@ export function saveWatchProgress(item: {
 export function removeWatchHistory(id: number, type: MediaType): void {
   try {
     const history = getWatchHistory().filter(h => !(h.id === id && h.type === type));
+    cachedHistory = history;
     localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
     notify();
   } catch {}
@@ -134,6 +144,7 @@ export function removeWatchHistory(id: number, type: MediaType): void {
 
 export function clearWatchHistory(): void {
   try {
+    cachedHistory = [];
     localStorage.removeItem(HISTORY_KEY);
     notify();
   } catch {}
@@ -141,11 +152,14 @@ export function clearWatchHistory(): void {
 
 // 2. Bookmarks / Watchlist
 export function getBookmarks(): MediaItem[] {
+  if (cachedBookmarks !== null) return cachedBookmarks;
   try {
     const raw = localStorage.getItem(BOOKMARKS_KEY);
-    return raw ? JSON.parse(raw) : [];
+    cachedBookmarks = raw ? JSON.parse(raw) : [];
+    return cachedBookmarks!;
   } catch {
-    return [];
+    cachedBookmarks = [];
+    return cachedBookmarks;
   }
 }
 
@@ -156,7 +170,7 @@ export function isBookmarked(id: number, type: MediaType): boolean {
 
 export function toggleBookmark(media: MediaItem): boolean {
   try {
-    const bookmarks = getBookmarks();
+    const bookmarks = getBookmarks().slice();
     const index = bookmarks.findIndex(b => b.id === media.id && b.mediaType === media.mediaType);
     let bookmarked = false;
 
@@ -167,6 +181,7 @@ export function toggleBookmark(media: MediaItem): boolean {
       bookmarked = true;
     }
 
+    cachedBookmarks = bookmarks;
     localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(bookmarks));
     notify();
     return bookmarked;
@@ -177,11 +192,14 @@ export function toggleBookmark(media: MediaItem): boolean {
 
 // 3. User Preferences
 export function getUserPreferences(): UserPreferences {
+  if (cachedPrefs !== null) return cachedPrefs;
   try {
     const raw = localStorage.getItem(PREFS_KEY);
-    return raw ? { ...DEFAULT_PREFS, ...JSON.parse(raw) } : DEFAULT_PREFS;
+    cachedPrefs = raw ? { ...DEFAULT_PREFS, ...JSON.parse(raw) } : DEFAULT_PREFS;
+    return cachedPrefs!;
   } catch {
-    return DEFAULT_PREFS;
+    cachedPrefs = DEFAULT_PREFS;
+    return cachedPrefs;
   }
 }
 
@@ -189,6 +207,7 @@ export function saveUserPreferences(prefs: Partial<UserPreferences>): void {
   try {
     const current = getUserPreferences();
     const updated = { ...current, ...prefs };
+    cachedPrefs = updated;
     localStorage.setItem(PREFS_KEY, JSON.stringify(updated));
     notify();
   } catch {}
