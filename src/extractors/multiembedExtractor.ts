@@ -4,7 +4,7 @@ import type { ExtractedStream } from './types.ts';
 
 export class MultiEmbedExtractor extends BaseExtractor {
   id = 'multiembed';
-  name = 'MultiEmbed Stream Engine';
+  name = 'MultiEmbed Server';
   mainUrl = 'https://multiembed.mov';
 
   async extract(params: {
@@ -20,11 +20,23 @@ export class MultiEmbedExtractor extends BaseExtractor {
 
     try {
       const extracted = await this.resolveFromPage(targetUrl, { referer: `${this.mainUrl}/` });
-      if (extracted) return extracted;
+      if (extracted && extracted.url) {
+        return {
+          ...extracted,
+          serverId: this.id,
+          serverName: this.name
+        };
+      }
     } catch (err) {
       console.warn(`[${this.id}] MultiEmbed extraction failed for TMDB ${id}:`, err);
     }
 
-    return null;
+    return {
+      url: targetUrl,
+      format: 'hls',
+      isFallbackEmbed: true,
+      serverId: this.id,
+      serverName: this.name
+    };
   }
 }

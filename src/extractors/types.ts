@@ -15,6 +15,8 @@ export interface ExtractedStream {
   headers?: Record<string, string>;
   subtitles?: ExtractorSubtitle[];
   isFallbackEmbed?: boolean;
+  serverId?: string;
+  serverName?: string;
 }
 
 export interface StreamExtractor {

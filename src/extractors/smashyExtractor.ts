@@ -7,6 +7,8 @@ export class SmashyExtractor extends BaseExtractor {
   name = 'SmashyStream Engine';
   mainUrl = 'https://player.smashy.stream';
 
+  private mirrorUrl = 'https://embed.smashystream.com';
+
   async extract(params: {
     id: number;
     type: 'movie' | 'tv';
@@ -18,17 +20,31 @@ export class SmashyExtractor extends BaseExtractor {
       ? `${this.mainUrl}/tv/${id}?s=${season}&e=${episode}`
       : `${this.mainUrl}/movie/${id}`;
 
-    try {
-      const extracted = await this.resolveFromPage(embedUrl, { referer: `${this.mainUrl}/` });
-      if (extracted) return extracted;
-    } catch (err) {
-      console.warn(`[${this.id}] Direct stream extraction fallback:`, err);
+    const mirrorEmbedUrl = type === 'tv'
+      ? `${this.mirrorUrl}/playere.php?tmdb=${id}&season=${season}&episode=${episode}`
+      : `${this.mirrorUrl}/playere.php?tmdb=${id}`;
+
+    for (const targetUrl of [embedUrl, mirrorEmbedUrl]) {
+      try {
+        const extracted = await this.resolveFromPage(targetUrl, { referer: `${new URL(targetUrl).origin}/` });
+        if (extracted && extracted.url) {
+          return {
+            ...extracted,
+            serverId: this.id,
+            serverName: this.name
+          };
+        }
+      } catch (err) {
+        console.warn(`[${this.id}] Direct stream extraction fallback:`, err);
+      }
     }
 
     return {
       url: embedUrl,
       format: 'hls',
-      isFallbackEmbed: true
+      isFallbackEmbed: true,
+      serverId: this.id,
+      serverName: this.name
     };
   }
 }

@@ -4,7 +4,7 @@ import type { ExtractedStream } from './types.ts';
 
 export class EmbedSuExtractor extends BaseExtractor {
   id = 'embedsu';
-  name = 'Embed.su Streaming Engine';
+  name = 'Embed.su Streaming';
   mainUrl = 'https://embed.su';
 
   async extract(params: {
@@ -20,7 +20,13 @@ export class EmbedSuExtractor extends BaseExtractor {
 
     try {
       const extracted = await this.resolveFromPage(embedUrl, { referer: `${this.mainUrl}/` });
-      if (extracted) return extracted;
+      if (extracted && extracted.url) {
+        return {
+          ...extracted,
+          serverId: this.id,
+          serverName: this.name
+        };
+      }
     } catch (err) {
       console.warn(`[${this.id}] Direct stream extraction fallback:`, err);
     }
@@ -28,7 +34,9 @@ export class EmbedSuExtractor extends BaseExtractor {
     return {
       url: embedUrl,
       format: 'hls',
-      isFallbackEmbed: true
+      isFallbackEmbed: true,
+      serverId: this.id,
+      serverName: this.name
     };
   }
 }

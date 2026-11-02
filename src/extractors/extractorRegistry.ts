@@ -8,6 +8,8 @@ import { AutoEmbedExtractor } from './autoembedExtractor.ts';
 import { MultiEmbedExtractor } from './multiembedExtractor.ts';
 import { EmbedSuExtractor } from './embedSuExtractor.ts';
 import { SmashyExtractor } from './smashyExtractor.ts';
+import { RiveExtractor } from './riveExtractor.ts';
+import { InsertUnitExtractor } from './insertunitExtractor.ts';
 import { TelegramExtractor } from './telegramExtractor.ts';
 
 class ExtractorRegistry {
@@ -15,13 +17,15 @@ class ExtractorRegistry {
 
   constructor() {
     // Primary streaming sources
-    this.register(new FlixeoExtractor());
-    this.register(new MovierulzExtractor());
     this.register(new VidLinkExtractor());
     this.register(new VidSrcExtractor());
+    this.register(new FlixeoExtractor());
+    this.register(new RiveExtractor());
     this.register(new AutoEmbedExtractor());
-    this.register(new MultiEmbedExtractor());
     this.register(new EmbedSuExtractor());
+    this.register(new MovierulzExtractor());
+    this.register(new MultiEmbedExtractor());
+    this.register(new InsertUnitExtractor());
     this.register(new SmashyExtractor());
     // Secondary / private channel source
     this.register(new TelegramExtractor());
@@ -35,22 +39,26 @@ class ExtractorRegistry {
     return [...this.extractors];
   }
 
-  async resolveBestStream(params: {
+  async resolveAllStreams(params: {
     id: number;
     type: 'movie' | 'tv';
     season?: number;
     episode?: number;
     title?: string;
-  }): Promise<ExtractedStream | null> {
-    // Run extractors concurrently with a 4.5s timeout per extractor
+  }): Promise<ExtractedStream[]> {
+    const timeoutMs = 7000;
     const promises = this.extractors.map(async extractor => {
       try {
         const stream = await Promise.race([
           extractor.extract(params),
-          new Promise<null>(resolve => setTimeout(() => resolve(null), 4500))
+          new Promise<null>(resolve => setTimeout(() => resolve(null), timeoutMs))
         ]);
         if (stream && stream.url) {
-          return stream;
+          return {
+            ...stream,
+            serverId: stream.serverId || extractor.id,
+            serverName: stream.serverName || extractor.name
+          };
         }
       } catch {
         return null;
@@ -63,20 +71,40 @@ class ExtractorRegistry {
       .filter((r): r is PromiseFulfilledResult<ExtractedStream | null> => r.status === 'fulfilled' && Boolean(r.value && r.value.url))
       .map(r => r.value!);
 
-    // 1. Prefer direct media streams from primary sources (where isFallbackEmbed is not true and not blob)
-    const primaryDirectStream = fulfilled.find(s => s && !s.isFallbackEmbed && !s.url.startsWith('blob:'));
-    if (primaryDirectStream) {
-      return primaryDirectStream;
+    // Sort streams: direct non-blob streams first, then other direct streams, then fallback embeds
+    return fulfilled.sort((a, b) => {
+      const aDirect = !a.isFallbackEmbed && !a.url.startsWith('blob:') ? 2 : (!a.isFallbackEmbed ? 1 : 0);
+      const bDirect = !b.isFallbackEmbed && !b.url.startsWith('blob:') ? 2 : (!b.isFallbackEmbed ? 1 : 0);
+      return bDirect - aDirect;
+    });
+  }
+
+  async resolveBestStream(params: {
+    id: number;
+    type: 'movie' | 'tv';
+    season?: number;
+    episode?: number;
+    title?: string;
+    preferredServerId?: string;
+  }): Promise<ExtractedStream | null> {
+    const all = await this.resolveAllStreams(params);
+    if (all.length === 0) return null;
+
+    if (params.preferredServerId) {
+      const preferred = all.find(s => s.serverId === params.preferredServerId);
+      if (preferred) return preferred;
     }
 
-    // 2. Secondary direct stream (e.g. verified Telegram media file)
-    const secondaryDirectStream = fulfilled.find(s => s && !s.isFallbackEmbed);
-    if (secondaryDirectStream) {
-      return secondaryDirectStream;
-    }
+    // 1. Prefer direct media stream (non-fallback, non-blob)
+    const primaryDirectStream = all.find(s => !s.isFallbackEmbed && !s.url.startsWith('blob:'));
+    if (primaryDirectStream) return primaryDirectStream;
 
-    // 3. Otherwise return first valid title stream (embed fallback)
-    return fulfilled[0] ?? null;
+    // 2. Secondary direct stream (e.g. verified Telegram file)
+    const secondaryDirectStream = all.find(s => !s.isFallbackEmbed);
+    if (secondaryDirectStream) return secondaryDirectStream;
+
+    // 3. First valid title stream fallback embed
+    return all[0] ?? null;
   }
 }
 

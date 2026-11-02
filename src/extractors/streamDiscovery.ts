@@ -16,11 +16,11 @@ export interface Discovery {
   pages: string[];
 }
 
-const MEDIA_RE = /https?:(?:\\?\/){2}[^\s"'<>\\)\]},;]+?\.(?:m3u8|mpd|mp4|webm|mkv)(?:\?[^\s"'<>\\)\]},;]*)?/gi;
-const SUB_RE = /https?:(?:\\?\/){2}[^\s"'<>\\)\]},;]+?\.(?:vtt|srt|ass|ssa)(?:\?[^\s"'<>\\)\]},;]*)?/gi;
-const FRAME_RE = /<(?:iframe|source|video)\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi;
-const DATA_SRC_RE = /\bdata-(?:src|url|embed|link|hash)\s*=\s*["']([^"']+)["']/gi;
-const EMBED_KEY_RE = /["'](?:embed_url|embedUrl|iframe|iframe_url|player_url|playerUrl|link|redirect)["']\s*:\s*["']([^"']+)["']/gi;
+const MEDIA_RE = /(?:https?:)?(?:\/\/)?[^\s"'<>\\)\]},;]+?\.(?:m3u8|mpd|mp4|webm|mkv)(?:\?[^\s"'<>\\)\]},;]*)?/gi;
+const SUB_RE = /(?:https?:)?(?:\/\/)?[^\s"'<>\\)\]},;]+?\.(?:vtt|srt|ass|ssa)(?:\?[^\s"'<>\\)\]},;]*)?/gi;
+const FRAME_RE = /<(?:iframe|source|video|embed)\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/gi;
+const DATA_SRC_RE = /\bdata-(?:src|url|embed|link|hash|stream)\s*=\s*["']([^"']+)["']/gi;
+const EMBED_KEY_RE = /["'](?:embed_url|embedUrl|iframe|iframe_url|player_url|playerUrl|link|redirect|stream_url|file|sources?|src)["']\s*:\s*["']([^"']+)["']/gi;
 const B64_RE = /atob\(\s*["']([A-Za-z0-9+/=_-]{16,})["']\s*\)/g;
 
 export function formatOf(url: string): StreamFormat {
@@ -33,6 +33,7 @@ export function formatOf(url: string): StreamFormat {
 
 /** Undoes the escaping providers hide URLs behind (JSON `\/`, `&`, `&amp;`, %-encoding). */
 export function unescapeText(text: string): string {
+  if (!text) return '';
   return text
     .replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
     .replace(/\\x([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
@@ -99,13 +100,19 @@ export function discover(body: string, baseUrl: string): Discovery {
   };
 
   const scan = (text: string) => {
-    for (const m of text.matchAll(MEDIA_RE)) addStream(m[0]);
-    for (const m of text.matchAll(SUB_RE)) addSub(m[0]);
+    for (const m of text.matchAll(MEDIA_RE)) {
+      if (/\.(m3u8|mpd|mp4|webm|mkv)(\?|$)/i.test(m[0])) addStream(m[0]);
+    }
+    for (const m of text.matchAll(SUB_RE)) {
+      if (/\.(vtt|srt|ass|ssa)(\?|$)/i.test(m[0])) addSub(m[0]);
+    }
     for (const m of text.matchAll(FRAME_RE)) {
       if (/\.(m3u8|mpd|mp4|webm|mkv)(\?|$)/i.test(m[1])) addStream(m[1]); else addPage(m[1]);
     }
     for (const m of text.matchAll(DATA_SRC_RE)) if (/^(https?:)?\/\//i.test(m[1]) || m[1].startsWith('/')) addPage(m[1]);
-    for (const m of text.matchAll(EMBED_KEY_RE)) addPage(m[1]);
+    for (const m of text.matchAll(EMBED_KEY_RE)) {
+      if (/\.(m3u8|mpd|mp4|webm|mkv)(\?|$)/i.test(m[1])) addStream(m[1]); else addPage(m[1]);
+    }
   };
 
   const text = body.trim();
@@ -122,7 +129,7 @@ export function discover(body: string, baseUrl: string): Discovery {
           const v = unescapeText(value);
           if (/\.(m3u8|mpd|mp4|webm|mkv)(\?|$)/i.test(v)) addStream(v, key);
           else if (/\.(vtt|srt|ass|ssa)(\?|$)/i.test(v)) addSub(v);
-          else if (/^(https?:)?\/\//i.test(v) && /^(embed_?url|iframe|player_?url|link|redirect|url|file|src)$/i.test(key)) addPage(v);
+          else if (/^(https?:)?\/\//i.test(v) && /^(embed_?url|iframe|player_?url|link|redirect|url|file|src|sources?|stream)$/i.test(key)) addPage(v);
           else if (/^[A-Za-z0-9+/=_-]{24,}$/.test(v)) {
             const dec = tryBase64(v);
             if (dec) scan(dec);

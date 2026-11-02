@@ -7,6 +7,8 @@ export class AutoEmbedExtractor extends BaseExtractor {
   name = 'AutoEmbed CDN';
   mainUrl = 'https://autoembed.co';
 
+  private mirrorUrl = 'https://player.autoembed.cc';
+
   async extract(params: {
     id: number;
     type: 'movie' | 'tv';
@@ -18,17 +20,31 @@ export class AutoEmbedExtractor extends BaseExtractor {
       ? `${this.mainUrl}/tv/tmdb/${id}-${season}-${episode}`
       : `${this.mainUrl}/movie/tmdb/${id}`;
 
-    try {
-      const extracted = await this.resolveFromPage(embedUrl, { referer: 'https://autoembed.co/' });
-      if (extracted) return extracted;
-    } catch (err) {
-      console.warn(`[${this.id}] Direct extraction fallback to embed:`, err);
+    const mirrorEmbedUrl = type === 'tv'
+      ? `${this.mirrorUrl}/embed/tv/${id}/${season}/${episode}`
+      : `${this.mirrorUrl}/embed/movie/${id}`;
+
+    for (const targetUrl of [embedUrl, mirrorEmbedUrl]) {
+      try {
+        const extracted = await this.resolveFromPage(targetUrl, { referer: `${new URL(targetUrl).origin}/` });
+        if (extracted && extracted.url) {
+          return {
+            ...extracted,
+            serverId: this.id,
+            serverName: this.name
+          };
+        }
+      } catch (err) {
+        console.warn(`[${this.id}] Direct extraction fallback to embed:`, err);
+      }
     }
 
     return {
       url: embedUrl,
       format: 'hls',
-      isFallbackEmbed: true
+      isFallbackEmbed: true,
+      serverId: this.id,
+      serverName: this.name
     };
   }
 }

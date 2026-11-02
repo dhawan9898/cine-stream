@@ -4,7 +4,7 @@ import type { ExtractedStream } from './types.ts';
 
 export class MovierulzExtractor extends BaseExtractor {
   id = 'movierulz';
-  name = 'Movierulz Indian Regional Engine';
+  name = 'Movierulz Regional';
   mainUrl = 'https://www.5movierulz.green';
 
   private domains = [
@@ -12,15 +12,6 @@ export class MovierulzExtractor extends BaseExtractor {
     'https://www.5movierulz.recipes',
     'https://www.5movierulz.plumbing',
     'https://www.3movierulz.in'
-  ];
-
-  private categories = [
-    '/category/telugu-featured/',
-    '/category/tv-series/',
-    '/category/hindi-featured/',
-    '/category/tamil-featured/',
-    '/category/malayalam-featured/',
-    '/'
   ];
 
   private slugify(title: string): string {
@@ -39,55 +30,46 @@ export class MovierulzExtractor extends BaseExtractor {
     title?: string;
   }): Promise<ExtractedStream | null> {
     const { type, season = 1, episode = 1, title = '' } = params;
+    if (!title || !title.trim()) return null;
+
     const slug = this.slugify(title);
-    const keywords = (title || '').toLowerCase().split(/\s+/).filter(w => w.length > 2);
+    const cleanTitle = title.trim();
 
     for (const domain of this.domains) {
       try {
-        // 1. Try direct candidate URLs
-        const candidates: string[] = [];
-        if (slug) {
-          if (type === 'tv') {
-            candidates.push(`${domain}/${slug}-season-${season}-episode-${episode}`);
-            candidates.push(`${domain}/${slug}-season-${season}`);
-            candidates.push(`${domain}/${slug}`);
-          } else {
-            candidates.push(`${domain}/${slug}`);
+        // 1. Direct candidate URL check using slug
+        const candidateUrl = type === 'tv'
+          ? `${domain}/${slug}-season-${season}-episode-${episode}`
+          : `${domain}/${slug}`;
+        try {
+          const pageBody = await this.httpGet(candidateUrl, { Referer: `${domain}/` });
+          const stream = await this.extractFromPageBody(pageBody, candidateUrl);
+          if (stream) {
+            return { ...stream, serverId: this.id, serverName: this.name };
           }
+        } catch {
+          // Fall through to fast site search
         }
 
-        for (const candidate of candidates) {
-          try {
-            const pageBody = await this.httpGet(candidate, { Referer: `${domain}/` });
-            const stream = await this.extractFromPageBody(pageBody, candidate);
-            if (stream) return stream;
-          } catch {
-            // Continue
-          }
-        }
+        // 2. Fast site search via WordPress search endpoint (?s=query)
+        const searchUrl = `${domain}/?s=${encodeURIComponent(cleanTitle)}`;
+        const searchBody = await this.httpGet(searchUrl, { Referer: `${domain}/` });
+        const postMatches = [...searchBody.matchAll(/href=["'](https?:\/\/[^"']+\.html)["']/gi)].map(m => m[1]);
+        const uniquePosts = Array.from(new Set(postMatches)).slice(0, 3);
 
-        // 2. Scan category feeds for title keywords
-        for (const catPath of this.categories) {
+        for (const postUrl of uniquePosts) {
           try {
-            const catUrl = `${domain}${catPath}`;
-            const catBody = await this.httpGet(catUrl, { Referer: `${domain}/` });
-            const postMatches = [...catBody.matchAll(/href=["'](https?:\/\/[^"']+\d+\.html)["']/gi)].map(m => m[1]);
-
-            for (const postUrl of postMatches) {
-              const lowerUrl = postUrl.toLowerCase();
-              const matchedCount = keywords.filter(k => lowerUrl.includes(k)).length;
-              if (keywords.length === 0 || matchedCount >= 1) {
-                const postBody = await this.httpGet(postUrl, { Referer: catUrl });
-                const stream = await this.extractFromPageBody(postBody, postUrl);
-                if (stream) return stream;
-              }
+            const postBody = await this.httpGet(postUrl, { Referer: searchUrl });
+            const stream = await this.extractFromPageBody(postBody, postUrl);
+            if (stream) {
+              return { ...stream, serverId: this.id, serverName: this.name };
             }
           } catch {
-            // Continue to next category
+            // Next post
           }
         }
       } catch {
-        // Continue silently to next domain
+        // Next domain
       }
     }
 
@@ -96,25 +78,26 @@ export class MovierulzExtractor extends BaseExtractor {
 
   private async extractFromPageBody(body: string, referer: string): Promise<ExtractedStream | null> {
     const locationsMatch = body.match(/var\s+(?:locations|players)\s*=\s*\[([\s\S]*?)\];/);
-    if (!locationsMatch) return null;
+    if (locationsMatch) {
+      const rawUrls = [...locationsMatch[1].matchAll(/["']([^"']+)["']/g)].map(m => m[1].replace(/\\\//g, '/'));
+      for (const rawUrl of rawUrls) {
+        if (rawUrl.includes('m3u8') || rawUrl.includes('.mp4')) {
+          return {
+            url: rawUrl,
+            format: 'hls',
+            quality: '1080p',
+            headers: { Referer: referer, 'User-Agent': this.defaultUserAgent }
+          };
+        }
 
-    const rawUrls = [...locationsMatch[1].matchAll(/["']([^"']+)["']/g)].map(m => m[1].replace(/\\\//g, '/'));
-    for (const rawUrl of rawUrls) {
-      if (rawUrl.includes('m3u8') || rawUrl.includes('.mp4')) {
-        return {
-          url: rawUrl,
-          format: 'hls',
-          quality: '1080p',
-          headers: { Referer: referer, 'User-Agent': this.defaultUserAgent }
-        };
-      }
-
-      const iframeStream = await this.resolveFromPage(rawUrl, { referer });
-      if (iframeStream && iframeStream.url) {
-        return iframeStream;
+        const iframeStream = await this.resolveFromPage(rawUrl, { referer });
+        if (iframeStream && iframeStream.url) {
+          return iframeStream;
+        }
       }
     }
 
-    return null;
+    // Fallback page scan if var locations was absent
+    return await this.resolveFromPage(referer, { referer, maxDepth: 1, maxPages: 2 });
   }
 }

@@ -4,7 +4,7 @@ import type { ExtractedStream } from './types.ts';
 
 export class VidLinkExtractor extends BaseExtractor {
   id = 'vidlink';
-  name = 'VidLink PRO Direct';
+  name = 'VidLink PRO';
   mainUrl = 'https://vidlink.pro';
 
   async extract(params: {
@@ -20,7 +20,13 @@ export class VidLinkExtractor extends BaseExtractor {
 
     try {
       const extracted = await this.resolveFromPage(embedUrl, { referer: `${this.mainUrl}/` });
-      if (extracted) return extracted;
+      if (extracted) {
+        return {
+          ...extracted,
+          serverId: this.id,
+          serverName: this.name
+        };
+      }
     } catch (err) {
       console.warn(`[${this.id}] Direct extraction fallback to embed:`, err);
     }
@@ -28,7 +34,9 @@ export class VidLinkExtractor extends BaseExtractor {
     return {
       url: embedUrl,
       format: 'hls',
-      isFallbackEmbed: true
+      isFallbackEmbed: true,
+      serverId: this.id,
+      serverName: this.name
     };
   }
 }

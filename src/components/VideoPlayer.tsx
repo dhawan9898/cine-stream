@@ -45,6 +45,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState<number>(0);
   const [langMode, setLangMode] = useState<string>('sub');
+  const [selectedServerId, setSelectedServerId] = useState<string | undefined>(undefined);
   const [frameReady, setFrameReady] = useState<boolean>(false);
   const [reloadKey, setReloadKey] = useState<number>(0);
   const [fetchedEpisodes, setFetchedEpisodes] = useState<EpisodeItem[]>([]);
@@ -53,6 +54,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const reloadResumeMsRef = useRef<number | null>(null);
   // Tracks when ExoPlayerActivity already started a prefetched next episode on its own
   const nativePrefetchStartedEpRef = useRef<number | null>(null);
+
+  // Immediately open native ExoPlayer window when mounted on Android
+  useEffect(() => {
+    if (!isNative) return;
+    ExoPlayerPlugin.open({
+      title: media.title,
+      episode: isSeries ? String(episode) : '1',
+      seasonPrefix: isSeries ? `S${season}:` : '',
+      mode: langMode
+    }).catch(() => {});
+  }, [media.title, isSeries, season, episode, langMode]);
 
   // Ensure episode list is available even when playback starts directly from Home or Library
   useEffect(() => {
@@ -184,7 +196,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const nextEpNum = currentEp + 1;
     if (!episodes.some(e => e.episodeNumber === nextEpNum)) return;
 
-    resolveStream({ id: media.id, type: media.mediaType, season, episode: nextEpNum })
+    resolveStream({ id: media.id, type: media.mediaType, season, episode: nextEpNum, preferredServerId: selectedServerId })
       .then(nextRes => {
         if (!nextRes?.url) return;
         const prefs = getUserPreferences();
@@ -206,7 +218,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }).catch(() => {});
       })
       .catch(() => {});
-  }, [isSeries, episodes, media.id, media.mediaType, media.title, season]);
+  }, [isSeries, episodes, media.id, media.mediaType, media.title, season, selectedServerId]);
 
   // Background stream resolution
   useEffect(() => {
@@ -228,7 +240,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     reloadResumeMsRef.current = null;
 
     resolveStream(
-      { id: media.id, type: media.mediaType, season, episode, languageMode: langMode, title: media.title },
+      { id: media.id, type: media.mediaType, season, episode, languageMode: langMode, title: media.title, preferredServerId: selectedServerId },
       { fresh: attempt > 0 }
     )
       .then(res => {
@@ -295,7 +307,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     hasNextEpisode,
     initialPositionMs,
     prefetchNativeNextEpisode,
-    langMode
+    langMode,
+    selectedServerId
   ]);
 
   const handleNextEpisode = () => {
@@ -334,35 +347,38 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </button>
         <h3 style={{ fontSize: '20px', fontWeight: 800 }}>Playback Error</h3>
         <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)', textAlign: 'center', maxWidth: '400px' }}>{error}</p>
-        <button className="interactive btn-primary" onClick={() => setAttempt(n => n + 1)} style={{ padding: '10px 24px' }}>
-          Try Again
-        </button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="interactive btn-primary" onClick={() => setAttempt(n => n + 1)} style={{ padding: '10px 24px' }}>
+            Try Again
+          </button>
+          {source?.availableServers && source.availableServers.length > 1 && (
+            <button
+              className="interactive btn-secondary"
+              onClick={() => {
+                const servers = source.availableServers || [];
+                const currentIdx = servers.findIndex(s => s.serverId === (source.serverId || selectedServerId));
+                const nextIdx = (currentIdx + 1) % servers.length;
+                setSelectedServerId(servers[nextIdx].serverId);
+                setAttempt(n => n + 1);
+              }}
+              style={{ padding: '10px 24px', background: 'rgba(255,255,255,0.2)' }}
+            >
+              Try Next Server
+            </button>
+          )}
+        </div>
       </div>
     );
   }
 
-  // Loading View
-  if (loading || !source) {
+  // Seamless Loading & Native Player Container: Clean full-screen black view with minimal spinner, NO card box
+  if (loading || !source || isNative) {
     return (
-      <div className="player-state" aria-busy="true" style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', gap: '16px' }}>
-        <button onClick={onBack} className="interactive nf-icon-btn" aria-label="Back" style={{ position: 'absolute', top: 'calc(16px + var(--safe-top))', left: '16px' }}>
+      <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000000', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <button onClick={onBack} className="interactive nf-icon-btn" aria-label="Back" style={{ position: 'absolute', top: 'calc(16px + var(--safe-top))', left: '16px', zIndex: 10 }}>
           <ArrowLeft size={28} color="#fff" />
         </button>
-        <Loader2 size={48} color="var(--accent-primary)" className="animate-spin" />
-        <p style={{ fontSize: '15px', fontWeight: 700 }}>
-          {media.title}{isSeries ? ` · Season ${season} Episode ${episode}` : ''}
-        </p>
-        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)' }}>Fetching video stream...</span>
-      </div>
-    );
-  }
-
-  // Native Android Platform Mode (ExoPlayerActivity runs full screen above this view)
-  if (isNative) {
-    return (
-      <div style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', gap: '12px' }}>
         <Loader2 size={44} color="var(--accent-primary)" className="animate-spin" />
-        <span style={{ fontSize: '14px', fontWeight: 600, color: 'rgba(255,255,255,0.8)' }}>Launching Netflix ExoPlayer...</span>
       </div>
     );
   }
@@ -422,6 +438,33 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {source?.availableServers && source.availableServers.length > 0 && (
+            <select
+              value={source.serverId || selectedServerId || source.availableServers[0]?.serverId}
+              onChange={e => {
+                setSelectedServerId(e.target.value);
+                setAttempt(n => n + 1);
+              }}
+              className="interactive"
+              style={{
+                padding: '6px 12px',
+                borderRadius: '20px',
+                color: '#fff',
+                background: 'rgba(0,0,0,0.65)',
+                border: '1px solid rgba(255,255,255,0.25)',
+                fontSize: '12px',
+                fontWeight: 700,
+                outline: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              {source.availableServers.map(srv => (
+                <option key={srv.serverId} value={srv.serverId}>
+                  {srv.serverName}{srv.isFallbackEmbed ? ' (Embed)' : ''}
+                </option>
+              ))}
+            </select>
+          )}
           <select
             value={langMode}
             onChange={e => setLangMode(e.target.value)}
@@ -466,7 +509,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         {!frameReady && (
           <div style={{ position: 'absolute', inset: 0, background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', zIndex: 10 }}>
             <Loader2 size={44} color="var(--accent-primary)" className="animate-spin" />
-            <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>Loading video frame...</span>
           </div>
         )}
       </div>

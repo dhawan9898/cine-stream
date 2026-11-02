@@ -3,6 +3,7 @@
 import React, { useEffect, useRef } from 'react';
 import type { MediaItem } from '../core/cineHypeCore.ts';
 import { prefetchMediaDetails } from '../core/cineHypeCore.ts';
+import { prefetchStream } from '../services/streamResolver.ts';
 import { FadeImage } from './FadeImage.tsx';
 
 interface PosterCardProps {
@@ -16,7 +17,7 @@ interface PosterCardProps {
   onPreview?: (media: MediaItem) => void;
 }
 
-const LONG_PRESS_MS = 450;
+const LONG_PRESS_MS = 800;
 const MOVE_TOLERANCE_PX = 10;
 
 export const PosterCard: React.FC<PosterCardProps> = ({ media, onClick, width, badge, onPreview }) => {
@@ -27,6 +28,11 @@ export const PosterCard: React.FC<PosterCardProps> = ({ media, onClick, width, b
 
   const cancel = () => { window.clearTimeout(timer.current); timer.current = 0; };
   useEffect(() => cancel, []);
+
+  const handlePrefetch = () => {
+    prefetchMediaDetails(media.id, media.mediaType);
+    prefetchStream({ id: media.id, type: media.mediaType, title: media.title });
+  };
 
   return (
   <div
@@ -53,8 +59,8 @@ export const PosterCard: React.FC<PosterCardProps> = ({ media, onClick, width, b
     onPointerCancel={cancel}
     onPointerLeave={cancel}
     onContextMenu={e => { if (onPreview) e.preventDefault(); }}
-    onMouseEnter={() => prefetchMediaDetails(media.id, media.mediaType)}
-    onFocus={() => prefetchMediaDetails(media.id, media.mediaType)}
+    onMouseEnter={handlePrefetch}
+    onFocus={handlePrefetch}
     onKeyDown={(e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();

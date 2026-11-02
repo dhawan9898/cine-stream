@@ -10,6 +10,7 @@ import {
   type MediaItem
 } from '../core/cineHypeCore.ts';
 import { getWatchHistory, isBookmarked, subscribeLibraryChanges, toggleBookmark, type WatchHistoryItem } from '../services/historyService.ts';
+import { prefetchStream } from '../services/streamResolver.ts';
 import { FadeImage } from '../components/FadeImage.tsx';
 import { PosterCard } from '../components/PosterCard.tsx';
 import { ErrorState } from '../components/ErrorState.tsx';
@@ -52,6 +53,17 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
     if (history?.season) setSeason(history.season);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Background stream prefetching for instant playback
+  useEffect(() => {
+    prefetchStream({
+      id: media.id,
+      type: media.mediaType,
+      season: history?.season ?? season,
+      episode: history?.episode ?? 1,
+      title: media.title
+    });
+  }, [media.id, media.mediaType, media.title, season, history?.season, history?.episode]);
 
   useEffect(() => {
     let cancelled = false;

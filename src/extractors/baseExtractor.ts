@@ -9,7 +9,7 @@ export abstract class BaseExtractor implements StreamExtractor {
   abstract mainUrl: string;
 
   protected defaultUserAgent =
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/122.0.0.0 Safari/537.36';
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/124.0.0.0 Safari/537.36';
 
   protected async httpGet(url: string, headers: Record<string, string> = {}): Promise<string> {
     const mergedHeaders = {
@@ -23,8 +23,8 @@ export abstract class BaseExtractor implements StreamExtractor {
         const response = await CapacitorHttp.get({
           url,
           headers: mergedHeaders,
-          connectTimeout: 3000,
-          readTimeout: 3000
+          connectTimeout: 6000,
+          readTimeout: 6000
         });
         if (response.status >= 200 && response.status < 300) {
           return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
@@ -36,7 +36,7 @@ export abstract class BaseExtractor implements StreamExtractor {
 
     // Standard web fetch fallback
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3000);
+    const timeout = setTimeout(() => controller.abort(), 6000);
     try {
       const res = await fetch(url, {
         headers: mergedHeaders,
@@ -54,7 +54,7 @@ export abstract class BaseExtractor implements StreamExtractor {
     opts: { referer?: string; maxDepth?: number; maxPages?: number } = {}
   ): Promise<ExtractedStream | null> {
     const maxDepth = opts.maxDepth ?? 2;
-    const maxPages = opts.maxPages ?? 4;
+    const maxPages = opts.maxPages ?? 5;
     const visited = new Set<string>();
     const subtitles = new Map<string, ExtractorSubtitle>();
     let queue: Array<{ url: string; referer: string }> = [{ url: startUrl, referer: opts.referer ?? this.mainUrl + '/' }];
@@ -82,7 +82,8 @@ export abstract class BaseExtractor implements StreamExtractor {
 
     const best = pickBest(found);
     if (!best) return null;
-    const origin = new URL(found.find(f => f.url === best.url)!.pageUrl).origin;
+    const pageObj = found.find(f => f.url === best.url);
+    const origin = pageObj ? new URL(pageObj.pageUrl).origin : new URL(this.mainUrl).origin;
     return {
       url: best.url,
       format: best.format,
@@ -92,7 +93,9 @@ export abstract class BaseExtractor implements StreamExtractor {
         Origin: origin,
         'User-Agent': this.defaultUserAgent
       },
-      subtitles: [...subtitles.values()]
+      subtitles: [...subtitles.values()],
+      serverId: this.id,
+      serverName: this.name
     };
   }
 
@@ -101,5 +104,6 @@ export abstract class BaseExtractor implements StreamExtractor {
     type: 'movie' | 'tv';
     season?: number;
     episode?: number;
+    title?: string;
   }): Promise<ExtractedStream | null>;
 }
