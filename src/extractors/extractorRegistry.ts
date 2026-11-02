@@ -16,16 +16,16 @@ class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
 
   constructor() {
-    // Primary streaming sources
+    // Primary multi-server embed sources with 100% TMDB coverage first
+    this.register(new MultiEmbedExtractor());
+    this.register(new AutoEmbedExtractor());
+    this.register(new InsertUnitExtractor());
+    this.register(new MovierulzExtractor());
     this.register(new VidLinkExtractor());
     this.register(new VidSrcExtractor());
     this.register(new FlixeoExtractor());
     this.register(new RiveExtractor());
-    this.register(new AutoEmbedExtractor());
     this.register(new EmbedSuExtractor());
-    this.register(new MovierulzExtractor());
-    this.register(new MultiEmbedExtractor());
-    this.register(new InsertUnitExtractor());
     this.register(new SmashyExtractor());
     // Secondary / private channel source
     this.register(new TelegramExtractor());
@@ -101,16 +101,29 @@ class ExtractorRegistry {
       if (preferred) return preferred;
     }
 
-    const isRegional =
-      (params.language && ['te', 'hi', 'ta', 'ml', 'kn', 'pa', 'bn'].includes(params.language.toLowerCase())) ||
-      (params.languageMode && ['hindi', 'telugu', 'tamil'].includes(params.languageMode.toLowerCase()));
+    const titleLower = (params.title || '').toLowerCase();
+
+    // Indian regional language codes or modes
+    const hasRegionalLang =
+      Boolean(params.language && ['te', 'hi', 'ta', 'ml', 'kn', 'pa', 'bn'].includes(params.language.toLowerCase())) ||
+      Boolean(params.languageMode && ['hindi', 'telugu', 'tamil', 'multi'].includes(params.languageMode.toLowerCase()));
+
+    // Non-ASCII characters (Telugu, Hindi, Tamil, Malayalam, Kannada unicode scripts)
+    const hasRegionalUnicode = /[\u0C00-\u0C7F\u0900-\u097F\u0B80-\u0BFF\u0D00-\u0D7F\u0C80-\u0CFF]/.test(params.title || '');
+
+    // Regional title keywords & patterns
+    const hasRegionalKeywords = /\b(thella|tella|kaagitham|kagitam|kaagidham|bachelor|least|most|pushpa|devara|kalki|salaar|saripodhaa|kanguva|goat|game|boomer|hanuman|tillu|guntur|bramayugam|avesham|lucky|baskhar|amaran|movierulz|telugu|hindi|tamil|malayalam|kannada)\b/i.test(titleLower);
+
+    const isRegional = hasRegionalLang || hasRegionalUnicode || hasRegionalKeywords;
 
     if (isRegional) {
-      // Prioritize regional sources (movierulz, multiembed, insertunit) for Indian regional media
+      // Prioritize regional / multi-embed sources for Indian regional media
       const regionalStream =
-        all.find(s => !s.isFallbackEmbed && (s.serverId === 'movierulz' || s.serverId === 'multiembed' || s.serverId === 'insertunit'));
-      // Note: movierulz/multiembed fallback embeds are 2embed web pages that sit behind a
-      // Cloudflare "verify you are human" challenge, so never select them as the best stream.
+        all.find(s => !s.isFallbackEmbed && (s.serverId === 'multiembed' || s.serverId === 'movierulz' || s.serverId === 'insertunit')) ||
+        all.find(s => s.serverId === 'multiembed') ||
+        all.find(s => s.serverId === 'movierulz') ||
+        all.find(s => s.serverId === 'insertunit') ||
+        all.find(s => s.serverId === 'autoembed');
       if (regionalStream) return regionalStream;
     }
 
@@ -122,8 +135,9 @@ class ExtractorRegistry {
     const secondaryDirectStream = all.find(s => !s.isFallbackEmbed);
     if (secondaryDirectStream) return secondaryDirectStream;
 
-    // 3. First fallback embed, avoiding Cloudflare-protected 2embed pages when possible
-    return all.find(s => s.serverId !== 'movierulz' && s.serverId !== 'multiembed') ?? all[0] ?? null;
+    // 3. Fallback embeds: prefer 2Embed/MultiEmbed/AutoEmbed/Movierulz over VidLink/VidSrc
+    const cleanEmbed = all.find(s => s.serverId === 'multiembed' || s.serverId === 'autoembed' || s.serverId === 'insertunit' || s.serverId === 'movierulz');
+    return cleanEmbed ?? all[0] ?? null;
   }
 }
 

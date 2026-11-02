@@ -1,5 +1,6 @@
 // persistentCache.ts - Hybrid IndexedDB, LocalStorage & L1 Memory cache with TTL expiry
 export const DEFAULT_TTL_MS = 60 * 60 * 1000; // 1 hour
+const CACHE_PREFIX = 'cinestream_cache_v5_';
 
 interface CacheRecord<T> {
   data: T;
@@ -45,7 +46,7 @@ export function pruneExpiredPersistedCache(): void {
         const raw = localStorage.getItem(key);
         if (!raw) continue;
         const record: CacheRecord<unknown> = JSON.parse(raw);
-        if (now - record.savedAt > record.ttlMs) {
+        if (now - record.savedAt > record.ttlMs || !key.startsWith(CACHE_PREFIX)) {
           localStorage.removeItem(key);
         }
       } catch {
@@ -67,11 +68,11 @@ export function readPersisted<T>(key: string): T | null {
 
   // 2. Check L2 LocalStorage
   try {
-    const raw = localStorage.getItem(`cinestream_cache_${key}`);
+    const raw = localStorage.getItem(`${CACHE_PREFIX}${key}`);
     if (!raw) return null;
     const record: CacheRecord<T> = JSON.parse(raw);
     if (Date.now() - record.savedAt > record.ttlMs) {
-      localStorage.removeItem(`cinestream_cache_${key}`);
+      localStorage.removeItem(`${CACHE_PREFIX}${key}`);
       return null;
     }
     // Populate L1 Memory Map
@@ -109,7 +110,7 @@ export async function readPersistedAsync<T>(key: string): Promise<T | null> {
         // Populate L1 & L2
         memoryL1Map.set(key, record);
         try {
-          localStorage.setItem(`cinestream_cache_${key}`, JSON.stringify(record));
+          localStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(record));
         } catch {}
 
         resolve(record.data);
@@ -133,12 +134,12 @@ export function writePersisted<T>(key: string, data: T, ttlMs: number = DEFAULT_
 
   // 2. Write L2 LocalStorage
   try {
-    localStorage.setItem(`cinestream_cache_${key}`, JSON.stringify(record));
+    localStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(record));
   } catch {
     // If quota exceeded, prune expired keys and retry once
     pruneExpiredPersistedCache();
     try {
-      localStorage.setItem(`cinestream_cache_${key}`, JSON.stringify(record));
+      localStorage.setItem(`${CACHE_PREFIX}${key}`, JSON.stringify(record));
     } catch {
       // Quota still full, fallback to L3 IndexedDB only
     }
@@ -153,6 +154,14 @@ export function writePersisted<T>(key: string, data: T, ttlMs: number = DEFAULT_
       store.put(record, key);
     } catch {}
   }).catch(() => {});
+}
+
+export function clearStreamCache(): void {
+  memoryL1Map.clear();
+  try {
+    const keys = Object.keys(localStorage).filter(k => k.includes('stream_'));
+    keys.forEach(k => localStorage.removeItem(k));
+  } catch {}
 }
 
 export function clearPersistedCache(): void {
@@ -174,3 +183,4 @@ export function clearPersistedCache(): void {
 
 // Initial cleanup on module load
 pruneExpiredPersistedCache();
+clearStreamCache();
