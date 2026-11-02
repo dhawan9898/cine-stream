@@ -69,7 +69,7 @@ export interface ExoPlayerPluginInterface {
   setNextEpisode(options: PlayOptions & { afterEpisode: string }): Promise<void>;
 
   // Opens the player in its loading state while the stream is resolved.
-  open(options: { title?: string; episode?: string; seasonPrefix?: string }): Promise<void>;
+  open(options: { title?: string; episode?: string; seasonPrefix?: string; mode?: string }): Promise<void>;
 
   // Shows a playback error inside the open player.
   fail(options: { message: string }): Promise<void>;

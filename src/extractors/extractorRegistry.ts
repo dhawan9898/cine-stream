@@ -47,7 +47,7 @@ class ExtractorRegistry {
     title?: string;
   }): Promise<ExtractedStream[]> {
     const timeoutMs = 7000;
-    const promises = this.extractors.map(async extractor => {
+    const promises = this.extractors.map(async (extractor): Promise<ExtractedStream | null> => {
       try {
         const stream = await Promise.race([
           extractor.extract(params),
@@ -67,9 +67,12 @@ class ExtractorRegistry {
     });
 
     const results = await Promise.allSettled(promises);
-    const fulfilled = results
-      .filter((r): r is PromiseFulfilledResult<ExtractedStream | null> => r.status === 'fulfilled' && Boolean(r.value && r.value.url))
-      .map(r => r.value!);
+    const fulfilled: ExtractedStream[] = [];
+    for (const r of results) {
+      if (r.status === 'fulfilled' && r.value && r.value.url) {
+        fulfilled.push(r.value);
+      }
+    }
 
     // Sort streams: direct non-blob streams first, then other direct streams, then fallback embeds
     return fulfilled.sort((a, b) => {
