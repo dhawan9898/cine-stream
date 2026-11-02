@@ -57,18 +57,8 @@ export class MovierulzExtractor extends BaseExtractor {
       }
     }
 
-    // Regional fallback stream (2embed clean endpoint)
-    const fallbackUrl = type === 'tv'
-      ? `https://www.2embed.cc/embedtv/${id}&s=${season}&e=${episode}`
-      : `https://www.2embed.cc/embed/${id}`;
-
-    return {
-      url: fallbackUrl,
-      format: 'hls',
-      isFallbackEmbed: true,
-      serverId: this.id,
-      serverName: this.name
-    };
+    // No fallback embed: 2embed pages are Cloudflare-gated and unplayable natively.
+    return null;
   }
 
   private async extractFromPageBody(body: string, referer: string): Promise<ExtractedStream | null> {

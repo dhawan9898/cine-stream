@@ -31,12 +31,8 @@ export class MultiEmbedExtractor extends BaseExtractor {
       console.warn(`[${this.id}] MultiEmbed extraction failed for TMDB ${id}:`, err);
     }
 
-    return {
-      url: targetUrl,
-      format: 'hls',
-      isFallbackEmbed: true,
-      serverId: this.id,
-      serverName: this.name
-    };
+    // No fallback embed: the 2embed page sits behind a Cloudflare human-verification
+    // challenge and can never play inside the native player.
+    return null;
   }
 }

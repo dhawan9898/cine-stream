@@ -28,7 +28,12 @@ export interface ResolvedStream extends ExtractedStream {
 
 const memoryCache = new Map<string, { at: number; promise: Promise<ResolvedStream> }>();
 const REUSE_MS = 30 * 60 * 1000; // 30 minutes in-memory
-const keyOf = (p: StreamParams) => `${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.language ?? ''}|${p.title ?? ''}|${p.preferredServerId ?? ''}`;
+const CACHE_VERSION = 'v2';
+const BLOCKED_HOSTS = /(^|\.)(multiembed\.mov|2embed\.cc)$/i;
+function isBlockedUrl(url: string): boolean {
+  try { return BLOCKED_HOSTS.test(new URL(url).hostname); } catch { return false; }
+}
+const keyOf = (p: StreamParams) => `${CACHE_VERSION}|${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.language ?? ''}|${p.title ?? ''}|${p.preferredServerId ?? ''}`;
 
 function getTitleFallbackUrl(params: StreamParams): string {
   const { id, type, season = 1, episode = 1 } = params;
@@ -41,7 +46,7 @@ function getTitleFallbackUrl(params: StreamParams): string {
 async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
   const cacheKey = `stream_${keyOf(params)}`;
   const persisted = readPersisted<ResolvedStream>(cacheKey) ?? await readPersistedAsync<ResolvedStream>(cacheKey);
-  if (persisted && persisted.url) {
+  if (persisted && persisted.url && !isBlockedUrl(persisted.url)) {
     return persisted;
   }
 
@@ -68,6 +73,7 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
   let selectedStream: ExtractedStream | null = null;
   try {
     selectedStream = await extractorRegistry.resolveBestStream(params);
+    if (selectedStream && isBlockedUrl(selectedStream.url)) selectedStream = null;
   } catch {
     selectedStream = null;
   }
@@ -117,7 +123,7 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean }
 
   if (!options.fresh) {
     const syncPersisted = readPersisted<ResolvedStream>(cacheKey);
-    if (syncPersisted && syncPersisted.url) {
+    if (syncPersisted && syncPersisted.url && !isBlockedUrl(syncPersisted.url)) {
       return Promise.resolve({ ...syncPersisted });
     }
 
