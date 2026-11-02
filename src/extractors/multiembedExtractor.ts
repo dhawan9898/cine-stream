@@ -5,7 +5,7 @@ import type { ExtractedStream } from './types.ts';
 export class MultiEmbedExtractor extends BaseExtractor {
   id = 'multiembed';
   name = 'MultiEmbed Server';
-  mainUrl = 'https://multiembed.mov';
+  mainUrl = 'https://www.2embed.cc';
 
   async extract(params: {
     id: number;
@@ -15,8 +15,8 @@ export class MultiEmbedExtractor extends BaseExtractor {
   }): Promise<ExtractedStream | null> {
     const { id, type, season = 1, episode = 1 } = params;
     const targetUrl = type === 'tv'
-      ? `${this.mainUrl}/directstream.php?video_id=${id}&tmdb=1&s=${season}&e=${episode}`
-      : `${this.mainUrl}/directstream.php?video_id=${id}&tmdb=1`;
+      ? `${this.mainUrl}/embedtv/${id}&s=${season}&e=${episode}`
+      : `${this.mainUrl}/embed/${id}`;
 
     try {
       const extracted = await this.resolveFromPage(targetUrl, { referer: `${this.mainUrl}/` });

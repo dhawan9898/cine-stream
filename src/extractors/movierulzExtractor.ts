@@ -13,8 +13,9 @@ export class MovierulzExtractor extends BaseExtractor {
     const baseSlug = clean.replace(/\s+/g, '-');
     const slugs = [baseSlug];
 
-    if (clean.includes('kagitam')) {
-      slugs.push(baseSlug.replace(/kagitam/g, 'kaagidham'));
+    if (clean.includes('kagitam') || clean.includes('kaagitham')) {
+      slugs.push(baseSlug.replace(/kaagitham|kagitam/g, 'kaagidham'));
+      slugs.push(baseSlug.replace(/kaagitham|kagitam/g, 'thella-kaagitham'));
     }
     if (clean.includes('least')) {
       slugs.push(baseSlug.replace(/least/g, 'most'));
@@ -56,10 +57,10 @@ export class MovierulzExtractor extends BaseExtractor {
       }
     }
 
-    // Regional fallback stream
+    // Regional fallback stream (2embed clean endpoint)
     const fallbackUrl = type === 'tv'
-      ? `https://multiembed.mov/directstream.php?video_id=${id}&tmdb=1&s=${season}&e=${episode}`
-      : `https://multiembed.mov/directstream.php?video_id=${id}&tmdb=1`;
+      ? `https://www.2embed.cc/embedtv/${id}&s=${season}&e=${episode}`
+      : `https://www.2embed.cc/embed/${id}`;
 
     return {
       url: fallbackUrl,
