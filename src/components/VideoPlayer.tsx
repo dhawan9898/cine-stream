@@ -461,7 +461,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             >
               {source.availableServers.map(srv => (
                 <option key={srv.serverId} value={srv.serverId}>
-                  {srv.serverName}{srv.isFallbackEmbed ? ' (Embed)' : ''}
+                  {srv.serverName}
                 </option>
               ))}
             </select>

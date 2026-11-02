@@ -43,6 +43,33 @@ export function formatOf(url: string): StreamFormat {
   return 'hls';
 }
 
+export function unpackJs(text: string): string[] {
+  const unpacked: string[] = [];
+  const matches = [...text.matchAll(/eval\(function\(p,a,c,k,e,d\)\{[\s\S]*?\}\s*\(\s*['"]([\s\S]*?)['"]\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*['"]([\s\S]*?)['"]\.split\(['"]\|['"]\)/gi)];
+
+  for (const m of matches) {
+    try {
+      let p = m[1];
+      const a = parseInt(m[2], 10);
+      const c = parseInt(m[3], 10);
+      const k = m[4].split('|');
+
+      const e = (val: number): string => (val < a ? '' : e(Math.floor(val / a))) + (val % a > 35 ? String.fromCharCode(val % a + 29) : (val % a).toString(36));
+
+      let count = c;
+      while (count--) {
+        if (k[count]) {
+          p = p.replace(new RegExp('\\b' + e(count) + '\\b', 'g'), k[count]);
+        }
+      }
+      unpacked.push(p);
+    } catch {
+      // Continue
+    }
+  }
+  return unpacked;
+}
+
 /** Undoes the escaping providers hide URLs behind (JSON `\/`, `&`, `&amp;`, %-encoding). */
 export function unescapeText(text: string): string {
   if (!text) return '';
@@ -161,6 +188,12 @@ export function discover(body: string, baseUrl: string): Discovery {
 
   const unescaped = unescapeText(text);
   scan(unescaped);
+
+  // Unpack Dean Edwards packed JS code commonly used by stream hosts
+  for (const unpackedCode of unpackJs(unescaped)) {
+    scan(unpackedCode);
+  }
+
   try { scan(decodeURIComponent(unescaped)); } catch { /* malformed escapes */ }
   for (const m of unescaped.matchAll(B64_RE)) {
     const dec = tryBase64(m[1]);
