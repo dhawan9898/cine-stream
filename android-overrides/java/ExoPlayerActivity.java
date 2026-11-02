@@ -493,6 +493,24 @@ public class ExoPlayerActivity extends AppCompatActivity {
     private final java.util.concurrent.atomic.AtomicBoolean isSniffing =
             new java.util.concurrent.atomic.AtomicBoolean(false);
 
+    private static final String[] AD_HOSTS = new String[] {
+        "doubleclick.net", "googlesyndication.com", "googleadservices.com",
+        "adservice", "popads.net", "popcash.net", "adsterra.com",
+        "propellerads.com", "exoclick.com", "juicyads.com", "bet365",
+        "yandex.ru/ads", "histats.com", "pagead", "adsystem", "onclickads",
+        "clck.ru", "adtng.com", "trafficjunky", "syndication", "adk2",
+        "reklam", "popunder", "banner", "pushnotification", "coin-hive"
+    };
+
+    private boolean isAdUrl(String url) {
+        if (url == null || url.isEmpty()) return false;
+        String lower = url.toLowerCase();
+        for (String host : AD_HOSTS) {
+            if (lower.contains(host)) return true;
+        }
+        return false;
+    }
+
     private boolean isDirectVideoUrl(String url) {
         if (url == null || url.isEmpty()) return false;
         String lower = url.toLowerCase();
@@ -537,9 +555,12 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 sniffingWebView.setWebViewClient(new WebViewClient() {
                     @Override
                     public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                        if (isSniffing.get() && request != null && request.getUrl() != null) {
+                        if (request != null && request.getUrl() != null) {
                             String reqUrl = request.getUrl().toString();
-                            if (isDirectVideoUrl(reqUrl) && !reqUrl.equalsIgnoreCase(embedUrl)) {
+                            if (isAdUrl(reqUrl)) {
+                                return new WebResourceResponse("text/plain", "UTF-8", new java.io.ByteArrayInputStream("".getBytes()));
+                            }
+                            if (isSniffing.get() && isDirectVideoUrl(reqUrl) && !reqUrl.equalsIgnoreCase(embedUrl)) {
                                 if (isSniffing.compareAndSet(true, false)) {
                                     Log.i(TAG, "Sniffed direct stream URL: " + reqUrl);
                                     String extractedReferer = request.getRequestHeaders() != null ? request.getRequestHeaders().get("Referer") : referer;
@@ -609,10 +630,30 @@ public class ExoPlayerActivity extends AppCompatActivity {
 
                     embedWebView.setWebViewClient(new WebViewClient() {
                         @Override
+                        public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                            if (request != null && request.getUrl() != null) {
+                                String reqUrl = request.getUrl().toString();
+                                if (isAdUrl(reqUrl)) {
+                                    return new WebResourceResponse("text/plain", "UTF-8", new java.io.ByteArrayInputStream("".getBytes()));
+                                }
+                                if (isDirectVideoUrl(reqUrl) && !reqUrl.equalsIgnoreCase(embedUrl)) {
+                                    Log.i(TAG, "Embed WebView sniffed direct stream: " + reqUrl);
+                                    String extractedReferer = request.getRequestHeaders() != null ? request.getRequestHeaders().get("Referer") : referer;
+                                    handler.post(() -> {
+                                        if (embedWebContainer != null) embedWebContainer.setVisibility(View.GONE);
+                                        initializePlayer(reqUrl, extractedReferer != null ? extractedReferer : referer, pendingSubtitlesJson, Math.max(0L, lastKnownPositionMs), true);
+                                    });
+                                }
+                            }
+                            return super.shouldInterceptRequest(view, request);
+                        }
+
+                        @Override
                         public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                             if (request != null && request.getUrl() != null) {
+                                String reqUrl = request.getUrl().toString();
                                 String host = request.getUrl().getHost();
-                                if (host != null && (host.contains("ad") || host.contains("pop"))) {
+                                if (isAdUrl(reqUrl) || (host != null && (host.contains("ad") || host.contains("pop") || host.contains("click")))) {
                                     return true; // Block ad popups
                                 }
                             }
