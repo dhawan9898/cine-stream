@@ -79,6 +79,7 @@ public class ExoPlayerPlugin extends Plugin {
         String mode = call.getString("mode", "sub");
         JSArray subtitles = call.getArray("subtitles");
         JSArray qualities = call.getArray("qualities");
+        JSArray audios = call.getArray("audios");
         JSArray episodes = call.getArray("episodes");
         boolean isFallback = call.getBoolean("isFallback", false);
         JSObject intro = call.getObject("intro");
@@ -99,6 +100,7 @@ public class ExoPlayerPlugin extends Plugin {
         intent.putExtra("mode", mode);
         intent.putExtra("subtitles", subtitles != null ? subtitles.toString() : null);
         intent.putExtra("qualities", qualities != null ? qualities.toString() : null);
+        intent.putExtra("audios", audios != null ? audios.toString() : null);
         intent.putExtra("episodes", episodes != null ? episodes.toString() : null);
         intent.putExtra("isFallback", isFallback);
         intent.putExtra("autoSkipIntro", autoSkipIntro);

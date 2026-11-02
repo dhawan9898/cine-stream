@@ -8,12 +8,29 @@ export interface ExtractorSubtitle {
   mimeType?: string;
 }
 
+export interface QualityVariant {
+  quality: string;
+  url: string;
+}
+
+// Another language of the same title, offered as a separate stream (multi-audio releases).
+export interface AudioVariant {
+  label: string;
+  language: string;
+  url: string;
+  qualities?: QualityVariant[];
+}
+
 export interface ExtractedStream {
   url: string;
   format: StreamFormat;
   quality?: string;
   headers?: Record<string, string>;
   subtitles?: ExtractorSubtitle[];
+  // Alternate renditions of this same stream (different resolution files).
+  qualities?: QualityVariant[];
+  // Other languages of this title; the player lists them under Audio.
+  audios?: AudioVariant[];
   isFallbackEmbed?: boolean;
   serverId?: string;
   serverName?: string;

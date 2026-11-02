@@ -1,6 +1,11 @@
 // movierulzExtractor.ts - Indian regional content extractor (Telugu, Hindi, Tamil, Malayalam, Kannada, Multi-Audio)
 import { BaseExtractor } from './baseExtractor.ts';
 import type { ExtractedStream } from './types.ts';
+import { buildVariantSet, extractCandidates, type ResolvedVariant } from './variantDiscovery.ts';
+
+const MEDIA_EXT = /\.(m3u8|mpd|mp4|mkv|webm)(\?|$)/i;
+const MAX_CANDIDATES = 8;
+const CANDIDATE_TIMEOUT_MS = 5000;
 
 export class MovierulzExtractor extends BaseExtractor {
   id = 'movierulz';
@@ -62,7 +67,7 @@ export class MovierulzExtractor extends BaseExtractor {
           this.httpGet(candidate, { Referer: `${primaryDomain}/` }),
           new Promise<string>((_, reject) => setTimeout(() => reject(new Error('timeout')), 1500))
         ]);
-        const stream = await this.extractFromPageBody(pageBody, candidate);
+        const stream = await this.extractFromPageBody(pageBody, candidate, params.language);
         if (stream) {
           return { ...stream, serverId: this.id, serverName: this.name };
         }
@@ -85,43 +90,36 @@ export class MovierulzExtractor extends BaseExtractor {
     };
   }
 
-  private async extractFromPageBody(body: string, referer: string): Promise<ExtractedStream | null> {
+  // Resolves every language/quality link the release page lists, then starts the
+  // viewer's language at the best quality and hands the rest to the player's
+  // Audio and Video Quality menus.
+  private async extractFromPageBody(body: string, referer: string, languageCode?: string): Promise<ExtractedStream | null> {
     if (!body) return null;
 
-    // Check var locations or var players JS arrays
-    const locationsMatch = body.match(/var\s+(?:locations|players|sources|links)\s*=\s*\[([\s\S]*?)\];/);
-    if (locationsMatch) {
-      const rawUrls = [...locationsMatch[1].matchAll(/["']([^"']+)["']/g)].map(m => m[1].replace(/\\\//g, '/'));
-      for (const rawUrl of rawUrls) {
-        if (rawUrl.includes('m3u8') || rawUrl.includes('.mp4')) {
-          return {
-            url: rawUrl,
-            format: 'hls',
-            quality: '1080p',
-            headers: { Referer: referer, 'User-Agent': this.defaultUserAgent }
-          };
-        }
-
-        const iframeStream = await this.resolveFromPage(rawUrl, { referer });
-        if (iframeStream && iframeStream.url) {
-          return iframeStream;
-        }
+    const candidates = extractCandidates(body, referer).slice(0, MAX_CANDIDATES);
+    const settled = await Promise.all(candidates.map(async (c): Promise<ResolvedVariant | null> => {
+      if (MEDIA_EXT.test(c.url)) return { url: c.url, hint: c.hint };
+      try {
+        const resolved = await Promise.race([
+          this.resolveFromPage(c.url, { referer, maxDepth: 1, maxPages: 3 }),
+          new Promise<null>(r => setTimeout(() => r(null), CANDIDATE_TIMEOUT_MS))
+        ]);
+        return resolved?.url ? { url: resolved.url, hint: c.hint } : null;
+      } catch {
+        return null;
       }
-    }
+    }));
 
-    // Check embed links in HTML
-    const embedMatches = [...body.matchAll(/(https?:\/\/[^"'\s<>]*(?:streamtape|filelions|streamwish|dood|mixdrop|vidoza|vidhide|lulustream|embedrise|dropload|fastream|hls|m3u8|mp4)[^"'\s<>]*)/gi)].map(m => m[1]);
-    for (const embedUrl of Array.from(new Set(embedMatches))) {
-      if (embedUrl.includes('m3u8') || embedUrl.includes('.mp4')) {
-        return {
-          url: embedUrl,
-          format: 'hls',
-          quality: '1080p',
-          headers: { Referer: referer, 'User-Agent': this.defaultUserAgent }
-        };
-      }
-      const resolved = await this.resolveFromPage(embedUrl, { referer });
-      if (resolved && resolved.url) return resolved;
+    const set = buildVariantSet(settled.filter((v): v is ResolvedVariant => v !== null), languageCode);
+    if (set) {
+      return {
+        url: set.primary.url,
+        format: MEDIA_EXT.test(set.primary.url) && /\.mpd/i.test(set.primary.url) ? 'dash' : /\.(mp4|mkv|webm)(\?|$)/i.test(set.primary.url) ? 'mp4' : 'hls',
+        quality: set.primary.hint.quality,
+        headers: { Referer: referer, 'User-Agent': this.defaultUserAgent },
+        qualities: set.qualities.length > 1 ? set.qualities : undefined,
+        audios: set.audios.length > 1 ? set.audios : undefined
+      };
     }
 
     return await this.resolveFromPage(referer, { referer, maxDepth: 1, maxPages: 2 });

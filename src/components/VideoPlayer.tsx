@@ -272,6 +272,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               label: t.label || t.lang || 'Subtitle',
               default: i === 0
             })),
+            qualities: res.qualities?.map(q => ({ quality: q.quality, url: q.url })),
+            audios: res.audios?.map(a => ({
+              label: a.label,
+              url: a.url,
+              qualities: a.qualities?.map(q => ({ quality: q.quality, url: q.url }))
+            })),
             episodes: isSeries ? episodes.map(e => ({ id: String(e.id), number: String(e.episodeNumber) })) : undefined,
             startPositionMs: startPositionMs > 0 ? startPositionMs : undefined,
             isFallback: res.isFallbackEmbed ?? false,

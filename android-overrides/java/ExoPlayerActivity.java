@@ -234,7 +234,6 @@ public class ExoPlayerActivity extends AppCompatActivity {
     //    under several fake quality labels, which is not a real choice and
     //    must not be offered as one.
     private boolean useAdaptiveQualityMenu = false;
-    private androidx.media3.common.TrackGroup adaptiveVideoGroup;
     private final java.util.List<VideoQualityOption> videoQualityOptions = new java.util.ArrayList<>();
     private int currentVideoTrackIndex = -1; // -1 == Auto (adaptive)
 
@@ -304,13 +303,33 @@ public class ExoPlayerActivity extends AppCompatActivity {
 
     private static final class VideoQualityOption {
         final String label;
-        final int trackIndex;
+        final int trackIndex; // position in videoQualityOptions (stable menu key)
+        final androidx.media3.common.TrackGroup group;
+        final int indexInGroup;
 
-        VideoQualityOption(String label, int trackIndex) {
+        VideoQualityOption(String label, int trackIndex, androidx.media3.common.TrackGroup group, int indexInGroup) {
             this.label = label;
             this.trackIndex = trackIndex;
+            this.group = group;
+            this.indexInGroup = indexInGroup;
         }
     }
+
+    // Another language of the same movie, supplied by the scraper as a separate
+    // stream (Movierulz multi-audio releases list one link per language).
+    private static final class AudioVariant {
+        final String label;
+        final String url;
+        final java.util.List<QualityOption> qualities;
+
+        AudioVariant(String label, String url, java.util.List<QualityOption> qualities) {
+            this.label = label;
+            this.url = url;
+            this.qualities = qualities;
+        }
+    }
+    private final java.util.List<AudioVariant> audioVariants = new java.util.ArrayList<>();
+    private String currentAudioUrl;
 
     private AudioManager audioManager;
     private float currentBrightness = 0.5f;
@@ -480,6 +499,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
         // Quality choices (when there's a real one) live in the Audio &
         // Subtitles panel, like the rest of Netflix's track selection.
         parseQualities(qualitiesJson, videoUrl);
+        parseAudioVariants(intent.getStringExtra("audios"), videoUrl);
 
         // Markers served alongside the stream (provider) win; AniSkip
         // only fills in a half the server didn't tag - see maybeFetchSkipTimes().
@@ -1256,6 +1276,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
                             : "Track " + (audioIndex + 1);
                 }
                 audioIndex++;
+                if (format.channelCount > 2) label += " (5.1)";
                 audioRows.add(new MenuRow(label, group.isSelected(), () -> {
                     if (player == null) return;
                     player.setTrackSelectionParameters(player.getTrackSelectionParameters()
@@ -1263,6 +1284,16 @@ public class ExoPlayerActivity extends AppCompatActivity {
                             .setOverrideForType(new TrackSelectionOverride(audioGroup.getMediaTrackGroup(), 0))
                             .build());
                     if (dialogRef[0] != null) dialogRef[0].dismiss();
+                }));
+            }
+        }
+        if (audioRows.size() <= 1 && audioVariants.size() > 1) {
+            audioRows.clear();
+            for (AudioVariant variant : audioVariants) {
+                audioRows.add(new MenuRow(variant.label, variant.url.equals(currentAudioUrl), () -> {
+                    // Different file: rebuild the player at the same position.
+                    if (dialogRef[0] != null) dialogRef[0].dismiss();
+                    switchAudioVariant(variant);
                 }));
             }
         }
@@ -1544,36 +1575,45 @@ public class ExoPlayerActivity extends AppCompatActivity {
     // video track group - no player rebuild needed, ExoPlayer just switches
     // renditions like it would on its own for bandwidth changes.
     private void selectVideoQuality(int trackIndex) {
-        if (player == null || adaptiveVideoGroup == null) return;
+        if (player == null) return;
         currentVideoTrackIndex = trackIndex;
         androidx.media3.common.TrackSelectionParameters.Builder builder =
                 player.getTrackSelectionParameters().buildUpon()
                         .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
                         .clearOverridesOfType(C.TRACK_TYPE_VIDEO);
-        if (trackIndex >= 0) {
-            builder.addOverride(new TrackSelectionOverride(adaptiveVideoGroup, trackIndex));
+        if (trackIndex >= 0 && trackIndex < videoQualityOptions.size()) {
+            VideoQualityOption option = videoQualityOptions.get(trackIndex);
+            builder.addOverride(new TrackSelectionOverride(option.group, option.indexInGroup));
         }
         player.setTrackSelectionParameters(builder.build());
     }
 
-    // Checked on every onTracksChanged - the very first time ExoPlayer
-    // reports a video track group with more than one Format in it, that's a
-    // real adaptive ladder, so switch the quality button over to it
-    // permanently for this player instance.
+    // Checked on every onTracksChanged. Every distinct resolution ExoPlayer
+    // reports across all video groups (HLS ladders are sometimes split into
+    // several groups by codec) becomes a menu entry, best bitrate per height.
     private void maybeResolveAdaptiveQuality(Tracks tracks) {
         if (useAdaptiveQualityMenu) return;
+        java.util.Map<Integer, VideoQualityOption> byHeight = new java.util.TreeMap<>(java.util.Collections.reverseOrder());
+        java.util.Map<Integer, Integer> bitrate = new java.util.HashMap<>();
         for (Tracks.Group group : tracks.getGroups()) {
-            if (group.getType() != C.TRACK_TYPE_VIDEO || group.length <= 1) continue;
-            adaptiveVideoGroup = group.getMediaTrackGroup();
-            videoQualityOptions.clear();
+            if (group.getType() != C.TRACK_TYPE_VIDEO) continue;
             for (int i = 0; i < group.length; i++) {
+                if (!group.isTrackSupported(i)) continue;
                 Format format = group.getTrackFormat(i);
-                videoQualityOptions.add(new VideoQualityOption(
-                        format.height > 0 ? format.height + "p" : "Track " + (i + 1), i));
+                if (format.height <= 0) continue;
+                Integer best = bitrate.get(format.height);
+                if (best == null || format.bitrate > best) {
+                    bitrate.put(format.height, format.bitrate);
+                    byHeight.put(format.height, new VideoQualityOption(format.height + "p", 0, group.getMediaTrackGroup(), i));
+                }
             }
-            useAdaptiveQualityMenu = true;
-            return;
         }
+        if (byHeight.size() < 2) return;
+        videoQualityOptions.clear();
+        for (VideoQualityOption option : byHeight.values()) {
+            videoQualityOptions.add(new VideoQualityOption(option.label, videoQualityOptions.size(), option.group, option.indexInGroup));
+        }
+        useAdaptiveQualityMenu = true;
     }
 
     // Populates episodeOptions from the "episodes" intent extra - the real
@@ -1757,6 +1797,55 @@ public class ExoPlayerActivity extends AppCompatActivity {
         player.release();
         player = null;
         initializePlayer(option.url, pendingReferer, pendingSubtitlesJson, resumePosition, wasPlaying);
+    }
+
+    private void switchAudioVariant(AudioVariant variant) {
+        if (player == null || variant.url.equals(currentAudioUrl)) return;
+        long resumePosition = Math.max(player.getCurrentPosition(), 0);
+        boolean wasPlaying = player.isPlaying();
+        currentAudioUrl = variant.url;
+        pendingVideoUrl = variant.url;
+        // Qualities offered now are the ones of this language's file.
+        qualityOptions.clear();
+        currentQualityLabel = null;
+        if (variant.qualities.size() > 1) {
+            qualityOptions.addAll(variant.qualities);
+            for (QualityOption option : qualityOptions) {
+                if (option.url.equals(variant.url)) currentQualityLabel = option.label;
+            }
+            if (currentQualityLabel == null) currentQualityLabel = qualityOptions.get(0).label;
+        }
+        player.release();
+        player = null;
+        initializePlayer(variant.url, pendingReferer, pendingSubtitlesJson, resumePosition, wasPlaying);
+    }
+
+    private void parseAudioVariants(String audiosJson, String currentUrl) {
+        audioVariants.clear();
+        currentAudioUrl = currentUrl;
+        if (audiosJson == null || audiosJson.isEmpty()) return;
+        try {
+            JSONArray arr = new JSONArray(audiosJson);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject obj = arr.getJSONObject(i);
+                String url = obj.optString("url", "");
+                String label = obj.optString("label", "");
+                if (url.isEmpty() || label.isEmpty()) continue;
+                java.util.List<QualityOption> qualities = new java.util.ArrayList<>();
+                JSONArray qa = obj.optJSONArray("qualities");
+                if (qa != null) {
+                    for (int q = 0; q < qa.length(); q++) {
+                        JSONObject qo = qa.getJSONObject(q);
+                        String qu = qo.optString("url", "");
+                        String ql = qo.optString("quality", "");
+                        if (!qu.isEmpty() && !ql.isEmpty()) qualities.add(new QualityOption(ql, qu));
+                    }
+                }
+                audioVariants.add(new AudioVariant(label, url, qualities));
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Failed to parse audios JSON", e);
+        }
     }
 
     void setPrefetchedNext(String afterEpisode, String mode, Intent intent) {
@@ -1954,7 +2043,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
         // switch) needs to re-resolve it from scratch rather than keep
         // pointing at a TrackGroup from the old one.
         useAdaptiveQualityMenu = false;
-        adaptiveVideoGroup = null;
+        videoQualityOptions.clear();
         videoQualityOptions.clear();
         currentVideoTrackIndex = -1;
 

@@ -13,6 +13,12 @@ export interface QualityOption {
   url: string;
 }
 
+export interface AudioOption {
+  label: string;
+  url: string;
+  qualities?: QualityOption[];
+}
+
 export interface PlayEpisodeOption {
   id: string;
   number: string;
@@ -54,6 +60,7 @@ export interface ExoPlayerPluginInterface {
     headers?: Record<string, string>;
     subtitles?: PlayerSubtitle[];
     qualities?: QualityOption[];
+    audios?: AudioOption[];
     episodes?: PlayEpisodeOption[];
     intro?: { start: number; end: number };
     outro?: { start: number; end: number };
