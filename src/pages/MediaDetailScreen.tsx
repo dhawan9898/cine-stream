@@ -61,9 +61,10 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
       type: media.mediaType,
       season: history?.season ?? season,
       episode: history?.episode ?? 1,
-      title: media.title
+      title: media.title,
+      language: media.language
     });
-  }, [media.id, media.mediaType, media.title, season, history?.season, history?.episode]);
+  }, [media.id, media.mediaType, media.title, media.language, season, history?.season, history?.episode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -132,7 +133,7 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
     <div className="screen-scroll" style={{ paddingBottom: '40px', position: 'relative' }}>
       <div style={{ position: 'relative', width: '100%', height: '280px' }}>
         <FadeImage src={shown.backdrop || shown.poster} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(11,11,13,0.55) 0%, rgba(11,11,13,0.82) 70%, var(--bg-main) 100%)' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(9,9,15,0.55) 0%, rgba(9,9,15,0.82) 70%, var(--bg-main) 100%)' }} />
         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: 'calc(var(--safe-top) + 12px) 20px 0 20px', zIndex: 20 }}>
           <button
             onClick={onBack}

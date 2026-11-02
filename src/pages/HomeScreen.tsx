@@ -2,7 +2,8 @@
 // category pool (movies + TV, every language and genre) and ordered by what
 // the viewer watches; rows below the fold load when scrolled near.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Play, ChevronRight, ChevronDown, Search as SearchIcon, X } from 'lucide-react';
+import { Play, ChevronRight, ChevronDown, Search as SearchIcon, X, RefreshCw } from 'lucide-react';
+import { clearPersistedCache } from '../core/persistentCache.ts';
 import { getTrending, getRecommendations, type MediaItem } from '../core/cineHypeCore.ts';
 import { getWatchHistory, getBookmarks, removeWatchHistory, subscribeLibraryChanges, type WatchHistoryItem } from '../services/historyService.ts';
 import {
@@ -280,6 +281,36 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
 
   const retry = useCallback(() => { setTrendingError(false); setAttempt(n => n + 1); }, []);
 
+  // Pull down from the top to refresh: drops cached lists and reloads every row.
+  const [pull, setPull] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const pullStart = useRef<number | null>(null);
+  const PULL_TRIGGER = 64;
+
+  const onTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    pullStart.current = e.currentTarget.scrollTop <= 0 && !refreshing ? e.touches[0].clientY : null;
+  };
+  const onTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (pullStart.current === null) return;
+    const dy = e.touches[0].clientY - pullStart.current;
+    if (dy <= 0 || e.currentTarget.scrollTop > 0) { if (pull) setPull(0); return; }
+    setPull(Math.min(dy * 0.5, 96));
+  };
+  const onTouchEnd = () => {
+    const shouldRefresh = pullStart.current !== null && pull >= PULL_TRIGGER;
+    pullStart.current = null;
+    setPull(0);
+    if (!shouldRefresh) return;
+    navigator.vibrate?.(10);
+    setRefreshing(true);
+    clearPersistedCache();
+    setTrendingError(false);
+    setAttempt(n => n + 1);
+    setRefreshKey(k => k + 1);
+    window.setTimeout(() => setRefreshing(false), 1100);
+  };
+
   const rails = useMemo(() => buildRails(mode, taste), [mode, taste]);
   const chips = useMemo(() => buildChips(mode, taste), [mode, taste]);
   const watched = useMemo(() => new Set(history.map(h => `${h.type}-${h.id}`)), [history]);
@@ -290,7 +321,24 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
   const openPicker = () => { setPickerFilter(mode); setPickerOpen(true); };
 
   return (
-    <div className="screen-scroll" style={{ paddingBottom: '110px', position: 'relative' }}>
+    <div
+      className="screen-scroll"
+      style={{ paddingBottom: '110px', position: 'relative' }}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchEnd}
+    >
+      <div
+        className={`ptr-indicator${refreshing ? ' spinning' : ''}`}
+        aria-hidden
+        style={{
+          transform: `translate3d(-50%, ${refreshing ? 56 : pull - 40}px, 0) rotate(${refreshing ? 0 : pull * 4}deg)`,
+          opacity: refreshing ? 1 : Math.min(1, pull / PULL_TRIGGER)
+        }}
+      >
+        <RefreshCw size={18} />
+      </div>
       {/* Top bar: wordmark + Categories + search, floating over the hero.
           Gradient only, no blur - a blurred sticky bar re-renders the whole
           feed under it on every scroll frame. */}
@@ -299,7 +347,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
           position: 'sticky',
           top: 0,
           zIndex: 40,
-          background: 'linear-gradient(180deg, rgba(11,11,13,0.85) 0%, rgba(11,11,13,0.5) 65%, transparent 100%)',
+          background: 'linear-gradient(180deg, rgba(9,9,15,0.85) 0%, rgba(9,9,15,0.5) 65%, transparent 100%)',
           padding: 'calc(var(--safe-top) + 12px) 20px 12px 20px',
           display: 'flex',
           alignItems: 'center',
@@ -451,14 +499,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
         />
       )}
 
-      {seed && <BecauseYouWatched seed={seed} filter={mode} onSelectMedia={onSelectMedia} onPreview={setPreview} />}
+      {seed && <BecauseYouWatched key={`byw-${refreshKey}`} seed={seed} filter={mode} onSelectMedia={onSelectMedia} onPreview={setPreview} />}
       {history.length > 1 && (
         <PicksForYou seeds={history.slice(1, 4)} watched={watched} filter={mode} onSelectMedia={onSelectMedia} onPreview={setPreview} />
       )}
 
       {rails.map(source => (
         <LazyRail
-          key={source.key}
+          key={`${source.key}-${refreshKey}`}
           source={source}
           onSelectMedia={onSelectMedia}
           onPreview={setPreview}

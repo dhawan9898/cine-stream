@@ -15,12 +15,46 @@ import { InsertUnitExtractor } from './insertunitExtractor.ts';
 import { TelegramExtractor } from './telegramExtractor.ts';
 
 const MAX_SNIFF_ATTEMPTS = 4;
+const PROVIDER_TIMEOUT_MS = 7000;
+// After a direct stream arrives, wait this long for a better one then stop.
+const EARLY_EXIT_GRACE_MS = 350;
+const HEALTH_KEY = 'cinestream_provider_health_v1';
+const FAILS_BEFORE_COOLDOWN = 3;
+const COOLDOWN_MS = 10 * 60 * 1000;
+
+interface Health { fails: number; until: number }
+
+function loadHealth(): Record<string, Health> {
+  try { return JSON.parse(localStorage.getItem(HEALTH_KEY) || '{}'); } catch { return {}; }
+}
+function saveHealth(h: Record<string, Health>) {
+  try { localStorage.setItem(HEALTH_KEY, JSON.stringify(h)); } catch { /* storage unavailable */ }
+}
 
 type Sniffer = (embed: ExtractedStream) => Promise<ExtractedStream | null>;
 
 export class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
   private sniffer: Sniffer = embed => sniffDirectStream(embed);
+  private health: Record<string, Health> = loadHealth();
+
+  // Providers that failed several times in a row sit out for a while so they
+  // stop slowing every lookup; one success brings them straight back.
+  private recordResult(id: string, ok: boolean) {
+    const h = this.health[id] ?? { fails: 0, until: 0 };
+    if (ok) {
+      if (h.fails === 0 && h.until === 0) return;
+      this.health[id] = { fails: 0, until: 0 };
+    } else {
+      const fails = h.fails + 1;
+      this.health[id] = { fails, until: fails >= FAILS_BEFORE_COOLDOWN ? Date.now() + COOLDOWN_MS : 0 };
+    }
+    saveHealth(this.health);
+  }
+
+  private isCoolingDown(id: string): boolean {
+    return (this.health[id]?.until ?? 0) > Date.now();
+  }
 
   // Lets tests (or other platforms) swap the embed -> direct stream resolver.
   setSniffer(fn: Sniffer) {
@@ -62,34 +96,44 @@ export class ExtractorRegistry {
     // Only return direct stream data (never iframe/embed pages). Defaults to
     // true on native Android, where the result is handed straight to ExoPlayer.
     directOnly?: boolean;
+    // Background prefetches must not spin up hidden web views.
+    allowSniff?: boolean;
   }): Promise<ExtractedStream[]> {
-    const timeoutMs = 7000;
-    const promises = this.extractors.map(async (extractor): Promise<ExtractedStream | null> => {
-      try {
-        const stream = await Promise.race([
-          extractor.extract(params),
-          new Promise<null>(resolve => setTimeout(() => resolve(null), timeoutMs))
-        ]);
-        if (stream && stream.url) {
-          return {
-            ...stream,
-            serverId: stream.serverId || extractor.id,
-            serverName: stream.serverName || extractor.name
-          };
-        }
-      } catch {
-        return null;
-      }
-      return null;
-    });
+    const directOnly = params.directOnly ?? Capacitor.isNativePlatform();
+    // Skip providers on cooldown, but never skip everything.
+    const healthy = this.extractors.filter(e => !this.isCoolingDown(e.id));
+    const active = healthy.length > 0 ? healthy : this.extractors;
 
-    const results = await Promise.allSettled(promises);
     const fulfilled: ExtractedStream[] = [];
-    for (const r of results) {
-      if (r.status === 'fulfilled' && r.value && r.value.url) {
-        fulfilled.push(r.value);
-      }
-    }
+    const isDirect = (s: ExtractedStream) => !s.isFallbackEmbed;
+
+    // Collect results as they arrive and stop shortly after the first direct
+    // stream instead of waiting for the slowest provider.
+    await new Promise<void>(resolve => {
+      let pending = active.length;
+      let graceTimer: ReturnType<typeof setTimeout> | undefined;
+      const finish = () => { if (graceTimer) clearTimeout(graceTimer); resolve(); };
+      if (pending === 0) { finish(); return; }
+
+      active.forEach(extractor => {
+        const timeout = new Promise<null>(r => setTimeout(() => r(null), PROVIDER_TIMEOUT_MS));
+        Promise.race([extractor.extract(params), timeout])
+          .catch(() => null)
+          .then(stream => {
+            const ok = Boolean(stream && stream.url && (isDirect(stream) || !directOnly));
+            this.recordResult(extractor.id, ok);
+            if (stream && stream.url) {
+              fulfilled.push({
+                ...stream,
+                serverId: stream.serverId || extractor.id,
+                serverName: stream.serverName || extractor.name
+              });
+              if (isDirect(stream) && !graceTimer) graceTimer = setTimeout(finish, EARLY_EXIT_GRACE_MS);
+            }
+          })
+          .finally(() => { if (--pending === 0) finish(); });
+      });
+    });
 
     // Sort streams: direct non-blob streams first, then other direct streams, then fallback embeds
     const sorted = fulfilled.sort((a, b) => {
@@ -98,13 +142,12 @@ export class ExtractorRegistry {
       return bDirect - aDirect;
     });
 
-    const directOnly = params.directOnly ?? Capacitor.isNativePlatform();
     if (!directOnly) return sorted;
 
     // Method 2: no provider gave a direct stream from its page/API, so load the
     // embed pages in a hidden WebView and capture the real media request.
     const direct = sorted.filter(s => !s.isFallbackEmbed);
-    if (direct.length === 0) {
+    if (direct.length === 0 && params.allowSniff !== false) {
       const embeds = sorted.filter(s => s.isFallbackEmbed).slice(0, MAX_SNIFF_ATTEMPTS);
       for (const embed of embeds) {
         const sniffed = await this.sniffer(embed);

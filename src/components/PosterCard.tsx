@@ -31,7 +31,7 @@ export const PosterCard: React.FC<PosterCardProps> = ({ media, onClick, width, b
 
   const handlePrefetch = () => {
     prefetchMediaDetails(media.id, media.mediaType);
-    prefetchStream({ id: media.id, type: media.mediaType, title: media.title });
+    prefetchStream({ id: media.id, type: media.mediaType, title: media.title, language: media.language });
   };
 
   return (

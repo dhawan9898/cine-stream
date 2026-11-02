@@ -258,21 +258,43 @@ export async function getOnTheAirTV(page = 1): Promise<MediaItem[]> {
 
 // 4b. Personalized: titles TMDB recommends from one the viewer watched
 export async function getRecommendations(id: number, type: MediaType): Promise<MediaItem[]> {
-  const cacheKey = `recs_${type}_${id}`;
-  const cached = await getCached<MediaItem[]>(cacheKey);
-  if (cached) return cached;
-
-  const data = await tmdbFetch<{ results: any[] }>(`/${type}/${id}/recommendations`);
-  const items = data.results
-    .filter(i => i.poster_path)
-    .map(i => mapRawToMedia(i, type));
-  writePersisted(cacheKey, items, 60 * 60 * 1000);
-  return items;
+  // Details carry the language-aware list (Telugu/Hindi/... titles get
+  // same-language suggestions first) and are cached, so this is cheap.
+  const details = await getMediaDetails(id, type);
+  return details.recommendations;
 }
 
 // 5. Media Details (Movie & TV)
+const REGIONAL_LANGS = new Set(['te', 'ta', 'hi', 'ml', 'kn', 'bn', 'pa', 'mr', 'gu']);
+
+function dedupeMedia(items: MediaItem[]): MediaItem[] {
+  const seen = new Set<number>();
+  return items.filter(i => (seen.has(i.id) ? false : (seen.add(i.id), true)));
+}
+
+// Same-language titles first: TMDB recs in that language, then popular titles in
+// that language sharing a genre, then popular in that language, then the rest.
+async function buildRegionalSuggestions(
+  base: MediaItem,
+  type: MediaType,
+  genreIds: number[],
+  tmdbRecs: MediaItem[]
+): Promise<MediaItem[]> {
+  const lang = base.language!;
+  const sameLang = tmdbRecs.filter(r => r.language === lang);
+  const [byGenre, popular] = await Promise.all([
+    genreIds.length
+      ? discoverMedia({ type, language: lang, genres: genreIds.slice(0, 2).join('|') }).catch(() => [] as MediaItem[])
+      : Promise.resolve([] as MediaItem[]),
+    discoverMedia({ type, language: lang }).catch(() => [] as MediaItem[])
+  ]);
+  return dedupeMedia([...sameLang, ...byGenre, ...popular, ...tmdbRecs])
+    .filter(r => r.id !== base.id)
+    .slice(0, 18);
+}
+
 export async function getMediaDetails(id: number, type: MediaType): Promise<MediaDetails> {
-  const cacheKey = `details_${type}_${id}`;
+  const cacheKey = `details2_${type}_${id}`;
   const cached = await getCached<MediaDetails>(cacheKey);
   if (cached) return cached;
 
@@ -302,11 +324,17 @@ export async function getMediaDetails(id: number, type: MediaType): Promise<Medi
       type: v.type
     }));
 
-  // Recommendations
-  const recs = (data.recommendations?.results || data.similar?.results || [])
+  // Recommendations. TMDB's list for Indian regional titles is mostly Hollywood,
+  // so those get same-language suggestions first (see buildRegionalSuggestions).
+  const tmdbRecs: MediaItem[] = [
+    ...(data.recommendations?.results || []),
+    ...(data.similar?.results || [])
+  ]
     .filter((r: any) => r.poster_path || r.backdrop_path)
-    .slice(0, 15)
     .map((r: any) => mapRawToMedia(r, type));
+  const recs = REGIONAL_LANGS.has(base.language ?? '')
+    ? await buildRegionalSuggestions(base, type, (data.genres || []).map((g: any) => g.id), tmdbRecs)
+    : dedupeMedia(tmdbRecs).filter(r => r.id !== base.id).slice(0, 18);
 
   // Seasons (for TV)
   let seasons: SeasonItem[] | undefined;

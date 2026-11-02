@@ -78,10 +78,34 @@ public class ExoPlayerActivity extends AppCompatActivity {
     // little extra memory and a slightly slower initial join for a much
     // bigger cushion against mid-playback stalls on the flaky/proxied CDNs
     // this app streams from.
-    private static final int MIN_BUFFER_MS = 30_000;
-    private static final int MAX_BUFFER_MS = 60_000;
-    private static final int BUFFER_FOR_PLAYBACK_MS = 2_500;
-    private static final int BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 5_000;
+    // Deep read-ahead for stall-free playback; a short start threshold keeps
+    // the initial join fast, a longer one after a stall avoids rebuffer loops.
+    private static final int MIN_BUFFER_MS = 40_000;
+    private static final int MAX_BUFFER_MS = 120_000;
+    private static final int BUFFER_FOR_PLAYBACK_MS = 1_500;
+    private static final int BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 4_000;
+    // Already-played media kept in memory so short seeks back don't refetch.
+    private static final int BACK_BUFFER_MS = 30_000;
+    private static final long DISK_CACHE_BYTES = 300L * 1024 * 1024;
+
+    private static androidx.media3.datasource.cache.SimpleCache diskCache;
+
+    // One on-disk LRU cache of fetched segments shared by every playback: replays,
+    // seeks and retries are served locally instead of from the (flaky) CDN.
+    private static synchronized androidx.media3.datasource.cache.SimpleCache getDiskCache(android.content.Context ctx) {
+        if (diskCache == null) {
+            try {
+                java.io.File dir = new java.io.File(ctx.getCacheDir(), "media_cache");
+                diskCache = new androidx.media3.datasource.cache.SimpleCache(
+                        dir,
+                        new androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor(DISK_CACHE_BYTES),
+                        new androidx.media3.database.StandaloneDatabaseProvider(ctx));
+            } catch (Exception e) {
+                Log.w(TAG, "Disk cache unavailable, streaming without it: " + e);
+            }
+        }
+        return diskCache;
+    }
     // A stalled CDN connection is abandoned after this long and the load
     // retried (was 45 s - the player sat "buffering" that whole time).
     private static final int CONNECT_TIMEOUT_MS = 8_000;
@@ -1947,7 +1971,15 @@ public class ExoPlayerActivity extends AppCompatActivity {
         }
 
         MediaItem mediaItem = buildMediaItem(videoUrl, subtitleConfigs);
-        DefaultMediaSourceFactory mediaSourceFactory = new DefaultMediaSourceFactory(dataSourceFactory)
+        androidx.media3.datasource.DataSource.Factory upstreamFactory = dataSourceFactory;
+        androidx.media3.datasource.cache.SimpleCache cache = getDiskCache(getApplicationContext());
+        if (cache != null) {
+            upstreamFactory = new androidx.media3.datasource.cache.CacheDataSource.Factory()
+                    .setCache(cache)
+                    .setUpstreamDataSourceFactory(dataSourceFactory)
+                    .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
+        }
+        DefaultMediaSourceFactory mediaSourceFactory = new DefaultMediaSourceFactory(upstreamFactory)
                 .setLoadErrorHandlingPolicy(new DefaultLoadErrorHandlingPolicy(LOAD_RETRY_COUNT));
 
         // Bigger read-ahead buffer than ExoPlayer's defaults - fewer visible
@@ -1955,6 +1987,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
         // cost of a little extra memory and a slightly slower initial join.
         DefaultLoadControl loadControl = new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(MIN_BUFFER_MS, MAX_BUFFER_MS, BUFFER_FOR_PLAYBACK_MS, BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS)
+                .setBackBuffer(BACK_BUFFER_MS, true)
+                .setPrioritizeTimeOverSizeThresholds(true)
                 .build();
 
         // Media audio focus (pause for calls, duck for notifications) and

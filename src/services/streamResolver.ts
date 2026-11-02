@@ -14,6 +14,8 @@ export interface StreamParams {
   language?: string;
   title?: string;
   preferredServerId?: string;
+  // Background prefetch: never launch the web-view sniffer.
+  prefetch?: boolean;
 }
 
 export interface ResolvedStream extends ExtractedStream {
@@ -55,7 +57,8 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
       season: params.season,
       episode: params.episode,
       title: params.title,
-      language: params.language
+      language: params.language,
+      allowSniff: !params.prefetch
     });
   } catch (err) {
     console.warn('[StreamResolver] Extraction resolution error:', err);
@@ -142,7 +145,7 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean }
 }
 
 export function prefetchStream(params: StreamParams): void {
-  resolveStream(params).catch(() => {});
+  resolveStream({ ...params, prefetch: true }).catch(() => {});
 }
 
 export async function resolveAllAvailableStreams(params: StreamParams): Promise<ResolvedStream[]> {
