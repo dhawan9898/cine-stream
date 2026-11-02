@@ -196,7 +196,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const nextEpNum = currentEp + 1;
     if (!episodes.some(e => e.episodeNumber === nextEpNum)) return;
 
-    resolveStream({ id: media.id, type: media.mediaType, season, episode: nextEpNum, preferredServerId: selectedServerId })
+    resolveStream({ id: media.id, type: media.mediaType, season, episode: nextEpNum, language: media.language, preferredServerId: selectedServerId })
       .then(nextRes => {
         if (!nextRes?.url) return;
         const prefs = getUserPreferences();
@@ -218,7 +218,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }).catch(() => {});
       })
       .catch(() => {});
-  }, [isSeries, episodes, media.id, media.mediaType, media.title, season, selectedServerId]);
+  }, [isSeries, episodes, media.id, media.mediaType, media.title, media.language, season, selectedServerId]);
 
   // Background stream resolution
   useEffect(() => {
@@ -240,7 +240,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     reloadResumeMsRef.current = null;
 
     resolveStream(
-      { id: media.id, type: media.mediaType, season, episode, languageMode: langMode, title: media.title, preferredServerId: selectedServerId },
+      { id: media.id, type: media.mediaType, season, episode, languageMode: langMode, language: media.language, title: media.title, preferredServerId: selectedServerId },
       { fresh: attempt > 0 }
     )
       .then(res => {
@@ -298,6 +298,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [
     media.id,
     media.mediaType,
+    media.language,
     season,
     episode,
     attempt,

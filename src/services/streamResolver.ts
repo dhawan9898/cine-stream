@@ -10,6 +10,7 @@ export interface StreamParams {
   season?: number;
   episode?: number;
   languageMode?: string;
+  language?: string;
   title?: string;
   preferredServerId?: string;
 }
@@ -20,13 +21,14 @@ export interface ResolvedStream extends ExtractedStream {
   season?: number;
   episode?: number;
   languageMode?: string;
+  language?: string;
   title?: string;
   availableServers?: Array<{ serverId: string; serverName: string; isFallbackEmbed?: boolean }>;
 }
 
 const memoryCache = new Map<string, { at: number; promise: Promise<ResolvedStream> }>();
 const REUSE_MS = 30 * 60 * 1000; // 30 minutes in-memory
-const keyOf = (p: StreamParams) => `${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.title ?? ''}|${p.preferredServerId ?? ''}`;
+const keyOf = (p: StreamParams) => `${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.language ?? ''}|${p.title ?? ''}|${p.preferredServerId ?? ''}`;
 
 function getTitleFallbackUrl(params: StreamParams): string {
   const { id, type, season = 1, episode = 1 } = params;
@@ -50,7 +52,8 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
       type: params.type,
       season: params.season,
       episode: params.episode,
-      title: params.title
+      title: params.title,
+      language: params.language
     });
   } catch (err) {
     console.warn('[StreamResolver] Extraction resolution error:', err);
@@ -62,17 +65,11 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
     isFallbackEmbed: s.isFallbackEmbed
   }));
 
-  let selectedStream: ExtractedStream | undefined;
-
-  if (params.preferredServerId) {
-    selectedStream = allStreams.find(s => s.serverId === params.preferredServerId);
-  }
-
-  if (!selectedStream && allStreams.length > 0) {
-    // Prefer direct media streams
-    selectedStream = allStreams.find(s => !s.isFallbackEmbed && !s.url.startsWith('blob:')) ||
-                     allStreams.find(s => !s.isFallbackEmbed) ||
-                     allStreams[0];
+  let selectedStream: ExtractedStream | null = null;
+  try {
+    selectedStream = await extractorRegistry.resolveBestStream(params);
+  } catch {
+    selectedStream = null;
   }
 
   let result: ResolvedStream;
@@ -85,6 +82,7 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
       season: params.season,
       episode: params.episode,
       title: params.title,
+      language: params.language,
       availableServers
     };
   } else {
@@ -101,6 +99,7 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
       season: params.season,
       episode: params.episode,
       title: params.title,
+      language: params.language,
       availableServers: availableServers.length > 0 ? availableServers : [{ serverId: 'vidlink', serverName: 'VidLink PRO', isFallbackEmbed: true }]
     };
   }
@@ -138,7 +137,8 @@ export async function resolveAllAvailableStreams(params: StreamParams): Promise<
     type: params.type,
     season: params.season,
     episode: params.episode,
-    title: params.title
+    title: params.title,
+    language: params.language
   });
 
   return extractedList.map(s => ({
@@ -147,6 +147,7 @@ export async function resolveAllAvailableStreams(params: StreamParams): Promise<
     type: params.type,
     season: params.season,
     episode: params.episode,
-    title: params.title
+    title: params.title,
+    language: params.language
   }));
 }

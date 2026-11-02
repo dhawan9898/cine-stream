@@ -23,6 +23,18 @@ const DATA_SRC_RE = /\bdata-(?:src|url|embed|link|hash|stream)\s*=\s*["']([^"']+
 const EMBED_KEY_RE = /["'](?:embed_url|embedUrl|iframe|iframe_url|player_url|playerUrl|link|redirect|stream_url|file|sources?|src)["']\s*:\s*["']([^"']+)["']/gi;
 const B64_RE = /atob\(\s*["']([A-Za-z0-9+/=_-]{16,})["']\s*\)/g;
 
+function isDummyPath(url: string): boolean {
+  const lower = url.toLowerCase();
+  return (
+    lower.includes('manifest.webm') ||
+    lower.includes('placeholder') ||
+    lower.includes('dummy.') ||
+    lower.includes('sample.') ||
+    lower.includes('intro.mp4') ||
+    lower.includes('blank.mp4')
+  );
+}
+
 export function formatOf(url: string): StreamFormat {
   const path = url.split('?')[0].toLowerCase();
   if (path.endsWith('.mpd')) return 'dash';
@@ -85,7 +97,7 @@ export function discover(body: string, baseUrl: string): Discovery {
 
   const addStream = (raw: string, hint?: string, format?: StreamFormat) => {
     const url = absolutize(unescapeText(raw), baseUrl);
-    if (!url) return;
+    if (!url || isDummyPath(url)) return;
     if (!streams.has(url)) streams.set(url, { url, format: format ?? formatOf(url), quality: qualityOf(url, hint) });
   };
   const addSub = (raw: string, label?: string, lang?: string) => {

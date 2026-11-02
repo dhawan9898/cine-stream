@@ -29,5 +29,6 @@ export interface StreamExtractor {
     season?: number;
     episode?: number;
     title?: string;
+    language?: string;
   }): Promise<ExtractedStream | null>;
 }

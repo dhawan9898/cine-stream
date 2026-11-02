@@ -45,6 +45,7 @@ class ExtractorRegistry {
     season?: number;
     episode?: number;
     title?: string;
+    language?: string;
   }): Promise<ExtractedStream[]> {
     const timeoutMs = 7000;
     const promises = this.extractors.map(async (extractor): Promise<ExtractedStream | null> => {
@@ -88,6 +89,8 @@ class ExtractorRegistry {
     season?: number;
     episode?: number;
     title?: string;
+    language?: string;
+    languageMode?: string;
     preferredServerId?: string;
   }): Promise<ExtractedStream | null> {
     const all = await this.resolveAllStreams(params);
@@ -96,6 +99,20 @@ class ExtractorRegistry {
     if (params.preferredServerId) {
       const preferred = all.find(s => s.serverId === params.preferredServerId);
       if (preferred) return preferred;
+    }
+
+    const isRegional =
+      (params.language && ['te', 'hi', 'ta', 'ml', 'kn', 'pa', 'bn'].includes(params.language.toLowerCase())) ||
+      (params.languageMode && ['hindi', 'telugu', 'tamil'].includes(params.languageMode.toLowerCase()));
+
+    if (isRegional) {
+      // Prioritize regional sources (movierulz, multiembed, insertunit) for Indian regional media
+      const regionalStream =
+        all.find(s => !s.isFallbackEmbed && (s.serverId === 'movierulz' || s.serverId === 'multiembed' || s.serverId === 'insertunit')) ||
+        all.find(s => s.serverId === 'movierulz') ||
+        all.find(s => s.serverId === 'multiembed') ||
+        all.find(s => s.serverId === 'insertunit');
+      if (regionalStream) return regionalStream;
     }
 
     // 1. Prefer direct media stream (non-fallback, non-blob)
