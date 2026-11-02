@@ -2104,7 +2104,13 @@ public class ExoPlayerActivity extends AppCompatActivity {
     private DefaultHttpDataSource.Factory buildDataSourceFactory(String referer) {
         Map<String, String> headers = new HashMap<>();
         headers.put("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
-        if (referer != null && !referer.isEmpty()) headers.put("Referer", referer);
+        if (referer != null && !referer.isEmpty()) {
+            headers.put("Referer", referer);
+            try {
+                java.net.URL refUrl = new java.net.URL(referer);
+                headers.put("Origin", refUrl.getProtocol() + "://" + refUrl.getHost());
+            } catch (Exception ignored) {}
+        }
         // Per-provider headers (Referer / Origin / User-Agent) win over the defaults.
         if (pendingHeadersJson != null && !pendingHeadersJson.isEmpty()) {
             try {
