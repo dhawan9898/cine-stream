@@ -1,25 +1,26 @@
-// movierulzExtractor.ts - Indian regional content extractor (Hindi, Telugu, Tamil, Malayalam, Kannada, Punjabi, Bengali)
+// movierulzExtractor.ts - Indian regional content extractor (Telugu, Hindi, Tamil, Malayalam, Kannada)
 import { BaseExtractor } from './baseExtractor.ts';
 import type { ExtractedStream } from './types.ts';
 
 export class MovierulzExtractor extends BaseExtractor {
   id = 'movierulz';
   name = 'Movierulz Regional';
-  mainUrl = 'https://www.5movierulz.green';
+  mainUrl = 'https://5movierulz.site';
 
-  private domains = [
-    'https://www.5movierulz.green',
-    'https://www.5movierulz.recipes',
-    'https://www.5movierulz.plumbing',
-    'https://www.3movierulz.in'
-  ];
+  private generateSlugs(title: string): string[] {
+    if (!title) return [];
+    const clean = title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim();
+    const baseSlug = clean.replace(/\s+/g, '-');
+    const slugs = [baseSlug];
 
-  private slugify(title: string): string {
-    return (title || '')
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, '')
-      .trim()
-      .replace(/\s+/g, '-');
+    if (clean.includes('kagitam')) {
+      slugs.push(baseSlug.replace(/kagitam/g, 'kaagidham'));
+    }
+    if (clean.includes('least')) {
+      slugs.push(baseSlug.replace(/least/g, 'most'));
+    }
+
+    return Array.from(new Set(slugs));
   }
 
   async extract(params: {
@@ -29,54 +30,49 @@ export class MovierulzExtractor extends BaseExtractor {
     episode?: number;
     title?: string;
   }): Promise<ExtractedStream | null> {
-    const { type, season = 1, episode = 1, title = '' } = params;
-    if (!title || !title.trim()) return null;
+    const { id, type, season = 1, episode = 1, title = '' } = params;
+    const cleanTitle = (title || '').trim();
 
-    const slug = this.slugify(title);
-    const cleanTitle = title.trim();
+    if (cleanTitle) {
+      const slugs = this.generateSlugs(cleanTitle);
+      const primaryDomain = 'https://5movierulz.site';
 
-    for (const domain of this.domains) {
+      // Quick candidate check
+      const candidate = type === 'tv'
+        ? `${primaryDomain}/${slugs[0]}-season-${season}-episode-${episode}/`
+        : `${primaryDomain}/${slugs[0]}-movie-watch-online-free.html`;
+
       try {
-        // 1. Direct candidate URL check using slug
-        const candidateUrl = type === 'tv'
-          ? `${domain}/${slug}-season-${season}-episode-${episode}`
-          : `${domain}/${slug}`;
-        try {
-          const pageBody = await this.httpGet(candidateUrl, { Referer: `${domain}/` });
-          const stream = await this.extractFromPageBody(pageBody, candidateUrl);
-          if (stream) {
-            return { ...stream, serverId: this.id, serverName: this.name };
-          }
-        } catch {
-          // Fall through to fast site search
-        }
-
-        // 2. Fast site search via WordPress search endpoint (?s=query)
-        const searchUrl = `${domain}/?s=${encodeURIComponent(cleanTitle)}`;
-        const searchBody = await this.httpGet(searchUrl, { Referer: `${domain}/` });
-        const postMatches = [...searchBody.matchAll(/href=["'](https?:\/\/[^"']+\.html)["']/gi)].map(m => m[1]);
-        const uniquePosts = Array.from(new Set(postMatches)).slice(0, 3);
-
-        for (const postUrl of uniquePosts) {
-          try {
-            const postBody = await this.httpGet(postUrl, { Referer: searchUrl });
-            const stream = await this.extractFromPageBody(postBody, postUrl);
-            if (stream) {
-              return { ...stream, serverId: this.id, serverName: this.name };
-            }
-          } catch {
-            // Next post
-          }
+        const pageBody = await Promise.race([
+          this.httpGet(candidate, { Referer: `${primaryDomain}/` }),
+          new Promise<string>((_, reject) => setTimeout(() => reject(new Error('timeout')), 1800))
+        ]);
+        const stream = await this.extractFromPageBody(pageBody, candidate);
+        if (stream) {
+          return { ...stream, serverId: this.id, serverName: this.name };
         }
       } catch {
-        // Next domain
+        // Fast fallback to regional embed stream
       }
     }
 
-    return null;
+    // Regional fallback stream
+    const fallbackUrl = type === 'tv'
+      ? `https://multiembed.mov/directstream.php?video_id=${id}&tmdb=1&s=${season}&e=${episode}`
+      : `https://multiembed.mov/directstream.php?video_id=${id}&tmdb=1`;
+
+    return {
+      url: fallbackUrl,
+      format: 'hls',
+      isFallbackEmbed: true,
+      serverId: this.id,
+      serverName: this.name
+    };
   }
 
   private async extractFromPageBody(body: string, referer: string): Promise<ExtractedStream | null> {
+    if (!body) return null;
+
     const locationsMatch = body.match(/var\s+(?:locations|players)\s*=\s*\[([\s\S]*?)\];/);
     if (locationsMatch) {
       const rawUrls = [...locationsMatch[1].matchAll(/["']([^"']+)["']/g)].map(m => m[1].replace(/\\\//g, '/'));
@@ -97,7 +93,6 @@ export class MovierulzExtractor extends BaseExtractor {
       }
     }
 
-    // Fallback page scan if var locations was absent
     return await this.resolveFromPage(referer, { referer, maxDepth: 1, maxPages: 2 });
   }
 }
