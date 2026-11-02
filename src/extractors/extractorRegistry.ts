@@ -108,10 +108,9 @@ class ExtractorRegistry {
     if (isRegional) {
       // Prioritize regional sources (movierulz, multiembed, insertunit) for Indian regional media
       const regionalStream =
-        all.find(s => !s.isFallbackEmbed && (s.serverId === 'movierulz' || s.serverId === 'multiembed' || s.serverId === 'insertunit')) ||
-        all.find(s => s.serverId === 'movierulz') ||
-        all.find(s => s.serverId === 'multiembed') ||
-        all.find(s => s.serverId === 'insertunit');
+        all.find(s => !s.isFallbackEmbed && (s.serverId === 'movierulz' || s.serverId === 'multiembed' || s.serverId === 'insertunit'));
+      // Note: movierulz/multiembed fallback embeds are 2embed web pages that sit behind a
+      // Cloudflare "verify you are human" challenge, so never select them as the best stream.
       if (regionalStream) return regionalStream;
     }
 
@@ -123,8 +122,8 @@ class ExtractorRegistry {
     const secondaryDirectStream = all.find(s => !s.isFallbackEmbed);
     if (secondaryDirectStream) return secondaryDirectStream;
 
-    // 3. First valid title stream fallback embed
-    return all[0] ?? null;
+    // 3. First fallback embed, avoiding Cloudflare-protected 2embed pages when possible
+    return all.find(s => s.serverId !== 'movierulz' && s.serverId !== 'multiembed') ?? all[0] ?? null;
   }
 }
 
