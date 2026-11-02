@@ -505,7 +505,11 @@ public class ExoPlayerActivity extends AppCompatActivity {
                lower.contains(".m3u8") ||
                lower.contains("master.m3u8") ||
                lower.contains("index.m3u8") ||
-               lower.contains("playlist.m3u8");
+               lower.contains("playlist.m3u8") ||
+               lower.contains("manifest.m3u8") ||
+               lower.contains("stream.m3u8") ||
+               lower.contains("/hls/") ||
+               lower.contains("/m3u8/");
     }
 
     private void startStreamSniffer(String embedUrl, String referer, String subtitlesJson, long startPositionMs, boolean playWhenReady) {
@@ -519,6 +523,9 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 WebSettings webSettings = sniffingWebView.getSettings();
                 webSettings.setJavaScriptEnabled(true);
                 webSettings.setDomStorageEnabled(true);
+                webSettings.setDatabaseEnabled(true);
+                webSettings.setAllowFileAccess(true);
+                webSettings.setAllowContentAccess(true);
                 webSettings.setMediaPlaybackRequiresUserGesture(false);
                 webSettings.setUserAgentString("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
 
@@ -550,14 +557,14 @@ public class ExoPlayerActivity extends AppCompatActivity {
 
                 sniffingWebView.loadUrl(embedUrl, headers);
 
-                // Timeout fallback after 12s
+                // Fast timeout fallback after 2.5s
                 handler.postDelayed(() -> {
                     if (isSniffing.compareAndSet(true, false)) {
                         Log.w(TAG, "Stream sniffing timed out for: " + embedUrl);
                         stopStreamSniffer();
                         showEmbedWebView(embedUrl, referer);
                     }
-                }, 12_000);
+                }, 2_500);
 
             } catch (Exception e) {
                 Log.e(TAG, "Error starting stream sniffer", e);
@@ -582,15 +589,23 @@ public class ExoPlayerActivity extends AppCompatActivity {
                     WebSettings webSettings = embedWebView.getSettings();
                     webSettings.setJavaScriptEnabled(true);
                     webSettings.setDomStorageEnabled(true);
+                    webSettings.setDatabaseEnabled(true);
+                    webSettings.setAllowFileAccess(true);
+                    webSettings.setAllowContentAccess(true);
                     webSettings.setMediaPlaybackRequiresUserGesture(false);
                     webSettings.setSupportMultipleWindows(false);
                     webSettings.setJavaScriptCanOpenWindowsAutomatically(false);
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
+                        webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                    }
                     webSettings.setUserAgentString("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
 
                     Map<String, String> headers = new HashMap<>();
                     if (referer != null && !referer.isEmpty()) {
                         headers.put("Referer", referer);
                     }
+
+                    embedWebView.setWebChromeClient(new android.webkit.WebChromeClient());
 
                     embedWebView.setWebViewClient(new WebViewClient() {
                         @Override
