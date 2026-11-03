@@ -9,6 +9,7 @@
 // Usage: node scripts/patch-android.mjs --version 2.0.17 --version-code 17
 import { cpSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { syncNative } from '../streamkit/android/sync-native.mjs';
 
 const MEDIA3 = '1.5.1';
 const PACKAGE_DIR = 'com/cinehype/stream';
@@ -71,6 +72,8 @@ function main() {
   if (!overrideJava.length) throw new Error('No Java overrides found in android-overrides/java');
   for (const f of overrideJava) cpSync(join('android-overrides/java', f), join(javaDir, f));
   cpSync('android-overrides/res', join(root, 'app/src/main/res'), { recursive: true });
+  // Native pieces shared with AniStream (player drawables, thumbnail sprites) live in streamkit.
+  syncNative({ packageName: PACKAGE_DIR.replaceAll('/', '.'), javaDir, resDir: join(root, 'app/src/main/res') });
 
   const manifestPath = join(root, 'app/src/main/AndroidManifest.xml');
   writeFileSync(manifestPath, patchManifest(readFileSync(manifestPath, 'utf8')));
