@@ -2,7 +2,7 @@
 // the Categories picker and Browse. Every category can be shown as movies, TV
 // or both at once (movie + TV results interleaved), and can be narrowed by
 // language, so rows are not tied to a single query.
-import { discoverMedia, type MediaItem, type MediaType } from '../core/cineHypeCore.ts';
+import { discoverMedia, type MediaItem, type MediaType } from '../providers/cineHypeCore.ts';
 import type { BrowseSource, SortBy } from './browseSources.ts';
 
 export type TypeFilter = 'all' | MediaType;

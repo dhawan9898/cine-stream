@@ -3,9 +3,9 @@
 // the viewer watches; rows below the fold load when scrolled near.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Play, ChevronRight, ChevronDown, Search as SearchIcon, X, RefreshCw } from 'lucide-react';
-import { clearPersistedCache } from '../core/persistentCache.ts';
-import { warmStreams } from '../services/streamResolver.ts';
-import { getTrending, getRecommendations, type MediaItem } from '../core/cineHypeCore.ts';
+import { clearPersistedCache } from '../services/persistentCache.ts';
+import { warmStreams } from '../providers/streamResolver.ts';
+import { getTrending, getRecommendations, type MediaItem } from '../providers/cineHypeCore.ts';
 import { getWatchHistory, getBookmarks, removeWatchHistory, subscribeLibraryChanges, type WatchHistoryItem } from '../services/historyService.ts';
 import {
   ON_THE_AIR,
@@ -30,8 +30,8 @@ import { computeTaste, EMPTY_TASTE, type Taste } from '../services/tasteService.
 import { HeroCarousel } from '../components/HeroCarousel.tsx';
 import { PosterCard } from '../components/PosterCard.tsx';
 import { QuickPreview } from '../components/QuickPreview.tsx';
-import { FadeImage } from '../components/FadeImage.tsx';
-import { ErrorState } from '../components/ErrorState.tsx';
+import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
+import { ErrorState } from 'streamkit/ui/ErrorState.tsx';
 import { GenrePicker } from '../components/GenrePicker.tsx';
 
 interface HomeScreenProps {

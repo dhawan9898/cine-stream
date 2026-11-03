@@ -2,8 +2,8 @@
 // empty, a poster grid of live results once you type.
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Search as SearchIcon, X, Loader2, Play } from 'lucide-react';
-import { getTrending, searchMedia, type MediaItem, type MediaType } from '../core/cineHypeCore.ts';
-import { FadeImage } from '../components/FadeImage.tsx';
+import { getTrending, searchMedia, type MediaItem, type MediaType } from '../providers/cineHypeCore.ts';
+import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { PosterCard } from '../components/PosterCard.tsx';
 
 interface SearchScreenProps {

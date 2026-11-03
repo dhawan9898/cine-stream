@@ -4,12 +4,13 @@
 import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { Home, Search, Library, Settings } from 'lucide-react';
 import { HomeScreen } from './pages/HomeScreen.tsx';
-import { ErrorBoundary } from './components/ErrorBoundary.tsx';
-import type { MediaItem, EpisodeItem } from './core/cineHypeCore.ts';
+import { ErrorBoundary } from 'streamkit/ui/ErrorBoundary.tsx';
+import { Dock, type DockTab } from 'streamkit/ui/Dock.tsx';
+import type { MediaItem, EpisodeItem } from './providers/cineHypeCore.ts';
 import type { BrowseSource } from './services/browseSources.ts';
-import { getMediaWatchHistory } from './services/historyService.ts';
+import { getMediaWatchHistory, setPlaybackActive } from './services/historyService.ts';
 import { getSavedTheme, applyTheme } from './services/themeService.ts';
-import { handleLayerBack } from './services/backStack.ts';
+import { handleLayerBack } from 'streamkit/core/backStack.ts';
 import { useTvNavigation } from './services/tvNavigationService.ts';
 
 // Everything except Home is loaded on demand so the first paint ships less JS;
@@ -23,7 +24,7 @@ const VideoPlayer = lazy(() => import('./components/VideoPlayer.tsx').then(m => 
 
 type Tab = 'home' | 'search' | 'library' | 'settings';
 
-const TABS: { id: Tab; label: string; icon: typeof Home }[] = [
+const TABS: DockTab<Tab>[] = [
   { id: 'home', label: 'Home', icon: Home },
   { id: 'search', label: 'Search', icon: Search },
   { id: 'library', label: 'Library', icon: Library },
@@ -51,6 +52,9 @@ export const App: React.FC = () => {
   const [layers, setLayers] = useState<Layer[]>([]);
   const [closing, setClosing] = useState<Layer[]>([]);
   const [activePlayer, setActivePlayer] = useState<ActivePlayerState | null>(null);
+  // While the player is open, progress saves don't re-render the screens beneath it.
+  const playerOpen = activePlayer !== null;
+  useEffect(() => { setPlaybackActive(playerOpen); }, [playerOpen]);
 
   // Enable Android TV & Keyboard Remote D-Pad spatial navigation
   useTvNavigation(true);
@@ -210,7 +214,7 @@ export const App: React.FC = () => {
   );
 
   return (
-    <ErrorBoundary>
+    <ErrorBoundary appName="CineStream">
       <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-main)', overflow: 'hidden', position: 'relative' }}>
         <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
           {pane('home', (
@@ -239,36 +243,14 @@ export const App: React.FC = () => {
         </div>
 
         {/* Floating glass dock: slides away over a title page or the player. */}
-        <div
-          className={dockHidden ? 'dock-wrap hidden' : 'dock-wrap'}
-          style={{ bottom: 'calc(16px + var(--safe-bottom))' }}
-          aria-hidden={dockHidden}
-        >
-          <nav className="glass-dock" aria-label="Main">
-            <div
-              className="dock-indicator"
-              style={{
-                width: `${100 / TABS.length}%`,
-                transform: `translateX(${TABS.findIndex(t => t.id === tab) * 100}%)`
-              }}
-            />
-            {TABS.map(({ id, label, icon: Icon }) => {
-              const active = tab === id;
-              return (
-                <button
-                  key={id}
-                  onClick={() => { if (!active || layers.length) switchTab(id); }}
-                  className={`interactive dock-item ${active ? 'active' : ''}`}
-                  aria-label={label}
-                  aria-current={active ? 'page' : undefined}
-                >
-                  <Icon size={20} />
-                  <span>{label}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </div>
+        <Dock
+          tabs={TABS}
+          currentTab={tab}
+          hidden={dockHidden}
+          hasOverlay={layers.length > 0}
+          onSelect={switchTab}
+          bottom="calc(16px + var(--safe-bottom))"
+        />
 
         {activePlayer && (
           <Suspense fallback={<div className="player-state" />}>

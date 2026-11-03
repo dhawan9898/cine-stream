@@ -1,6 +1,6 @@
 // test-variants.ts - Offline checks for multi-audio / multi-quality discovery.
 // Run: npx tsx scripts/test-variants.ts
-import { buildVariantSet, extractCandidates, hintOf } from '../src/extractors/variantDiscovery.ts';
+import { buildVariantSet, extractCandidates, hintOf } from '../src/providers/extractors/variantDiscovery.ts';
 
 let failures = 0;
 const check = (name: string, ok: boolean, detail = '') => {

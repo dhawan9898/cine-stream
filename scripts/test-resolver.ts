@@ -1,4 +1,4 @@
-import { resolveStream } from '../src/services/streamResolver.ts';
+import { resolveStream } from '../src/providers/streamResolver.ts';
 
 resolveStream({ id: 550, type: 'movie' }).then(res => {
   console.log('SUCCESS! Resolved Direct Stream URL:', res.url);

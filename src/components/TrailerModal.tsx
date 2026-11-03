@@ -1,8 +1,8 @@
 // TrailerModal.tsx - Modal player for official YouTube trailers
 import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
-import { useBackHandler } from '../services/backStack.ts';
-import type { VideoTrailer } from '../core/cineHypeCore.ts';
+import { useBackHandler } from 'streamkit/core/backStack.ts';
+import type { VideoTrailer } from '../providers/cineHypeCore.ts';
 
 interface TrailerModalProps {
   trailer: VideoTrailer | null;

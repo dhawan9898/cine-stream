@@ -3,16 +3,16 @@ import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Settings as SettingsIcon, SkipForward, Gauge, Trash2, Database, Send, LogOut, ChevronRight } from 'lucide-react';
 import { clearWatchHistory, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
-import { clearPersistedCache } from '../core/persistentCache.ts';
-import { ConfirmModal } from '../components/ConfirmModal.tsx';
+import { clearPersistedCache } from '../services/persistentCache.ts';
+import { ConfirmModal } from 'streamkit/ui/ConfirmModal.tsx';
 import {
   hasSavedSession, getSelectedChannels, getCachedAuthStatus, saveCachedAuthStatus
-} from '../services/telegramSession.ts';
+} from '../providers/telegramSession.ts';
 
 // The Telegram client (GramJS) is ~1.5 MB. Only load it when a session exists
 // or the user opens the login dialog; most people never do.
 const TelegramAuthModal = lazy(() => import('../components/TelegramAuthModal.tsx').then(m => ({ default: m.TelegramAuthModal })));
-const loadTelegramService = () => import('../services/telegramService.ts').then(m => m.telegramService);
+const loadTelegramService = () => import('../providers/telegramService.ts').then(m => m.telegramService);
 
 const THEMES: { id: Theme; label: string }[] = [
   { id: 'dark', label: 'Dark' },

@@ -2,9 +2,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
-import { getTVSeasonEpisodes, type MediaItem, type EpisodeItem } from '../core/cineHypeCore.ts';
+import { getTVSeasonEpisodes, type MediaItem, type EpisodeItem } from '../providers/cineHypeCore.ts';
 import { subtitlesForPlayer, pickAudio } from '../services/playbackPrefs.ts';
-import { resolveStream, prefetchUpcomingEpisodes, type ResolvedStream } from '../services/streamResolver.ts';
+import { resolveStream, prefetchUpcomingEpisodes, type ResolvedStream } from '../providers/streamResolver.ts';
 import { getResumePositionMs, getUserPreferences, saveWatchProgress } from '../services/historyService.ts';
 import { openNativeExoPlayer } from '../services/nativePlayer.ts';
 import { ExoPlayerPlugin } from '../plugins/exoPlayerPlugin.ts';

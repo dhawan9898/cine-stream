@@ -2,7 +2,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { App } from './App.tsx';
-import './fonts.css';
+import 'streamkit/styles/fonts.css';
+import 'streamkit/styles/dock.css'
+import 'streamkit/styles/shared.css';
 import './index.css';
 
 // Keep stray async failures (e.g. blocked autoplay, dropped requests) from surfacing as crashes.

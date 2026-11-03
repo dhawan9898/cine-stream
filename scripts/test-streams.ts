@@ -1,5 +1,5 @@
 // test-streams.ts - CLI stream verification runner (supports dynamic title argument or default suite)
-import { extractorRegistry } from '../src/extractors/extractorRegistry.ts';
+import { extractorRegistry } from '../src/providers/extractors/extractorRegistry.ts';
 
 const TMDB_KEY = process.env.TMDB_API_KEY || process.env.VITE_TMDB_API_KEY || '';
 if (!TMDB_KEY) {

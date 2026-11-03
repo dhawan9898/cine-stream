@@ -1,6 +1,6 @@
 // tasteService.ts - Learns what the viewer likes from watch history, My List
 // and how much of each title they actually watched. Everything is local.
-import { getMediaDetails, type MediaItem } from '../core/cineHypeCore.ts';
+import { getMediaDetails, type MediaItem } from '../providers/cineHypeCore.ts';
 import { getBookmarks, getWatchHistory, type WatchHistoryItem } from './historyService.ts';
 import { genreCategoryForId, getCategory, LANGUAGES, type Category } from './categories.ts';
 

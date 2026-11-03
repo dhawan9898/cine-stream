@@ -1,5 +1,6 @@
 // historyService.ts - Watch history, continue watching & watchlist persistence
-import type { MediaItem, MediaType } from '../core/cineHypeCore.ts';
+import type { MediaItem, MediaType } from '../providers/cineHypeCore.ts';
+import { createChangeNotifier, parseValidatedList } from 'streamkit/core/library.ts';
 
 export interface WatchHistoryItem {
   id: number;
@@ -48,28 +49,32 @@ let cachedHistory: WatchHistoryItem[] | null = null;
 let cachedBookmarks: MediaItem[] | null = null;
 let cachedPrefs: UserPreferences | null = null;
 
-// Listeners
-const listeners = new Set<() => void>();
+// Change notifications. Progress saves use notify(false), which is held back
+// while the player is open (see setPlaybackActive) so screens underneath don't
+// re-render on every save.
+const library = createChangeNotifier();
+const notify = library.notify;
+export const subscribeLibraryChanges = library.subscribe;
+export const setPlaybackActive = library.setPlaybackActive;
 
-function notify(): void {
-  listeners.forEach(cb => {
-    try { cb(); } catch {}
-  });
-}
-
-export function subscribeLibraryChanges(cb: () => void): () => void {
-  listeners.add(cb);
-  return () => { listeners.delete(cb); };
-}
+// Stored entries with the wrong shape (an interrupted write, an old build) are
+// dropped one by one instead of crashing whichever screen renders them.
+const isHistoryItem = (v: unknown): boolean => {
+  const h = v as Partial<WatchHistoryItem> | null;
+  return !!h && typeof h.id === 'number' && (h.type === 'movie' || h.type === 'tv') &&
+    typeof h.title === 'string' && typeof h.progressPercent === 'number';
+};
+const isMediaItem = (v: unknown): boolean => {
+  const m = v as Partial<MediaItem> | null;
+  return !!m && typeof m.id === 'number' && (m.mediaType === 'movie' || m.mediaType === 'tv') && typeof m.title === 'string';
+};
 
 // 1. Watch History
 export function getWatchHistory(): WatchHistoryItem[] {
   if (cachedHistory !== null) return cachedHistory;
   try {
-    const raw = localStorage.getItem(HISTORY_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    cachedHistory = Array.isArray(parsed) ? parsed : [];
-    return cachedHistory!;
+    cachedHistory = parseValidatedList<WatchHistoryItem>(localStorage.getItem(HISTORY_KEY), isHistoryItem);
+    return cachedHistory;
   } catch {
     cachedHistory = [];
     return cachedHistory;
@@ -138,7 +143,7 @@ export function saveWatchProgress(item: {
     const trimmed = history.slice(0, 30);
     cachedHistory = trimmed;
     localStorage.setItem(HISTORY_KEY, JSON.stringify(trimmed));
-    notify();
+    notify(false);
   } catch {}
 }
 
@@ -163,10 +168,8 @@ export function clearWatchHistory(): void {
 export function getBookmarks(): MediaItem[] {
   if (cachedBookmarks !== null) return cachedBookmarks;
   try {
-    const raw = localStorage.getItem(BOOKMARKS_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    cachedBookmarks = Array.isArray(parsed) ? parsed : [];
-    return cachedBookmarks!;
+    cachedBookmarks = parseValidatedList<MediaItem>(localStorage.getItem(BOOKMARKS_KEY), isMediaItem);
+    return cachedBookmarks;
   } catch {
     cachedBookmarks = [];
     return cachedBookmarks;

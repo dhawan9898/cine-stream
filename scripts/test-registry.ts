@@ -5,7 +5,7 @@ const store = new Map<string, string>();
   setItem: (k: string, v: string) => { store.set(k, v); },
   removeItem: (k: string) => { store.delete(k); }
 };
-const { ExtractorRegistry } = await import('../src/extractors/extractorRegistry.ts');
+const { ExtractorRegistry } = await import('../src/providers/extractors/extractorRegistry.ts');
 
 let failed = 0;
 const check = (name: string, ok: boolean) => { console.log(`[${ok ? 'PASS' : 'FAIL'}] ${name}`); if (!ok) failed++; };
