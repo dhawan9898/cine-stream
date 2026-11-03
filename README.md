@@ -110,12 +110,28 @@ CineStream/
 # 1. Install dependencies
 npm install
 
-# 2. (Optional) Configure custom TMDB API key in .env
-cp .env.example .env
+# 2. Configure your TMDB API key (required) in .env
+cp .env.example .env   # then set VITE_TMDB_API_KEY
 
 # 3. Start development server on http://localhost:3001
 npm run dev
 ```
+
+> **TMDB key:** the key is no longer hardcoded. Locally it comes from `.env`; in CI it comes from the
+> `TMDB_API_KEY` repository secret (the workflow fails fast if it is missing). Note that any key bundled
+> into a client app can be extracted from the APK, so use a key you can rotate, or put a proxy in front of TMDB.
+> The CLI scripts in `scripts/` read `TMDB_API_KEY` / `VITE_TMDB_API_KEY` from the environment.
+
+### Quality checks
+
+```bash
+npm run lint        # oxlint
+npm test            # unit tests (TMDB client, error helpers, Android patch script)
+npm run typecheck   # tsc -b
+```
+
+CI runs lint and tests before building. The Android project is generated in CI and customised by
+`scripts/patch-android.mjs`, which fails the build if any patch step no longer applies.
 
 ## 📱 Building Android APK
 

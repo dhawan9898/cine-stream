@@ -103,6 +103,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({ items, onPlay, onOpe
                 src={media.backdrop || media.poster}
                 alt=""
                 loading={i === 0 ? 'eager' : 'lazy'}
+                fetchPriority={i === 0 ? 'high' : 'auto'}
                 className="hero-img"
               />
               <div className="hero-overlay">

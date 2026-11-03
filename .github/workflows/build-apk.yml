@@ -57,29 +57,46 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
       - name: Build Web Production Bundle
-        run: npm run build
+        run: |
+          if [ -z "$VITE_TMDB_API_KEY" ]; then
+            echo "::error::Repository secret TMDB_API_KEY is not set (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+          npm run build
         env:
           APP_VERSION: ${{ env.VERSION }}
+          VITE_TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
 
       # The android/ project is not committed: generate it, sync the web
-      # assets, then apply the version and the native Jetpack Media3 ExoPlayer overrides.
+      # assets, then apply the version and the native Jetpack Media3 ExoPlayer
+      # overrides. scripts/patch-android.mjs fails the build if any patch step
+      # does not apply (instead of silently shipping without the native player).
       - name: Generate and Sync Android Project
         run: |
           npx cap add android
           npx cap sync android
-          cp android-overrides/java/*.java android/app/src/main/java/com/cinehype/stream/
-          cp -r android-overrides/res/. android/app/src/main/res/
-          MANIFEST=android/app/src/main/AndroidManifest.xml
-          sed -i '/<\/application>/i \        <activity android:name=".ExoPlayerActivity" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" android:launchMode="singleTask" android:screenOrientation="sensorLandscape" android:theme="@style/Theme.CineStream.Player" android:exported="false" \/>' "$MANIFEST"
-          GRADLE=android/app/build.gradle
-          sed -i -E "s/versionCode [0-9]+/versionCode ${VERSION_CODE}/; s/versionName \"[^\"]*\"/versionName \"${VERSION}\"/" "$GRADLE"
-          echo 'dependencies { implementation "androidx.media3:media3-exoplayer:1.5.1"; implementation "androidx.media3:media3-ui:1.5.1"; implementation "androidx.media3:media3-exoplayer-hls:1.5.1"; implementation "androidx.media3:media3-datasource:1.5.1"; implementation "androidx.media3:media3-common:1.5.1"; implementation "androidx.media3:media3-exoplayer-dash:1.5.1" }' >> "$GRADLE"
-          grep -E 'versionCode|versionName' "$GRADLE"
+          node scripts/patch-android.mjs --version "${VERSION}" --version-code "${VERSION_CODE}"
+          grep -E 'versionCode|versionName' android/app/build.gradle
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: gradle-${{ runner.os }}-
 
       - name: Build Release APK
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
+        run: ./gradlew assembleRelease --stacktrace
 
       # Android refuses unsigned APKs ("App not installed"). The keystore is
       # committed at signing/release.p12 so every build carries the same

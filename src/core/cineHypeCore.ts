@@ -1,8 +1,13 @@
 // cineHypeCore.ts - CineHype Core Provider (TMDB API & Media Models)
 import { readPersisted, readPersistedAsync, writePersisted } from './persistentCache.ts';
 
-export const CINEHYPE_TMDB_KEY =
-  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TMDB_API_KEY) || '90b2cae8d7161e8ba0f3836240d7d352';
+// The TMDB key is supplied at build time (VITE_TMDB_API_KEY in .env locally, a
+// repository secret in CI). It is deliberately not hardcoded in the source.
+export const CINEHYPE_TMDB_KEY: string =
+  (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_TMDB_API_KEY) ||
+  // CLI test scripts run under Node, where Vite's import.meta.env does not exist.
+  (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.VITE_TMDB_API_KEY ||
+  '';
 export const TMDB_API_BASE =
   (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.DEV && import.meta.env.VITE_USE_TMDB_PROXY === 'true')
     ? '/api-tmdb'
@@ -94,7 +99,7 @@ export function getPosterUrl(path?: string | null, size: 'w200' | 'w342' | 'w500
   return `${TMDB_IMAGE_BASE}/${size}${path}`;
 }
 
-export function getBackdropUrl(path?: string | null, size: 'w780' | 'w1280' | 'original' = 'original'): string {
+export function getBackdropUrl(path?: string | null, size: 'w780' | 'w1280' | 'original' = 'w1280'): string {
   if (!path) return '';
   return `${TMDB_IMAGE_BASE}/${size}${path}`;
 }
@@ -152,6 +157,9 @@ function readStale<T>(url: string): T | null {
 }
 
 async function tmdbFetchOnce<T>(endpoint: string, params: Record<string, string | number | boolean> = {}): Promise<T> {
+  if (!CINEHYPE_TMDB_KEY) {
+    throw new Error('TMDB API key is missing. Set VITE_TMDB_API_KEY (see .env.example) and rebuild.');
+  }
   const query = new URLSearchParams({
     api_key: CINEHYPE_TMDB_KEY,
     language: 'en-US',
@@ -187,8 +195,68 @@ async function tmdbFetchOnce<T>(endpoint: string, params: Record<string, string 
   throw lastError instanceof Error ? lastError : new Error(`TMDB request failed: ${endpoint}`);
 }
 
+
+// ---- Raw TMDB wire shapes (only the fields this app reads) ----
+interface TmdbGenre { id: number; name: string }
+interface TmdbRawMedia {
+  id: number;
+  media_type?: string;
+  title?: string;
+  name?: string;
+  original_title?: string;
+  original_name?: string;
+  poster_path?: string | null;
+  backdrop_path?: string | null;
+  overview?: string;
+  release_date?: string;
+  first_air_date?: string;
+  vote_average?: number;
+  vote_count?: number;
+  genre_ids?: number[];
+  genres?: TmdbGenre[];
+  original_language?: string;
+  runtime?: number;
+  episode_run_time?: number[];
+  tagline?: string;
+  status?: string;
+  number_of_seasons?: number;
+  number_of_episodes?: number;
+}
+interface TmdbCast { id: number; name: string; character?: string; profile_path?: string | null }
+interface TmdbVideo { id: string; key: string; name: string; site: string; type: string }
+interface TmdbSeason {
+  id: number;
+  season_number: number;
+  name: string;
+  overview?: string;
+  poster_path?: string | null;
+  episode_count: number;
+  air_date?: string;
+}
+interface TmdbEpisode {
+  id: number;
+  episode_number: number;
+  season_number: number;
+  name?: string;
+  overview?: string;
+  still_path?: string | null;
+  runtime?: number;
+  air_date?: string;
+  vote_average?: number;
+}
+interface TmdbCollection { id: number; name: string; poster_path?: string | null; backdrop_path?: string | null }
+interface TmdbDetails extends TmdbRawMedia {
+  credits?: { cast?: TmdbCast[] };
+  videos?: { results?: TmdbVideo[] };
+  recommendations?: { results?: TmdbRawMedia[] };
+  similar?: { results?: TmdbRawMedia[] };
+  seasons?: TmdbSeason[];
+  belongs_to_collection?: TmdbCollection | null;
+}
+interface TmdbList { results: TmdbRawMedia[] }
+
 // Mapping Raw TMDB results to MediaItem
-function mapRawToMedia(item: any, defaultType: MediaType = 'movie'): MediaItem {
+function mapRawToMedia(item: TmdbRawMedia, defaultType: MediaType = 'movie'): MediaItem {
   const type: MediaType = item.media_type === 'tv' ? 'tv' : (item.media_type === 'movie' ? 'movie' : defaultType);
   const title = item.title || item.name || item.original_title || item.original_name || 'Untitled';
   return {
@@ -197,14 +265,14 @@ function mapRawToMedia(item: any, defaultType: MediaType = 'movie'): MediaItem {
     originalTitle: item.original_title || item.original_name,
     mediaType: type,
     poster: getPosterUrl(item.poster_path, 'w500'),
-    backdrop: getBackdropUrl(item.backdrop_path, 'original'),
+    backdrop: getBackdropUrl(item.backdrop_path, 'w1280'),
     overview: item.overview || '',
     releaseDate: item.release_date || item.first_air_date || '',
     voteAverage: typeof item.vote_average === 'number' ? Math.round(item.vote_average * 10) / 10 : 0,
     voteCount: item.vote_count,
-    genreIds: item.genre_ids || item.genres?.map((g: any) => g.id) || [],
+    genreIds: item.genre_ids || item.genres?.map(g => g.id) || [],
     language: item.original_language,
-    genres: item.genres?.map((g: any) => g.name) || [],
+    genres: item.genres?.map(g => g.name) || [],
     runtime: item.runtime || (item.episode_run_time && item.episode_run_time[0]),
     tagline: item.tagline,
     status: item.status,
@@ -228,7 +296,7 @@ export async function getTrending(type: 'all' | 'movie' | 'tv' = 'all', time: 'w
   const cached = await getCached<MediaItem[]>(cacheKey);
   if (cached) return cached;
 
-  const data = await tmdbFetch<{ results: any[] }>(`/trending/${type}/${time}`);
+  const data = await tmdbFetch<TmdbList>(`/trending/${type}/${time}`);
   const items = data.results.filter(i => i.poster_path || i.backdrop_path).map(i => mapRawToMedia(i, type === 'tv' ? 'tv' : 'movie'));
   writePersisted(cacheKey, items, 30 * 60 * 1000);
   return items;
@@ -240,7 +308,7 @@ export async function getPopularMovies(page = 1): Promise<MediaItem[]> {
   const cached = await getCached<MediaItem[]>(cacheKey);
   if (cached) return cached;
 
-  const data = await tmdbFetch<{ results: any[] }>('/movie/popular', { page });
+  const data = await tmdbFetch<TmdbList>('/movie/popular', { page });
   const items = data.results.map(i => mapRawToMedia(i, 'movie'));
   writePersisted(cacheKey, items, 60 * 60 * 1000);
   return items;
@@ -251,7 +319,7 @@ export async function getPopularTV(page = 1): Promise<MediaItem[]> {
   const cached = await getCached<MediaItem[]>(cacheKey);
   if (cached) return cached;
 
-  const data = await tmdbFetch<{ results: any[] }>('/tv/popular', { page });
+  const data = await tmdbFetch<TmdbList>('/tv/popular', { page });
   const items = data.results.map(i => mapRawToMedia(i, 'tv'));
   writePersisted(cacheKey, items, 60 * 60 * 1000);
   return items;
@@ -263,7 +331,7 @@ export async function getTopRatedMovies(page = 1): Promise<MediaItem[]> {
   const cached = await getCached<MediaItem[]>(cacheKey);
   if (cached) return cached;
 
-  const data = await tmdbFetch<{ results: any[] }>('/movie/top_rated', { page });
+  const data = await tmdbFetch<TmdbList>('/movie/top_rated', { page });
   const items = data.results.map(i => mapRawToMedia(i, 'movie'));
   writePersisted(cacheKey, items, 120 * 60 * 1000);
   return items;
@@ -274,7 +342,7 @@ export async function getTopRatedTV(page = 1): Promise<MediaItem[]> {
   const cached = await getCached<MediaItem[]>(cacheKey);
   if (cached) return cached;
 
-  const data = await tmdbFetch<{ results: any[] }>('/tv/top_rated', { page });
+  const data = await tmdbFetch<TmdbList>('/tv/top_rated', { page });
   const items = data.results.map(i => mapRawToMedia(i, 'tv'));
   writePersisted(cacheKey, items, 120 * 60 * 1000);
   return items;
@@ -286,7 +354,7 @@ export async function getOnTheAirTV(page = 1): Promise<MediaItem[]> {
   const cached = await getCached<MediaItem[]>(cacheKey);
   if (cached) return cached;
 
-  const data = await tmdbFetch<{ results: any[] }>('/tv/on_the_air', { page });
+  const data = await tmdbFetch<TmdbList>('/tv/on_the_air', { page });
   const items = data.results.map(i => mapRawToMedia(i, 'tv'));
   writePersisted(cacheKey, items, 60 * 60 * 1000);
   return items;
@@ -335,14 +403,14 @@ export async function getMediaDetails(id: number, type: MediaType): Promise<Medi
   if (cached) return cached;
 
   const endpoint = type === 'movie' ? `/movie/${id}` : `/tv/${id}`;
-  const data = await tmdbFetch<any>(endpoint, {
+  const data = await tmdbFetch<TmdbDetails>(endpoint, {
     append_to_response: 'videos,credits,recommendations,similar,belongs_to_collection'
   });
 
   const base = mapRawToMedia(data, type);
 
   // Cast members
-  const cast: CastMember[] = (data.credits?.cast || []).slice(0, 16).map((c: any) => ({
+  const cast: CastMember[] = (data.credits?.cast || []).slice(0, 16).map((c) => ({
     id: c.id,
     name: c.name,
     character: c.character || 'Unknown',
@@ -351,8 +419,8 @@ export async function getMediaDetails(id: number, type: MediaType): Promise<Medi
 
   // Trailers
   const trailers: VideoTrailer[] = (data.videos?.results || [])
-    .filter((v: any) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser'))
-    .map((v: any) => ({
+    .filter((v) => v.site === 'YouTube' && (v.type === 'Trailer' || v.type === 'Teaser'))
+    .map((v) => ({
       id: v.id,
       key: v.key,
       name: v.name,
@@ -366,18 +434,18 @@ export async function getMediaDetails(id: number, type: MediaType): Promise<Medi
     ...(data.recommendations?.results || []),
     ...(data.similar?.results || [])
   ]
-    .filter((r: any) => r.poster_path || r.backdrop_path)
-    .map((r: any) => mapRawToMedia(r, type));
+    .filter((r) => r.poster_path || r.backdrop_path)
+    .map((r) => mapRawToMedia(r, type));
   const recs = REGIONAL_LANGS.has(base.language ?? '')
-    ? await buildRegionalSuggestions(base, type, (data.genres || []).map((g: any) => g.id), tmdbRecs)
+    ? await buildRegionalSuggestions(base, type, (data.genres || []).map((g) => g.id), tmdbRecs)
     : dedupeMedia(tmdbRecs).filter(r => r.id !== base.id).slice(0, 18);
 
   // Seasons (for TV)
   let seasons: SeasonItem[] | undefined;
   if (type === 'tv' && data.seasons) {
     seasons = data.seasons
-      .filter((s: any) => s.season_number > 0) // exclude specials by default or include
-      .map((s: any) => ({
+      .filter((s) => s.season_number > 0) // exclude specials by default or include
+      .map((s) => ({
         id: s.id,
         seasonNumber: s.season_number,
         name: s.name,
@@ -395,7 +463,7 @@ export async function getMediaDetails(id: number, type: MediaType): Promise<Medi
       id: data.belongs_to_collection.id,
       name: data.belongs_to_collection.name,
       poster: getPosterUrl(data.belongs_to_collection.poster_path, 'w500'),
-      backdrop: getBackdropUrl(data.belongs_to_collection.backdrop_path, 'original')
+      backdrop: getBackdropUrl(data.belongs_to_collection.backdrop_path, 'w1280')
     };
   }
 
@@ -422,8 +490,8 @@ export async function getTVSeasonEpisodes(tvId: number, seasonNumber: number): P
   const cached = await getCached<EpisodeItem[]>(cacheKey);
   if (cached) return cached;
 
-  const data = await tmdbFetch<any>(`/tv/${tvId}/season/${seasonNumber}`);
-  const episodes: EpisodeItem[] = (data.episodes || []).map((e: any) => ({
+  const data = await tmdbFetch<{ episodes?: TmdbEpisode[] }>(`/tv/${tvId}/season/${seasonNumber}`);
+  const episodes: EpisodeItem[] = (data.episodes || []).map((e) => ({
     id: e.id,
     episodeNumber: e.episode_number,
     seasonNumber: e.season_number,
@@ -443,7 +511,7 @@ export async function getTVSeasonEpisodes(tvId: number, seasonNumber: number): P
 export async function searchMedia(query: string, page = 1): Promise<MediaItem[]> {
   if (!query || !query.trim()) return [];
   const clean = query.trim();
-  const data = await tmdbFetch<{ results: any[] }>('/search/multi', {
+  const data = await tmdbFetch<TmdbList>('/search/multi', {
     query: clean,
     page,
     include_adult: false
@@ -451,7 +519,7 @@ export async function searchMedia(query: string, page = 1): Promise<MediaItem[]>
 
   return data.results
     .filter(i => (i.media_type === 'movie' || i.media_type === 'tv') && (i.poster_path || i.backdrop_path))
-    .map(i => mapRawToMedia(i, i.media_type));
+    .map(i => mapRawToMedia(i, i.media_type === 'tv' ? 'tv' : 'movie'));
 }
 
 // 8. Discover by Genre
@@ -461,7 +529,7 @@ export async function discoverByGenre(genreId: number, type: MediaType, page = 1
   if (cached) return cached;
 
   const endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
-  const data = await tmdbFetch<{ results: any[] }>(endpoint, {
+  const data = await tmdbFetch<TmdbList>(endpoint, {
     with_genres: genreId,
     page,
     sort_by: sortBy
@@ -497,7 +565,7 @@ export async function discoverByLanguage(langCode: string, type: MediaType = 'mo
   if (cached) return cached;
 
   const endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
-  const data = await tmdbFetch<{ results: any[] }>(endpoint, {
+  const data = await tmdbFetch<TmdbList>(endpoint, {
     with_original_language: langCode,
     page,
     sort_by: sortBy
@@ -537,7 +605,7 @@ export async function discoverMedia(opts: DiscoverOptions): Promise<MediaItem[]>
   if (language) params.with_original_language = language;
   if (minVotes) params['vote_count.gte'] = minVotes;
 
-  const data = await tmdbFetch<{ results: any[] }>(type === 'movie' ? '/discover/movie' : '/discover/tv', params);
+  const data = await tmdbFetch<TmdbList>(type === 'movie' ? '/discover/movie' : '/discover/tv', params);
   const items = data.results
     .filter(i => i.poster_path)
     .map(i => mapRawToMedia(i, type));

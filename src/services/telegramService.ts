@@ -1,10 +1,17 @@
 // telegramService.ts - On-device Telegram MTProto client service for CineStream
 import { TelegramClient, Api } from 'telegram';
+import { errorMessage, toNumber } from '../core/errors.ts';
 import { StringSession } from 'telegram/sessions/index.js';
+import type { EntityLike } from 'telegram/define';
 import { Preferences } from '@capacitor/preferences';
+import {
+  SESSION_KEY,
+  SELECTED_CHANNELS_KEY,
+  hasSavedSession as readHasSavedSession,
+  getSelectedChannels as readSelectedChannels,
+  saveSelectedChannels as writeSelectedChannels
+} from './telegramSession.ts';
 
-const SESSION_KEY = 'telegram_session_string';
-const SELECTED_CHANNELS_KEY = 'telegram_selected_channels';
 const API_CREDENTIALS_KEY = 'telegram_api_credentials';
 
 // Standard default Telegram API credentials (can be customized in settings if needed)
@@ -54,10 +61,8 @@ class TelegramService {
     }
   }
 
-  public async hasSavedSession(): Promise<boolean> {
-    if (typeof window === 'undefined') return false;
-    const { value } = await Preferences.get({ key: SESSION_KEY });
-    return Boolean(value && value.trim().length > 0);
+  public hasSavedSession(): Promise<boolean> {
+    return readHasSavedSession();
   }
 
   private async initClient(): Promise<TelegramClient> {
@@ -147,8 +152,8 @@ class TelegramService {
       this.currentSessionString = sessionString;
 
       return { success: true };
-    } catch (err: any) {
-      if (err?.message?.includes('SESSION_PASSWORD_NEEDED') && password) {
+    } catch (err: unknown) {
+      if (errorMessage(err, '').includes('SESSION_PASSWORD_NEEDED') && password) {
         try {
           const client = await this.initClient();
           const credentials = await this.getApiCredentials();
@@ -162,11 +167,11 @@ class TelegramService {
           this.currentSessionString = sessionString;
 
           return { success: true };
-        } catch (pwdErr: any) {
-          return { success: false, error: pwdErr?.message || 'Invalid 2FA password' };
+        } catch (pwdErr: unknown) {
+          return { success: false, error: errorMessage(pwdErr, 'Invalid 2FA password') };
         }
       }
-      return { success: false, error: err?.message || 'Authentication failed' };
+      return { success: false, error: errorMessage(err, 'Authentication failed') };
     }
   }
 
@@ -212,18 +217,12 @@ class TelegramService {
     }
   }
 
-  public async getSelectedChannels(): Promise<string[]> {
-    const { value } = await Preferences.get({ key: SELECTED_CHANNELS_KEY });
-    if (!value) return [];
-    try {
-      return JSON.parse(value);
-    } catch {
-      return [];
-    }
+  public getSelectedChannels(): Promise<string[]> {
+    return readSelectedChannels();
   }
 
-  public async saveSelectedChannels(channelIds: string[]): Promise<void> {
-    await Preferences.set({ key: SELECTED_CHANNELS_KEY, value: JSON.stringify(channelIds) });
+  public saveSelectedChannels(channelIds: string[]): Promise<void> {
+    return writeSelectedChannels(channelIds);
   }
 
   public async searchMediaInChannels(
@@ -251,7 +250,7 @@ class TelegramService {
         for (const query of searchTerms) {
           try {
             // Resolve entity to ensure valid InputPeer with accessHash
-            let peer: any = channelId;
+            let peer: EntityLike = channelId;
             try {
               peer = await client.getEntity(channelId);
             } catch {
@@ -279,8 +278,8 @@ class TelegramService {
 
                 // Check if file is a video or playable media format
                 if (mimeType.startsWith('video/') || /\.(mp4|mkv|avi|mov|webm|m3u8|001)$/i.test(fileName)) {
-                  const docIdNum = typeof (doc.id as any).toJSNumber === 'function' ? (doc.id as any).toJSNumber() : Number(doc.id);
-                  const docSizeNum = typeof (doc.size as any).toJSNumber === 'function' ? (doc.size as any).toJSNumber() : Number(doc.size);
+                  const docIdNum = toNumber(doc.id);
+                  const docSizeNum = toNumber(doc.size);
 
                   return {
                     id: docIdNum,
@@ -319,9 +318,9 @@ class TelegramService {
         new Promise<null>((_, reject) => setTimeout(() => reject(new Error('Download timeout')), 15000))
       ]);
 
-      if (!buffer) return null;
+      if (!buffer || typeof buffer === 'string') return null;
 
-      const blob = new Blob([buffer as any], { type: file.mimeType || 'video/mp4' });
+      const blob = new Blob([buffer as unknown as BlobPart], { type: file.mimeType || 'video/mp4' });
       return URL.createObjectURL(blob);
     } catch (err) {
       console.warn('[TelegramService] Stream resolution error:', err);

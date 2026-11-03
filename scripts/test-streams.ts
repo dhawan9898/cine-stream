@@ -1,7 +1,11 @@
 // test-streams.ts - CLI stream verification runner (supports dynamic title argument or default suite)
 import { extractorRegistry } from '../src/extractors/extractorRegistry.ts';
 
-const TMDB_KEY = '90b2cae8d7161e8ba0f3836240d7d352';
+const TMDB_KEY = process.env.TMDB_API_KEY || process.env.VITE_TMDB_API_KEY || '';
+if (!TMDB_KEY) {
+  console.error('Set TMDB_API_KEY (or VITE_TMDB_API_KEY) in the environment to run this script.');
+  process.exit(1);
+}
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 
 interface TmdbResult {

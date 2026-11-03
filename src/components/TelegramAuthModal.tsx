@@ -1,6 +1,7 @@
 // TelegramAuthModal.tsx - Multi-step login and channel selection modal for Telegram
 import React, { useState, useEffect } from 'react';
-import { Send, CheckCircle2, AlertCircle, X, Shield, Tv } from 'lucide-react';
+import { errorMessage } from '../core/errors.ts';
+import { Send, CheckCircle2, AlertCircle, X, Tv } from 'lucide-react';
 import { telegramService, type TelegramChannelInfo } from '../services/telegramService.ts';
 
 interface TelegramAuthModalProps {
@@ -46,8 +47,8 @@ export const TelegramAuthModal: React.FC<TelegramAuthModalProps> = ({ open, onCl
       const res = await telegramService.sendAuthCode(phone.trim());
       setPhoneCodeHash(res.phoneCodeHash);
       setStep('code');
-    } catch (err: any) {
-      setError(err?.message || 'Failed to send verification code. Check phone format.');
+    } catch (err: unknown) {
+      setError(errorMessage(err, 'Failed to send verification code. Check phone format.'));
     } finally {
       setLoading(false);
     }
@@ -77,8 +78,8 @@ export const TelegramAuthModal: React.FC<TelegramAuthModalProps> = ({ open, onCl
           setError(res.error || 'Authentication failed. Please verify your code.');
         }
       }
-    } catch (err: any) {
-      setError(err?.message || 'Login error occurred.');
+    } catch (err: unknown) {
+      setError(errorMessage(err, 'Login error occurred.'));
     } finally {
       setLoading(false);
     }
@@ -96,8 +97,8 @@ export const TelegramAuthModal: React.FC<TelegramAuthModalProps> = ({ open, onCl
       await telegramService.saveSelectedChannels(selectedChannelIds);
       onSuccess();
       onClose();
-    } catch (err: any) {
-      setError(err?.message || 'Failed to save channel selection.');
+    } catch (err: unknown) {
+      setError(errorMessage(err, 'Failed to save channel selection.'));
     } finally {
       setLoading(false);
     }

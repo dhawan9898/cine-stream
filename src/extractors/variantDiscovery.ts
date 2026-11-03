@@ -25,7 +25,7 @@ export function hintOf(text: string): Hint {
     const word = lang[1].toLowerCase();
     hint.language = LANG_ALIASES[word] ?? word[0].toUpperCase() + word.slice(1);
   }
-  const q = decoded.match(/\b(2160|1440|1080|720|576|480|360|240)\s*p\b/i) ?? decoded.match(/[/_.\-](2160|1440|1080|720|480|360)p?(?=[/_.\-?]|$)/i);
+  const q = decoded.match(/\b(2160|1440|1080|720|576|480|360|240)\s*p\b/i) ?? decoded.match(/[/_.-](2160|1440|1080|720|480|360)p?(?=[/_.\-?]|$)/i);
   if (q) hint.quality = `${q[1]}p`;
   else if (/\b4k\b/i.test(decoded)) hint.quality = '2160p';
   else if (/\bfull\s?hd\b/i.test(decoded)) hint.quality = '1080p';

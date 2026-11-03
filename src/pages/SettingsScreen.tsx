@@ -1,12 +1,16 @@
 // SettingsScreen.tsx - Appearance, playback, data, and Telegram integration settings.
-import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, SkipForward, Gauge, Trash2, Database, Send, LogOut, CheckCircle2, ChevronRight } from 'lucide-react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
+import { Settings as SettingsIcon, SkipForward, Gauge, Trash2, Database, Send, LogOut, ChevronRight } from 'lucide-react';
 import { clearWatchHistory, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../core/persistentCache.ts';
 import { ConfirmModal } from '../components/ConfirmModal.tsx';
-import { TelegramAuthModal } from '../components/TelegramAuthModal.tsx';
-import { telegramService } from '../services/telegramService.ts';
+import { hasSavedSession, getSelectedChannels } from '../services/telegramSession.ts';
+
+// The Telegram client (GramJS) is ~1.5 MB. Only load it when a session exists
+// or the user opens the login dialog; most people never do.
+const TelegramAuthModal = lazy(() => import('../components/TelegramAuthModal.tsx').then(m => ({ default: m.TelegramAuthModal })));
+const loadTelegramService = () => import('../services/telegramService.ts').then(m => m.telegramService);
 
 const THEMES: { id: Theme; label: string }[] = [
   { id: 'dark', label: 'Dark' },
@@ -77,10 +81,15 @@ export const SettingsScreen: React.FC = () => {
   const [selectedChannelsCount, setSelectedChannelsCount] = useState(0);
 
   const refreshTgStatus = async () => {
-    const status = await telegramService.getAuthStatus();
+    if (!(await hasSavedSession())) {
+      setTgStatus({ isLoggedIn: false });
+      setSelectedChannelsCount(0);
+      return;
+    }
+    const status = await (await loadTelegramService()).getAuthStatus();
     setTgStatus(status);
     if (status.isLoggedIn) {
-      const channels = await telegramService.getSelectedChannels();
+      const channels = await getSelectedChannels();
       setSelectedChannelsCount(channels.length);
     } else {
       setSelectedChannelsCount(0);
@@ -103,7 +112,7 @@ export const SettingsScreen: React.FC = () => {
   };
 
   const handleTgLogout = async () => {
-    await telegramService.logout();
+    await (await loadTelegramService()).logout();
     await refreshTgStatus();
   };
 
@@ -249,11 +258,15 @@ export const SettingsScreen: React.FC = () => {
         onCancel={() => setConfirming(false)}
       />
 
-      <TelegramAuthModal
-        open={telegramAuthOpen}
-        onClose={() => setTelegramAuthOpen(false)}
-        onSuccess={refreshTgStatus}
-      />
+      {telegramAuthOpen && (
+        <Suspense fallback={null}>
+          <TelegramAuthModal
+            open={telegramAuthOpen}
+            onClose={() => setTelegramAuthOpen(false)}
+            onSuccess={refreshTgStatus}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };

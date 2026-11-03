@@ -6,5 +6,5 @@ interface ImportMetaEnv {
 }
 
 interface ImportMeta {
-  readonly env: ImportMetaEnv & Record<string, any>;
+  readonly env: ImportMetaEnv & Record<string, unknown>;
 }
