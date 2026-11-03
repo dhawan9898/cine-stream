@@ -145,7 +145,7 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
 
       <div className="grid-collection" style={{ padding: '4px 16px' }}>
         {items.map(media => (
-          <PosterCard key={`${media.mediaType}-${media.id}`} media={media} onClick={() => onSelectMedia(media)} />
+          <PosterCard key={`${media.mediaType}-${media.id}`} media={media} onSelect={onSelectMedia} />
         ))}
         {items.length === 0 && loading && Array.from({ length: 9 }).map((_, i) => (
           <div key={i} className="skeleton" style={{ borderRadius: '6px', paddingTop: '145%' }} />

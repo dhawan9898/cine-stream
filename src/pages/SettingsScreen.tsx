@@ -5,7 +5,9 @@ import { clearWatchHistory, getUserPreferences, saveUserPreferences, getWatchHis
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../core/persistentCache.ts';
 import { ConfirmModal } from '../components/ConfirmModal.tsx';
-import { hasSavedSession, getSelectedChannels } from '../services/telegramSession.ts';
+import {
+  hasSavedSession, getSelectedChannels, getCachedAuthStatus, saveCachedAuthStatus
+} from '../services/telegramSession.ts';
 
 // The Telegram client (GramJS) is ~1.5 MB. Only load it when a session exists
 // or the user opens the login dialog; most people never do.
@@ -80,13 +82,17 @@ export const SettingsScreen: React.FC = () => {
   const [tgStatus, setTgStatus] = useState<{ isLoggedIn: boolean; username?: string; phone?: string }>({ isLoggedIn: false });
   const [selectedChannelsCount, setSelectedChannelsCount] = useState(0);
 
-  const refreshTgStatus = async () => {
+  // `live` forces a real check (after login / logout); opening Settings alone
+  // reuses the last known status so it never has to connect to Telegram.
+  const refreshTgStatus = async (live = true) => {
     if (!(await hasSavedSession())) {
       setTgStatus({ isLoggedIn: false });
       setSelectedChannelsCount(0);
       return;
     }
-    const status = await (await loadTelegramService()).getAuthStatus();
+    const cached = live ? null : await getCachedAuthStatus();
+    const status = cached ?? await (await loadTelegramService()).getAuthStatus();
+    if (!cached) await saveCachedAuthStatus(status);
     setTgStatus(status);
     if (status.isLoggedIn) {
       const channels = await getSelectedChannels();
@@ -97,7 +103,7 @@ export const SettingsScreen: React.FC = () => {
   };
 
   useEffect(() => {
-    refreshTgStatus();
+    refreshTgStatus(false);
   }, []);
 
   const update = (patch: Partial<typeof prefs>) => {
@@ -263,7 +269,7 @@ export const SettingsScreen: React.FC = () => {
           <TelegramAuthModal
             open={telegramAuthOpen}
             onClose={() => setTelegramAuthOpen(false)}
-            onSuccess={refreshTgStatus}
+            onSuccess={() => refreshTgStatus(true)}
           />
         </Suspense>
       )}

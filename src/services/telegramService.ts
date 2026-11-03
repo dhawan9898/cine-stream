@@ -7,6 +7,7 @@ import { Preferences } from '@capacitor/preferences';
 import {
   SESSION_KEY,
   SELECTED_CHANNELS_KEY,
+  clearCachedAuthStatus,
   hasSavedSession as readHasSavedSession,
   getSelectedChannels as readSelectedChannels,
   saveSelectedChannels as writeSelectedChannels
@@ -187,6 +188,7 @@ class TelegramService {
     } finally {
       await Preferences.remove({ key: SESSION_KEY });
       await Preferences.remove({ key: SELECTED_CHANNELS_KEY });
+      await clearCachedAuthStatus();
       this.currentSessionString = '';
     }
   }

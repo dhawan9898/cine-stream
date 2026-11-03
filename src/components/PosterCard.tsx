@@ -1,14 +1,16 @@
 // PosterCard.tsx - Compact poster tile used by the horizontal rails and the
 // poster grids (browse pages, More Like This). Flat and opaque on purpose.
-import React, { useEffect, useRef } from 'react';
+import React, { memo, useEffect, useRef } from 'react';
 import type { MediaItem } from '../core/cineHypeCore.ts';
-import { prefetchMediaDetails } from '../core/cineHypeCore.ts';
+import { prefetchMediaDetails, posterSrcSet } from '../core/cineHypeCore.ts';
 import { prefetchStream } from '../services/streamResolver.ts';
 import { FadeImage } from './FadeImage.tsx';
 
 interface PosterCardProps {
   media: MediaItem;
-  onClick: () => void;
+  // Receives the card's media so callers can pass one stable handler for a whole
+  // list (an inline closure per card would defeat memo()).
+  onSelect: (media: MediaItem) => void;
   // Fixed width for use inside a horizontal rail; omit to fill a grid cell
   // (grid cells also show the title underneath).
   width?: number;
@@ -20,7 +22,8 @@ interface PosterCardProps {
 const LONG_PRESS_MS = 800;
 const MOVE_TOLERANCE_PX = 10;
 
-export const PosterCard: React.FC<PosterCardProps> = ({ media, onClick, width, badge, onPreview }) => {
+const PosterCardBase: React.FC<PosterCardProps> = ({ media, onSelect, width, badge, onPreview }) => {
+  const onClick = () => onSelect(media);
   const timer = useRef<number>(0);
   const origin = useRef({ x: 0, y: 0 });
   // Set when a long press fired so the click that follows the release is ignored.
@@ -94,7 +97,8 @@ export const PosterCard: React.FC<PosterCardProps> = ({ media, onClick, width, b
     }}>
       {media.poster && (
         <FadeImage
-          src={media.poster}
+          {...posterSrcSet(media.poster)}
+          sizes={width ? `${width}px` : '(max-width: 600px) 33vw, 180px'}
           alt={media.title}
           loading="lazy"
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
@@ -164,3 +168,6 @@ export const PosterCard: React.FC<PosterCardProps> = ({ media, onClick, width, b
   </div>
   );
 };
+
+export const PosterCard = memo(PosterCardBase);
+

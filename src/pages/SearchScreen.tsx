@@ -165,7 +165,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ active, onBack, onSe
           <h2 style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 4px 12px 4px' }}>Movies &amp; TV</h2>
           <div className="grid-collection">
             {shown.map(media => (
-              <PosterCard key={`${media.mediaType}-${media.id}`} media={media} onClick={() => onSelectMedia(media)} />
+              <PosterCard key={`${media.mediaType}-${media.id}`} media={media} onSelect={onSelectMedia} />
             ))}
           </div>
         </div>

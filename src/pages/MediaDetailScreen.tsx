@@ -322,7 +322,7 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
           ) : (
             <div className="grid-collection">
               {similar.map(item => (
-                <PosterCard key={`${item.mediaType}-${item.id}`} media={item} onClick={() => onSelectMedia(item)} />
+                <PosterCard key={`${item.mediaType}-${item.id}`} media={item} onSelect={onSelectMedia} />
               ))}
             </div>
           )

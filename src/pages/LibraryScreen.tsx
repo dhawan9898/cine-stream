@@ -149,7 +149,7 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onPlayMedia, onSel
         ) : (
           <div className="grid-collection">
             {list.map(media => (
-              <PosterCard key={`${media.mediaType}-${media.id}`} media={media} onClick={() => onSelectMedia(media)} />
+              <PosterCard key={`${media.mediaType}-${media.id}`} media={media} onSelect={onSelectMedia} />
             ))}
           </div>
         )}

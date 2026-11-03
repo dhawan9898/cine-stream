@@ -99,6 +99,20 @@ export function getPosterUrl(path?: string | null, size: 'w200' | 'w342' | 'w500
   return `${TMDB_IMAGE_BASE}/${size}${path}`;
 }
 
+// Responsive poster sources: lets the browser pick the smallest TMDB rendition
+// that is sharp for the card's CSS width and the screen's pixel density instead
+// of always downloading w500. Non-TMDB or unexpected URLs get no srcset.
+const POSTER_WIDTHS = [185, 342, 500] as const;
+export function posterSrcSet(url: string): { src: string; srcSet?: string } {
+  const m = url.match(/^(https:\/\/image\.tmdb\.org\/t\/p)\/w\d+(\/.+)$/);
+  if (!m) return { src: url };
+  const [, base, path] = m;
+  return {
+    src: `${base}/w342${path}`,
+    srcSet: POSTER_WIDTHS.map(w => `${base}/w${w}${path} ${w}w`).join(', ')
+  };
+}
+
 export function getBackdropUrl(path?: string | null, size: 'w780' | 'w1280' | 'original' = 'w1280'): string {
   if (!path) return '';
   return `${TMDB_IMAGE_BASE}/${size}${path}`;

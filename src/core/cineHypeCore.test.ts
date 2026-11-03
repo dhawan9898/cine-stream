@@ -62,3 +62,13 @@ test('does not retry a non-retryable 4xx and surfaces the error', async () => {
   await assert.rejects(core.searchMedia('zzz-unique-404'), /404/);
   assert.equal(urls.length, 1);
 });
+
+test('posterSrcSet offers w185/w342/w500 for TMDB posters and leaves other URLs alone', async () => {
+  process.env.VITE_TMDB_API_KEY = 'test-key';
+  const core = await import('./cineHypeCore.ts?withkey');
+  const r = core.posterSrcSet('https://image.tmdb.org/t/p/w500/abc.jpg');
+  assert.equal(r.src, 'https://image.tmdb.org/t/p/w342/abc.jpg');
+  assert.match(r.srcSet!, /w185\/abc\.jpg 185w, .*w342\/abc\.jpg 342w, .*w500\/abc\.jpg 500w/);
+  assert.deepEqual(core.posterSrcSet('https://example.com/p.jpg'), { src: 'https://example.com/p.jpg' });
+  assert.deepEqual(core.posterSrcSet(''), { src: '' });
+});

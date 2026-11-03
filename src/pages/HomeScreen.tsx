@@ -170,7 +170,7 @@ const LazyRail: React.FC<{
               <div key={i} className="skeleton" style={{ flex: '0 0 112px', height: '162px', borderRadius: '6px' }} />
             ))
           : items.map(m => (
-              <PosterCard key={`${m.mediaType}-${m.id}`} media={m} width={112} onClick={() => onSelectMedia(m)} onPreview={onPreview} />
+              <PosterCard key={`${m.mediaType}-${m.id}`} media={m} width={112} onSelect={onSelectMedia} onPreview={onPreview} />
             ))}
       </div>
     </div>
@@ -192,10 +192,10 @@ const ItemRail: React.FC<{
       {items.map((m, i) => ranked ? (
         <div key={`${m.mediaType}-${m.id}`} className="top10-item">
           <span className="top10-num">{i + 1}</span>
-          <PosterCard media={m} width={104} onClick={() => onSelectMedia(m)} onPreview={onPreview} />
+          <PosterCard media={m} width={104} onSelect={onSelectMedia} onPreview={onPreview} />
         </div>
       ) : (
-        <PosterCard key={`${m.mediaType}-${m.id}`} media={m} width={112} onClick={() => onSelectMedia(m)} onPreview={onPreview} />
+        <PosterCard key={`${m.mediaType}-${m.id}`} media={m} width={112} onSelect={onSelectMedia} onPreview={onPreview} />
       ))}
     </div>
   </div>

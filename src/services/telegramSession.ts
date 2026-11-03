@@ -26,3 +26,36 @@ export async function getSelectedChannels(): Promise<string[]> {
 export async function saveSelectedChannels(channelIds: string[]): Promise<void> {
   await Preferences.set({ key: SELECTED_CHANNELS_KEY, value: JSON.stringify(channelIds) });
 }
+
+// The account label shown in Settings. Reading it live means connecting the
+// whole Telegram client, so the last known value is kept for a day and only
+// refreshed on login / logout or once stale.
+const AUTH_STATUS_KEY = 'telegram_auth_status';
+const AUTH_STATUS_TTL_MS = 24 * 60 * 60 * 1000;
+
+export interface CachedAuthStatus {
+  isLoggedIn: boolean;
+  username?: string;
+  firstName?: string;
+  phone?: string;
+}
+
+export async function getCachedAuthStatus(now = Date.now()): Promise<CachedAuthStatus | null> {
+  const { value } = await Preferences.get({ key: AUTH_STATUS_KEY });
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as { at?: number; status?: CachedAuthStatus };
+    if (typeof parsed.at !== 'number' || !parsed.status || now - parsed.at > AUTH_STATUS_TTL_MS) return null;
+    return parsed.status;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveCachedAuthStatus(status: CachedAuthStatus): Promise<void> {
+  await Preferences.set({ key: AUTH_STATUS_KEY, value: JSON.stringify({ at: Date.now(), status }) });
+}
+
+export async function clearCachedAuthStatus(): Promise<void> {
+  await Preferences.remove({ key: AUTH_STATUS_KEY });
+}
