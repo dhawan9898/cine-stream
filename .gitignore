@@ -29,6 +29,6 @@ dist-ssr
 *.sw?
 
 # Android / Capacitor build outputs
-android/
+/android/
 *.apk
 *.aab
