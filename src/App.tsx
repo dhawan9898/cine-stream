@@ -8,7 +8,7 @@ import { ErrorBoundary } from 'streamkit/ui/ErrorBoundary.tsx';
 import { Dock, type DockTab } from 'streamkit/ui/Dock.tsx';
 import type { MediaItem, EpisodeItem } from './core/cineHypeCore.ts';
 import type { BrowseSource } from './services/browseSources.ts';
-import { getMediaWatchHistory } from './services/historyService.ts';
+import { getMediaWatchHistory, setPlaybackActive } from './services/historyService.ts';
 import { getSavedTheme, applyTheme } from './services/themeService.ts';
 import { handleLayerBack } from 'streamkit/core/backStack.ts';
 import { useTvNavigation } from './services/tvNavigationService.ts';
@@ -52,6 +52,9 @@ export const App: React.FC = () => {
   const [layers, setLayers] = useState<Layer[]>([]);
   const [closing, setClosing] = useState<Layer[]>([]);
   const [activePlayer, setActivePlayer] = useState<ActivePlayerState | null>(null);
+  // While the player is open, progress saves don't re-render the screens beneath it.
+  const playerOpen = activePlayer !== null;
+  useEffect(() => { setPlaybackActive(playerOpen); }, [playerOpen]);
 
   // Enable Android TV & Keyboard Remote D-Pad spatial navigation
   useTvNavigation(true);
