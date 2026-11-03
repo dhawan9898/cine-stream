@@ -22,7 +22,7 @@
     "lucide-react": "^1.46.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "streamkit": "file:../streamkit",
+    "streamkit": "file:./streamkit",
     "telegram": "^2.26.16"
   },
   "devDependencies": {
