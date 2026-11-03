@@ -67,7 +67,8 @@ export function getWatchHistory(): WatchHistoryItem[] {
   if (cachedHistory !== null) return cachedHistory;
   try {
     const raw = localStorage.getItem(HISTORY_KEY);
-    cachedHistory = raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    cachedHistory = Array.isArray(parsed) ? parsed : [];
     return cachedHistory!;
   } catch {
     cachedHistory = [];
@@ -163,7 +164,8 @@ export function getBookmarks(): MediaItem[] {
   if (cachedBookmarks !== null) return cachedBookmarks;
   try {
     const raw = localStorage.getItem(BOOKMARKS_KEY);
-    cachedBookmarks = raw ? JSON.parse(raw) : [];
+    const parsed = raw ? JSON.parse(raw) : [];
+    cachedBookmarks = Array.isArray(parsed) ? parsed : [];
     return cachedBookmarks!;
   } catch {
     cachedBookmarks = [];

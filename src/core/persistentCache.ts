@@ -183,4 +183,3 @@ export function clearPersistedCache(): void {
 
 // Initial cleanup on module load
 pruneExpiredPersistedCache();
-clearStreamCache();

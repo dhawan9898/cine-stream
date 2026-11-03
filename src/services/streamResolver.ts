@@ -47,7 +47,8 @@ function getTitleFallbackUrl(params: StreamParams): string {
 
 async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
   const cacheKey = `stream_${keyOf(params)}`;
-  const persisted = readPersisted<ResolvedStream>(cacheKey) ?? await readPersistedAsync<ResolvedStream>(cacheKey);
+  // A retry after a failure must not hand back the same cached (dead) link.
+  const persisted = params.fresh ? null : (readPersisted<ResolvedStream>(cacheKey) ?? await readPersistedAsync<ResolvedStream>(cacheKey));
   if (persisted && persisted.url) {
     return persisted;
   }
@@ -125,8 +126,8 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
     result.subtitles = [...(result.subtitles ?? []), ...external.filter(t => !have.has(t.url))];
   }
 
-  // Persist resolved stream (2 hours for direct, 45 mins for fallback embed)
-  const ttlMs = result.isFallbackEmbed ? 45 * 60 * 1000 : 120 * 60 * 1000;
+  // Persist resolved stream (1 hour for direct - signed links expire, 30 mins for fallback embed)
+  const ttlMs = result.isFallbackEmbed ? 30 * 60 * 1000 : 60 * 60 * 1000;
   writePersisted(cacheKey, result, ttlMs);
 
   return result;
