@@ -1,4 +1,5 @@
 // cineHypeCore.ts - CineHype Core Provider (TMDB API & Media Models)
+import { request, HttpError } from 'streamkit/core/http.ts';
 import { readPersisted, readPersistedAsync, writePersisted } from './persistentCache.ts';
 
 // The TMDB key is supplied at build time (VITE_TMDB_API_KEY in .env locally, a
@@ -181,27 +182,20 @@ async function tmdbFetchOnce<T>(endpoint: string, params: Record<string, string 
   });
 
   const url = `${TMDB_API_BASE}${endpoint}?${query.toString()}`;
-  // Timeout + retry with backoff on network errors, 429 and 5xx so flaky mobile
-  // connections don't surface as hard failures.
+  // Shared HTTP layer: per-attempt timeout, retry with backoff on network
+  // errors / 408 / 429 / 5xx (4xx fails fast), and a cap on concurrent requests.
   let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 12000);
-    try {
-      const res = await fetch(url, { signal: controller.signal });
-      if (res.ok) {
-        const json = (await res.json()) as T;
-        saveStale(url, json);
-        return json;
-      }
-      lastError = new Error(`TMDB request failed (${res.status}): ${endpoint}`);
-      if (res.status !== 429 && res.status < 500) break; // not retryable
-    } catch (err) {
-      lastError = err;
-    } finally {
-      clearTimeout(timer);
-    }
-    await new Promise(r => setTimeout(r, 400 * 2 ** attempt));
+  try {
+    const res = await request(url, undefined, { timeoutMs: 12000, retries: 2 });
+    const json = (await res.json()) as T;
+    saveStale(url, json);
+    return json;
+  } catch (err) {
+    // HttpError's message embeds the URL, which carries the API key: never
+    // let that reach the UI.
+    lastError = err instanceof HttpError
+      ? new Error(`TMDB request failed (${err.status}): ${endpoint}`)
+      : err;
   }
   // Offline or TMDB down: show the last good copy of a list instead of an error.
   const stale = readStale<T>(url);
