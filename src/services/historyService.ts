@@ -1,5 +1,5 @@
 // historyService.ts - Watch history, continue watching & watchlist persistence
-import type { MediaItem, MediaType } from '../core/cineHypeCore.ts';
+import type { MediaItem, MediaType } from '../providers/cineHypeCore.ts';
 import { createChangeNotifier, parseValidatedList } from 'streamkit/core/library.ts';
 
 export interface WatchHistoryItem {

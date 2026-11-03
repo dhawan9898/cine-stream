@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 // @ts-expect-error plain .mjs build script without type declarations
-import { patchManifest, patchGradle, patchGradleProperties } from '../../scripts/patch-android.mjs';
+import { patchManifest, patchGradle, patchGradleProperties } from './patch-android.mjs';
 
 const manifest = '<manifest>\n    <application>\n        <activity android:name=".MainActivity" />\n    </application>\n</manifest>';
 const gradle = 'android {\n  defaultConfig {\n    versionCode 1\n    versionName "1.0"\n  }\n}\n';

@@ -31,7 +31,7 @@ export class TelegramExtractor extends BaseExtractor {
       if (!params.title) return null;
 
       // 2. Lazily load telegramService so the heavy Telegram client bundle is not in the critical path
-      const { telegramService } = await import('../services/telegramService.ts');
+      const { telegramService } = await import('../telegramService.ts');
 
       const channels = await telegramService.getSelectedChannels();
       if (!channels || channels.length === 0) return null;

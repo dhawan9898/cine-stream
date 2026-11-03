@@ -1,4 +1,4 @@
-import { resolveStream } from '../src/services/streamResolver.ts';
+import { resolveStream } from '../src/providers/streamResolver.ts';
 
 async function testTitle(name: string, params: { id: number; type: 'movie' | 'tv'; season?: number; episode?: number }) {
   try {

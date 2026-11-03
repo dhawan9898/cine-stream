@@ -1,7 +1,7 @@
 // subtitleService.ts - External subtitles for a TMDB title, looked up by IMDb id
 // from the public OpenSubtitles Stremio addon (no API key). Never throws.
-import { CINEHYPE_TMDB_KEY, TMDB_API_BASE } from '../core/cineHypeCore.ts';
-import type { ExtractorSubtitle } from '../extractors/types.ts';
+import { CINEHYPE_TMDB_KEY, TMDB_API_BASE } from './cineHypeCore.ts';
+import type { ExtractorSubtitle } from './extractors/types.ts';
 
 const ADDON = 'https://opensubtitles-v3.strem.io/subtitles';
 const TIMEOUT_MS = 5000;

@@ -2,8 +2,8 @@
 // hidden native WebView and catching the real media request. Native Android only.
 import { Capacitor } from '@capacitor/core';
 import { ExoPlayerPlugin } from '../plugins/exoPlayerPlugin.ts';
-import type { ExtractedStream } from '../extractors/types.ts';
-import { formatOf } from '../extractors/streamDiscovery.ts';
+import type { ExtractedStream } from './extractors/types.ts';
+import { formatOf } from './extractors/streamDiscovery.ts';
 
 export async function sniffDirectStream(embed: ExtractedStream, timeoutMs = 15000): Promise<ExtractedStream | null> {
   if (!Capacitor.isNativePlatform()) return null;

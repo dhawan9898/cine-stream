@@ -8,9 +8,9 @@ import {
   type EpisodeItem,
   type MediaDetails,
   type MediaItem
-} from '../core/cineHypeCore.ts';
+} from '../providers/cineHypeCore.ts';
 import { getWatchHistory, isBookmarked, subscribeLibraryChanges, toggleBookmark, type WatchHistoryItem } from '../services/historyService.ts';
-import { prefetchStream } from '../services/streamResolver.ts';
+import { prefetchStream } from '../providers/streamResolver.ts';
 import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { PosterCard } from '../components/PosterCard.tsx';
 import { ErrorState } from 'streamkit/ui/ErrorState.tsx';

@@ -1,9 +1,9 @@
 // PosterCard.tsx - Compact poster tile used by the horizontal rails and the
 // poster grids (browse pages, More Like This). Flat and opaque on purpose.
 import React, { memo, useEffect, useRef } from 'react';
-import type { MediaItem } from '../core/cineHypeCore.ts';
-import { prefetchMediaDetails, posterSrcSet } from '../core/cineHypeCore.ts';
-import { prefetchStream } from '../services/streamResolver.ts';
+import type { MediaItem } from '../providers/cineHypeCore.ts';
+import { prefetchMediaDetails, posterSrcSet } from '../providers/cineHypeCore.ts';
+import { prefetchStream } from '../providers/streamResolver.ts';
 import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 
 interface PosterCardProps {

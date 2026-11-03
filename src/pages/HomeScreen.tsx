@@ -3,9 +3,9 @@
 // the viewer watches; rows below the fold load when scrolled near.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Play, ChevronRight, ChevronDown, Search as SearchIcon, X, RefreshCw } from 'lucide-react';
-import { clearPersistedCache } from '../core/persistentCache.ts';
-import { warmStreams } from '../services/streamResolver.ts';
-import { getTrending, getRecommendations, type MediaItem } from '../core/cineHypeCore.ts';
+import { clearPersistedCache } from '../services/persistentCache.ts';
+import { warmStreams } from '../providers/streamResolver.ts';
+import { getTrending, getRecommendations, type MediaItem } from '../providers/cineHypeCore.ts';
 import { getWatchHistory, getBookmarks, removeWatchHistory, subscribeLibraryChanges, type WatchHistoryItem } from '../services/historyService.ts';
 import {
   ON_THE_AIR,

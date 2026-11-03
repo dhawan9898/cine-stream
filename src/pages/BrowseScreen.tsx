@@ -2,7 +2,7 @@
 // that keeps loading more as you scroll, with a "Categories" switcher.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ChevronDown, Loader2 } from 'lucide-react';
-import type { MediaItem } from '../core/cineHypeCore.ts';
+import type { MediaItem } from '../providers/cineHypeCore.ts';
 import { SORT_OPTIONS, type BrowseSource, type SortBy } from '../services/browseSources.ts';
 import { categorySource, type Category, type TypeFilter } from '../services/categories.ts';
 import { computeTaste, EMPTY_TASTE, type Taste } from '../services/tasteService.ts';

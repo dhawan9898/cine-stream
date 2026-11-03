@@ -2,7 +2,7 @@
 import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
 import { useBackHandler } from 'streamkit/core/backStack.ts';
-import type { VideoTrailer } from '../core/cineHypeCore.ts';
+import type { VideoTrailer } from '../providers/cineHypeCore.ts';
 
 interface TrailerModalProps {
   trailer: VideoTrailer | null;

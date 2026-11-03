@@ -1,10 +1,10 @@
 // streamResolver.ts - Background multi-source stream resolution engine for exact TMDB titles
 import { Capacitor } from '@capacitor/core';
-import type { MediaType } from '../core/cineHypeCore.ts';
-import { readPersisted, readPersistedAsync, writePersisted } from '../core/persistentCache.ts';
-import { extractorRegistry } from '../extractors/extractorRegistry.ts';
+import type { MediaType } from './cineHypeCore.ts';
+import { readPersisted, readPersistedAsync, writePersisted } from '../services/persistentCache.ts';
+import { extractorRegistry } from './extractors/extractorRegistry.ts';
 import { fetchSubtitles } from './subtitleService.ts';
-import type { ExtractedStream } from '../extractors/types.ts';
+import type { ExtractedStream } from './extractors/types.ts';
 
 export interface StreamParams {
   id: number;

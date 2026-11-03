@@ -1,7 +1,7 @@
 // LibraryScreen.tsx - Watch history and My List.
 import React, { useEffect, useState } from 'react';
 import { Bookmark, Clock, Library, Play, Trash2, X } from 'lucide-react';
-import type { MediaItem } from '../core/cineHypeCore.ts';
+import type { MediaItem } from '../providers/cineHypeCore.ts';
 import {
   clearWatchHistory,
   getBookmarks,

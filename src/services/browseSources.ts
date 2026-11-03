@@ -8,7 +8,7 @@ import {
   getTrending,
   getOnTheAirTV,
   type MediaItem
-} from '../core/cineHypeCore.ts';
+} from '../providers/cineHypeCore.ts';
 
 export type SortBy = 'popularity.desc' | 'vote_average.desc' | 'primary_release_date.desc';
 

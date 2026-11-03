@@ -2,7 +2,7 @@
 // carousel and keeps the "My List" state in sync with the library.
 import React, { useEffect, useMemo, useState } from 'react';
 import { HeroCarousel as SharedHeroCarousel, type HeroSlide } from 'streamkit/ui/HeroCarousel.tsx';
-import { MOVIE_GENRES, TV_GENRES, type MediaItem } from '../core/cineHypeCore.ts';
+import { MOVIE_GENRES, TV_GENRES, type MediaItem } from '../providers/cineHypeCore.ts';
 import { getBookmarks, subscribeLibraryChanges, toggleBookmark } from '../services/historyService.ts';
 
 const MAX_SLIDES = 8;

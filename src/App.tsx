@@ -6,7 +6,7 @@ import { Home, Search, Library, Settings } from 'lucide-react';
 import { HomeScreen } from './pages/HomeScreen.tsx';
 import { ErrorBoundary } from 'streamkit/ui/ErrorBoundary.tsx';
 import { Dock, type DockTab } from 'streamkit/ui/Dock.tsx';
-import type { MediaItem, EpisodeItem } from './core/cineHypeCore.ts';
+import type { MediaItem, EpisodeItem } from './providers/cineHypeCore.ts';
 import type { BrowseSource } from './services/browseSources.ts';
 import { getMediaWatchHistory, setPlaybackActive } from './services/historyService.ts';
 import { getSavedTheme, applyTheme } from './services/themeService.ts';

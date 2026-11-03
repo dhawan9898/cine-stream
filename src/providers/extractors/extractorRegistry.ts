@@ -1,7 +1,7 @@
 // extractorRegistry.ts - Central registry for real title-specific stream extractors
 import { Capacitor } from '@capacitor/core';
 import type { StreamExtractor, ExtractedStream } from './types.ts';
-import { sniffDirectStream } from '../services/webSniffer.ts';
+import { sniffDirectStream } from '../webSniffer.ts';
 import { ProviderHealth, LastGoodStore } from 'streamkit/providers/health.ts';
 import { FlixeoExtractor } from './flixeoExtractor.ts';
 import { MovierulzExtractor } from './movierulzExtractor.ts';

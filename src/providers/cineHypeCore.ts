@@ -1,6 +1,6 @@
 // cineHypeCore.ts - CineHype Core Provider (TMDB API & Media Models)
 import { request, HttpError } from 'streamkit/core/http.ts';
-import { readPersisted, readPersistedAsync, writePersisted } from './persistentCache.ts';
+import { readPersisted, readPersistedAsync, writePersisted } from '../services/persistentCache.ts';
 
 // The TMDB key is supplied at build time (VITE_TMDB_API_KEY in .env locally, a
 // repository secret in CI). It is deliberately not hardcoded in the source.

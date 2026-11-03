@@ -44,62 +44,29 @@ Inspired by the native architecture and fluid UI of [Anistream](../Anistream), C
 
 ## 🏗️ Project Architecture
 
+Both apps (CineStream and [Anistream](../Anistream)) share one architecture. Everything that is
+not a content provider lives in the vendored `streamkit/` package (UI shell, dock, hero carousel,
+category picker, player panels, HTTP layer, tiered cache, theme store, history helpers, provider
+health/hedging, base stylesheets). Only the `providers/` folder differs.
+
 ```
 CineStream/
-├── index.html                    # Application entry HTML & theme bootstrap
-├── vite.config.ts                # Vite build & optional TMDB dev proxy config
-├── capacitor.config.ts           # Capacitor config for Android
-├── build-apk.ps1                 # Local automated APK build script
-├── android-overrides/            # Native Android Jetpack Media3 overrides
-│   ├── java/
-│   │   ├── MainActivity.java     # Ad-hijack blocker & hardware back bridge
-│   │   ├── ExoPlayerPlugin.java  # Capacitor plugin bridge to ExoPlayerActivity
-│   │   ├── ExoPlayerActivity.java# Fullscreen Netflix-style Media3 player
-│   │   └── ThumbnailSprites.java # WebVTT sprite sheet parser & frame cropper
-│   └── res/                      # Native player layouts, drawables & animations
-├── src/
-│   ├── main.tsx                  # App bootstrap
-│   ├── App.tsx                   # Kept-alive tab shell, overlay stack & back bridge
-│   ├── index.css                 # Design tokens, themes & compositor animations
-│   ├── core/
-│   │   ├── cineHypeCore.ts       # TMDB API client & data models
-│   │   └── persistentCache.ts    # Hybrid localStorage + IndexedDB TTL cache
-│   ├── extractors/
-│   │   ├── baseExtractor.ts      # HTTP helper & multi-hop page crawler
-│   │   ├── streamDiscovery.ts    # HLS/DASH/MP4 & subtitle regex/JSON/Base64 scanner
-│   │   ├── extractorRegistry.ts  # Concurrent multi-extractor coordinator
-│   │   └── *Extractor.ts         # Individual provider extractors
-│   ├── plugins/
-│   │   └── exoPlayerPlugin.ts    # TypeScript Capacitor interface for ExoPlayerPlugin
-│   ├── services/
-│   │   ├── streamResolver.ts     # Cached stream resolution with fallback embed URL
-│   │   ├── nativePlayer.ts       # Native vs. Web player dispatcher
-│   │   ├── historyService.ts     # Watch history, resume timestamps & bookmarks
-│   │   ├── browseSources.ts      # Genre & rail source definitions
-│   │   ├── backStack.ts          # LIFO back-gesture claim stack for modals
-│   │   ├── themeService.ts       # Theme persistence manager
-│   │   └── tvNavigationService.ts# Scoped D-Pad spatial focus engine
-│   ├── components/
-│   │   ├── HeroCarousel.tsx      # Scroll-snap featured banner with auto-advance
-│   │   ├── PosterCard.tsx        # Poster tile with hover/focus detail prefetching
-│   │   ├── FadeImage.tsx         # Async-decoded smooth fade-in image component
-│   │   ├── GenrePicker.tsx       # Fullscreen Categories portal modal
-│   │   ├── TrailerModal.tsx      # Embedded YouTube trailer modal
-│   │   ├── ConfirmModal.tsx      # Glass confirmation dialog
-│   │   ├── VideoPlayer.tsx       # Stream resolution & Native/Web player orchestrator
-│   │   ├── WebPlayer.tsx         # Netflix-style hls.js browser video player
-│   │   ├── ErrorState.tsx        # Retryable error state banner
-│   │   └── ErrorBoundary.tsx     # Top-level React error boundary
-│   └── pages/
-│       ├── HomeScreen.tsx        # Hero banner, Continue Watching & lazy-loaded rails
-│       ├── BrowseScreen.tsx      # Infinite-scroll genre & category grid
-│       ├── SearchScreen.tsx      # Debounced live multi-search & Top Searches
-│       ├── MediaDetailScreen.tsx # Title metadata, seasons/episodes, cast & similar
-│       ├── LibraryScreen.tsx     # Watch history & My List manager
-│       └── SettingsScreen.tsx    # Theme selector, autoplay toggle & cache/history reset
-└── scripts/
-    ├── test-resolver.ts          # Single-title stream resolution CLI test
-    └── test-all-titles.ts        # Multi-title stream resolution verification script
+├── streamkit/                    # Shared package (sync: node scripts/sync-streamkit.mjs ../streamkit)
+├── android-overrides/            # Native Android Jetpack Media3 overrides (copied in CI)
+├── scripts/                      # patch-android.mjs (+test), sync-streamkit.mjs, CLI stream tests
+└── src/
+    ├── main.tsx, App.tsx         # Bootstrap; kept-alive tab shell, overlay stack & back bridge
+    ├── index.css                 # App design tokens + app-specific rules (base rules: streamkit)
+    ├── providers/                # <- the only provider-specific code
+    │   ├── cineHypeCore.ts       # TMDB catalog client & data models
+    │   ├── streamResolver.ts     # Cached stream resolution with fallback embed URL
+    │   ├── subtitleService.ts, webSniffer.ts
+    │   ├── telegramService.ts, telegramSession.ts
+    │   └── extractors/           # Seven title extractors + registry (health, last-good, early exit)
+    ├── services/                 # historyService, themeService, persistentCache config, nativePlayer, ...
+    ├── components/               # Adapters over streamkit (HeroCarousel, GenrePicker) + app widgets
+    ├── pages/                    # Home, Browse, Search, MediaDetail, Library, Settings
+    └── plugins/                  # Capacitor bridge to the native player
 ```
 
 ---

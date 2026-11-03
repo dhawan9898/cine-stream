@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { errorMessage } from 'streamkit/core/errors.ts';
 import { Send, CheckCircle2, AlertCircle, X, Tv } from 'lucide-react';
-import { telegramService, type TelegramChannelInfo } from '../services/telegramService.ts';
+import { telegramService, type TelegramChannelInfo } from '../providers/telegramService.ts';
 
 interface TelegramAuthModalProps {
   open: boolean;
