@@ -4,7 +4,7 @@ import { Settings as SettingsIcon, SkipForward, Gauge, Trash2, Database, Send, L
 import { clearWatchHistory, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../core/persistentCache.ts';
-import { ConfirmModal } from '../components/ConfirmModal.tsx';
+import { ConfirmModal } from 'streamkit/ui/ConfirmModal.tsx';
 import {
   hasSavedSession, getSelectedChannels, getCachedAuthStatus, saveCachedAuthStatus
 } from '../services/telegramSession.ts';

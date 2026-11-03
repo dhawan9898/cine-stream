@@ -2,6 +2,7 @@
 import { Capacitor } from '@capacitor/core';
 import type { StreamExtractor, ExtractedStream } from './types.ts';
 import { sniffDirectStream } from '../services/webSniffer.ts';
+import { ProviderHealth, LastGoodStore } from 'streamkit/providers/health.ts';
 import { FlixeoExtractor } from './flixeoExtractor.ts';
 import { MovierulzExtractor } from './movierulzExtractor.ts';
 import { VidLinkExtractor } from './vidlinkExtractor.ts';
@@ -19,63 +20,33 @@ const HEALTH_KEY = 'cinestream_provider_health_v1';
 const FAILS_BEFORE_COOLDOWN = 3;
 const COOLDOWN_MS = 10 * 60 * 1000;
 
-interface Health { fails: number; until: number }
-
 // Which provider last gave a working stream for a title - tried first next time.
 const LAST_GOOD_KEY = 'cinestream_last_good_v1';
 const LAST_GOOD_MAX = 300;
 const LAST_GOOD_TIMEOUT_MS = 4500;
-function loadLastGood(): Record<string, string> {
-  try { return JSON.parse(localStorage.getItem(LAST_GOOD_KEY) || '{}'); } catch { return {}; }
-}
-function saveLastGood(m: Record<string, string>) {
-  try {
-    const keys = Object.keys(m);
-    if (keys.length > LAST_GOOD_MAX) keys.slice(0, keys.length - LAST_GOOD_MAX).forEach(k => delete m[k]);
-    localStorage.setItem(LAST_GOOD_KEY, JSON.stringify(m));
-  } catch { /* storage unavailable */ }
-}
-
-function loadHealth(): Record<string, Health> {
-  try { return JSON.parse(localStorage.getItem(HEALTH_KEY) || '{}'); } catch { return {}; }
-}
-function saveHealth(h: Record<string, Health>) {
-  try { localStorage.setItem(HEALTH_KEY, JSON.stringify(h)); } catch { /* storage unavailable */ }
-}
 
 type Sniffer = (embed: ExtractedStream) => Promise<ExtractedStream | null>;
 
 export class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
   private sniffer: Sniffer = embed => sniffDirectStream(embed);
-  private health: Record<string, Health> = loadHealth();
-  private lastGood: Record<string, string> = loadLastGood();
+  private health = new ProviderHealth({
+    storageKey: HEALTH_KEY,
+    failsBeforeCooldown: FAILS_BEFORE_COOLDOWN,
+    cooldownMs: COOLDOWN_MS
+  });
+  private lastGood = new LastGoodStore(LAST_GOOD_KEY, LAST_GOOD_MAX);
 
   private rememberGood(params: { id: number; type: string }, serverId?: string) {
-    if (!serverId) return;
-    const key = `${params.type}:${params.id}`;
-    if (this.lastGood[key] === serverId) return;
-    delete this.lastGood[key];
-    this.lastGood[key] = serverId;
-    saveLastGood(this.lastGood);
+    this.lastGood.remember(`${params.type}:${params.id}`, serverId);
   }
 
-  // Providers that failed several times in a row sit out for a while so they
-  // stop slowing every lookup; one success brings them straight back.
   private recordResult(id: string, ok: boolean) {
-    const h = this.health[id] ?? { fails: 0, until: 0 };
-    if (ok) {
-      if (h.fails === 0 && h.until === 0) return;
-      this.health[id] = { fails: 0, until: 0 };
-    } else {
-      const fails = h.fails + 1;
-      this.health[id] = { fails, until: fails >= FAILS_BEFORE_COOLDOWN ? Date.now() + COOLDOWN_MS : 0 };
-    }
-    saveHealth(this.health);
+    this.health.record(id, ok);
   }
 
   private isCoolingDown(id: string): boolean {
-    return (this.health[id]?.until ?? 0) > Date.now();
+    return this.health.isCoolingDown(id);
   }
 
   // Lets tests (or other platforms) swap the embed -> direct stream resolver.
@@ -131,7 +102,7 @@ export class ExtractorRegistry {
     // Shortcut: the provider that worked for this title last time, alone and
     // quickly. Falls through to the full race if it no longer delivers.
     if (!params.fresh && !params.preferredServerId) {
-      const goodId = this.lastGood[`${params.type}:${params.id}`];
+      const goodId = this.lastGood.get(`${params.type}:${params.id}`);
       const good = goodId ? this.extractors.find(e => e.id === goodId && !this.isCoolingDown(e.id)) : undefined;
       if (good) {
         let t: ReturnType<typeof setTimeout> | undefined;

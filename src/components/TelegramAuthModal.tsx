@@ -1,6 +1,6 @@
 // TelegramAuthModal.tsx - Multi-step login and channel selection modal for Telegram
 import React, { useState, useEffect } from 'react';
-import { errorMessage } from '../core/errors.ts';
+import { errorMessage } from 'streamkit/core/errors.ts';
 import { Send, CheckCircle2, AlertCircle, X, Tv } from 'lucide-react';
 import { telegramService, type TelegramChannelInfo } from '../services/telegramService.ts';
 

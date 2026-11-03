@@ -5,9 +5,9 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Play, Plus, Check, Info, X, Star } from 'lucide-react';
 import { MOVIE_GENRES, TV_GENRES, type MediaItem } from '../core/cineHypeCore.ts';
-import { useBackHandler } from '../services/backStack.ts';
+import { useBackHandler } from 'streamkit/core/backStack.ts';
 import { getBookmarks, subscribeLibraryChanges, toggleBookmark } from '../services/historyService.ts';
-import { FadeImage } from './FadeImage.tsx';
+import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 
 interface QuickPreviewProps {
   media: MediaItem | null;

@@ -4,7 +4,7 @@ import React, { memo, useEffect, useRef } from 'react';
 import type { MediaItem } from '../core/cineHypeCore.ts';
 import { prefetchMediaDetails, posterSrcSet } from '../core/cineHypeCore.ts';
 import { prefetchStream } from '../services/streamResolver.ts';
-import { FadeImage } from './FadeImage.tsx';
+import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 
 interface PosterCardProps {
   media: MediaItem;

@@ -1,6 +1,6 @@
 // telegramService.ts - On-device Telegram MTProto client service for CineStream
 import { TelegramClient, Api } from 'telegram';
-import { errorMessage, toNumber } from '../core/errors.ts';
+import { errorMessage, toNumber } from 'streamkit/core/errors.ts';
 import { StringSession } from 'telegram/sessions/index.js';
 import type { EntityLike } from 'telegram/define';
 import { Preferences } from '@capacitor/preferences';

@@ -10,9 +10,9 @@ import {
   subscribeLibraryChanges,
   type WatchHistoryItem
 } from '../services/historyService.ts';
-import { FadeImage } from '../components/FadeImage.tsx';
+import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { PosterCard } from '../components/PosterCard.tsx';
-import { ConfirmModal } from '../components/ConfirmModal.tsx';
+import { ConfirmModal } from 'streamkit/ui/ConfirmModal.tsx';
 
 interface LibraryScreenProps {
   onPlayMedia: (item: MediaItem, season?: number, episode?: number) => void;

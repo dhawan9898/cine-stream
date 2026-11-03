@@ -5,7 +5,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Play, Plus, Check, Info } from 'lucide-react';
 import { MOVIE_GENRES, TV_GENRES, type MediaItem } from '../core/cineHypeCore.ts';
-import { FadeImage } from './FadeImage.tsx';
+import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { getBookmarks, subscribeLibraryChanges, toggleBookmark } from '../services/historyService.ts';
 
 const MAX_SLIDES = 8;

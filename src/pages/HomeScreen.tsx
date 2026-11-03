@@ -30,8 +30,8 @@ import { computeTaste, EMPTY_TASTE, type Taste } from '../services/tasteService.
 import { HeroCarousel } from '../components/HeroCarousel.tsx';
 import { PosterCard } from '../components/PosterCard.tsx';
 import { QuickPreview } from '../components/QuickPreview.tsx';
-import { FadeImage } from '../components/FadeImage.tsx';
-import { ErrorState } from '../components/ErrorState.tsx';
+import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
+import { ErrorState } from 'streamkit/ui/ErrorState.tsx';
 import { GenrePicker } from '../components/GenrePicker.tsx';
 
 interface HomeScreenProps {

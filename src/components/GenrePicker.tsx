@@ -4,7 +4,7 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
-import { useBackHandler } from '../services/backStack.ts';
+import { useBackHandler } from 'streamkit/core/backStack.ts';
 import {
   GENRES,
   LANGUAGES,

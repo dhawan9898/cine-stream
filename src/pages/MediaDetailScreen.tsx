@@ -11,9 +11,9 @@ import {
 } from '../core/cineHypeCore.ts';
 import { getWatchHistory, isBookmarked, subscribeLibraryChanges, toggleBookmark, type WatchHistoryItem } from '../services/historyService.ts';
 import { prefetchStream } from '../services/streamResolver.ts';
-import { FadeImage } from '../components/FadeImage.tsx';
+import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { PosterCard } from '../components/PosterCard.tsx';
-import { ErrorState } from '../components/ErrorState.tsx';
+import { ErrorState } from 'streamkit/ui/ErrorState.tsx';
 import { TrailerModal } from '../components/TrailerModal.tsx';
 
 interface MediaDetailScreenProps {
