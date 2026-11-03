@@ -122,6 +122,35 @@ function tmdbFetch<T>(endpoint: string, params: Record<string, string | number |
   return request;
 }
 
+// Last good copy of the home/browse lists, kept past their normal expiry so the
+// app still has something to show without a connection.
+const STALE_PREFIX = 'cinestream_stale_';
+const STALE_MAX_ENTRIES = 14;
+const STALE_ENDPOINT = /\/(trending|discover|movie\/(popular|top_rated|now_playing)|tv\/(popular|top_rated|on_the_air))/;
+
+function saveStale(url: string, data: unknown): void {
+  if (!STALE_ENDPOINT.test(url)) return;
+  try {
+    const key = STALE_PREFIX + url.replace(/api_key=[^&]*&?/, '');
+    localStorage.setItem(key, JSON.stringify({ at: Date.now(), data }));
+    const keys = Object.keys(localStorage).filter(k => k.startsWith(STALE_PREFIX));
+    if (keys.length > STALE_MAX_ENTRIES) {
+      const oldest = keys
+        .map(k => { try { return { k, at: JSON.parse(localStorage.getItem(k) || '{}').at ?? 0 }; } catch { return { k, at: 0 }; } })
+        .sort((a, b) => a.at - b.at)
+        .slice(0, keys.length - STALE_MAX_ENTRIES);
+      oldest.forEach(o => localStorage.removeItem(o.k));
+    }
+  } catch { /* storage full or unavailable */ }
+}
+
+function readStale<T>(url: string): T | null {
+  try {
+    const raw = localStorage.getItem(STALE_PREFIX + url.replace(/api_key=[^&]*&?/, ''));
+    return raw ? (JSON.parse(raw).data as T) : null;
+  } catch { return null; }
+}
+
 async function tmdbFetchOnce<T>(endpoint: string, params: Record<string, string | number | boolean> = {}): Promise<T> {
   const query = new URLSearchParams({
     api_key: CINEHYPE_TMDB_KEY,
@@ -138,7 +167,11 @@ async function tmdbFetchOnce<T>(endpoint: string, params: Record<string, string 
     const timer = setTimeout(() => controller.abort(), 12000);
     try {
       const res = await fetch(url, { signal: controller.signal });
-      if (res.ok) return (await res.json()) as T;
+      if (res.ok) {
+        const json = (await res.json()) as T;
+        saveStale(url, json);
+        return json;
+      }
       lastError = new Error(`TMDB request failed (${res.status}): ${endpoint}`);
       if (res.status !== 429 && res.status < 500) break; // not retryable
     } catch (err) {
@@ -148,6 +181,9 @@ async function tmdbFetchOnce<T>(endpoint: string, params: Record<string, string 
     }
     await new Promise(r => setTimeout(r, 400 * 2 ** attempt));
   }
+  // Offline or TMDB down: show the last good copy of a list instead of an error.
+  const stale = readStale<T>(url);
+  if (stale) return stale;
   throw lastError instanceof Error ? lastError : new Error(`TMDB request failed: ${endpoint}`);
 }
 

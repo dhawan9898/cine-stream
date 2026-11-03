@@ -3,7 +3,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { getTVSeasonEpisodes, type MediaItem, type EpisodeItem } from '../core/cineHypeCore.ts';
-import { resolveStream, type ResolvedStream } from '../services/streamResolver.ts';
+import { subtitlesForPlayer, pickAudio } from '../services/playbackPrefs.ts';
+import { resolveStream, prefetchUpcomingEpisodes, type ResolvedStream } from '../services/streamResolver.ts';
 import { getResumePositionMs, getUserPreferences, saveWatchProgress } from '../services/historyService.ts';
 import { openNativeExoPlayer } from '../services/nativePlayer.ts';
 import { ExoPlayerPlugin } from '../plugins/exoPlayerPlugin.ts';
@@ -46,6 +47,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [attempt, setAttempt] = useState<number>(0);
   const [langMode, setLangMode] = useState<string>('sub');
   const [selectedServerId, setSelectedServerId] = useState<string | undefined>(undefined);
+  const [reportCopied, setReportCopied] = useState(false);
+  const sourceRef = useRef<ResolvedStream | null>(null);
   const [frameReady, setFrameReady] = useState<boolean>(false);
   const [reloadKey, setReloadKey] = useState<number>(0);
   const [fetchedEpisodes, setFetchedEpisodes] = useState<EpisodeItem[]>([]);
@@ -170,6 +173,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         });
         const h6 = await ExoPlayerPlugin.addListener('reloadRequested', (e) => {
           reloadResumeMsRef.current = e.positionMs > 0 ? e.positionMs : null;
+          // The stream failed: move on to the next server rather than retrying the same one.
+          const servers = sourceRef.current?.availableServers ?? [];
+          if (servers.length > 1) {
+            const cur = servers.findIndex(s => s.serverId === (sourceRef.current?.serverId));
+            setSelectedServerId(servers[(cur + 1) % servers.length].serverId);
+          }
           setAttempt(n => n + 1);
         });
         if (disposed) {
@@ -208,11 +217,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           seasonPrefix: `S${season}:`,
           referer: nextRes.headers?.Referer || nextRes.headers?.referer || '',
           headers: nextRes.headers,
-          subtitles: (nextRes.subtitles || []).map((t, i) => ({
-            src: t.url,
-            label: t.label || t.lang || 'Subtitle',
-            default: i === 0
-          })),
+          subtitles: subtitlesForPlayer(nextRes.subtitles, prefs.subtitleLanguage),
           isFallback: nextRes.isFallbackEmbed ?? false,
           autoPlayNext: prefs.autoplayNext
         }).catch(() => {});
@@ -234,6 +239,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     setLoading(true);
     setError(null);
+    setReportCopied(false);
     setFrameReady(false);
 
     const startPositionMs = reloadResumeMsRef.current ?? initialPositionMs;
@@ -254,25 +260,35 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
 
         setSource(res);
+        sourceRef.current = res;
         setLoading(false);
+
+        // Quietly resolve the next two episodes so they are cached before needed.
+        if (isSeries) {
+          prefetchUpcomingEpisodes(
+            { id: media.id, type: media.mediaType, season, languageMode: langMode, language: media.language, title: media.title, preferredServerId: selectedServerId },
+            episode,
+            episodes.map(e => e.episodeNumber),
+            2
+          );
+        }
 
         // On native Android, launch native Media3 Netflix ExoPlayer
         if (isNative && res && res.url) {
           const prefs = getUserPreferences();
+          const audio = pickAudio(res, prefs.audioLanguage);
           openNativeExoPlayer({
-            url: res.url,
+            url: audio.url,
             title: media.title,
             episode: isSeries ? String(episode) : '1',
             seasonPrefix: isSeries ? `S${season}:` : '',
             referer: res.headers?.Referer || res.headers?.referer || '',
             headers: res.headers,
             mode: langMode,
-            subtitles: (res.subtitles || []).map((t, i) => ({
-              src: t.url,
-              label: t.label || t.lang || 'Subtitle',
-              default: i === 0
-            })),
-            qualities: res.qualities?.map(q => ({ quality: q.quality, url: q.url })),
+            subtitles: subtitlesForPlayer(res.subtitles, prefs.subtitleLanguage),
+            preferredAudio: prefs.audioLanguage || undefined,
+            dataSaver: prefs.dataSaver,
+            qualities: audio.qualities?.map(q => ({ quality: q.quality, url: q.url })),
             audios: res.audios?.map(a => ({
               label: a.label,
               url: a.url,
@@ -331,11 +347,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       quality: source.quality ?? '1080p',
       referer: source.headers?.Referer ?? '',
       headers: source.headers,
-      subtitles: (source.subtitles ?? []).map((t, i) => ({
-        src: t.url,
-        label: t.label || t.lang,
-        default: i === 0
-      }))
+      subtitles: subtitlesForPlayer(source.subtitles, getUserPreferences().subtitleLanguage)
     };
   }, [source]);
 
@@ -352,11 +364,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <button onClick={onBack} className="interactive nf-icon-btn" aria-label="Back" style={{ position: 'absolute', top: 'calc(16px + var(--safe-top))', left: '16px' }}>
           <ArrowLeft size={28} color="#fff" />
         </button>
-        <h3 style={{ fontSize: '20px', fontWeight: 800 }}>Playback Error</h3>
+        <h3 style={{ fontSize: '20px', fontWeight: 800 }}>Couldn't start playback</h3>
         <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)', textAlign: 'center', maxWidth: '400px' }}>{error}</p>
         <div style={{ display: 'flex', gap: '12px' }}>
           <button className="interactive btn-primary" onClick={() => setAttempt(n => n + 1)} style={{ padding: '10px 24px' }}>
             Try Again
+          </button>
+          <button
+            className="interactive btn-secondary"
+            onClick={() => {
+              const details = `CineStream playback report\n${media.title} (${media.mediaType} ${media.id})${isSeries ? ` S${season}E${episode}` : ''}\nServer: ${source?.serverId ?? selectedServerId ?? 'auto'}\nError: ${error}`;
+              navigator.clipboard?.writeText(details).then(() => setReportCopied(true)).catch(() => {});
+            }}
+            style={{ padding: '10px 24px', background: 'rgba(255,255,255,0.2)' }}
+          >
+            {reportCopied ? 'Copied' : 'Copy Details'}
           </button>
           {source?.availableServers && source.availableServers.length > 1 && (
             <button

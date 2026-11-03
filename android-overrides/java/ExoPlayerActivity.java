@@ -176,6 +176,9 @@ public class ExoPlayerActivity extends AppCompatActivity {
     // Settings (Playback) handed over with each stream.
     private boolean autoSkipIntro = false;
     private boolean autoPlayNext = true;
+    // Viewer preferences: audio language to start with, and a 720p cap on mobile data.
+    private String preferredAudioLanguage = "";
+    private boolean dataSaver = false;
     private boolean introAutoSkipped = false;
 
     // Where playback has to continue after a stream swap (audio switch,
@@ -460,6 +463,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
         if (intent.hasExtra("hasDub")) hasDub = intent.getBooleanExtra("hasDub", true);
         if (intent.hasExtra("autoSkipIntro")) autoSkipIntro = intent.getBooleanExtra("autoSkipIntro", false);
         if (intent.hasExtra("autoPlayNext")) autoPlayNext = intent.getBooleanExtra("autoPlayNext", true);
+        if (intent.hasExtra("preferredAudio")) preferredAudioLanguage = intent.getStringExtra("preferredAudio") != null ? intent.getStringExtra("preferredAudio") : "";
+        if (intent.hasExtra("dataSaver")) dataSaver = intent.getBooleanExtra("dataSaver", false);
         String title = intent.getStringExtra("title");
         if (title != null) animeTitle = title;
         String episode = intent.getStringExtra("episode");
@@ -2037,6 +2042,32 @@ public class ExoPlayerActivity extends AppCompatActivity {
 
     // startPositionMs/playWhenReady let a quality switch rebuild the player
     // without restarting playback from 0:00.
+    // Audio language and the data-saver cap, applied to each new player.
+    private void applyViewerPreferences() {
+        if (player == null) return;
+        try {
+            androidx.media3.common.TrackSelectionParameters.Builder b = player.getTrackSelectionParameters().buildUpon();
+            if (preferredAudioLanguage != null && !preferredAudioLanguage.isEmpty()) {
+                b.setPreferredAudioLanguage(preferredAudioLanguage);
+            }
+            if (dataSaver && isOnMeteredNetwork()) {
+                b.setMaxVideoSize(Integer.MAX_VALUE, 720);
+            }
+            player.setTrackSelectionParameters(b.build());
+        } catch (Exception e) {
+            Log.w(TAG, "Could not apply viewer preferences", e);
+        }
+    }
+
+    private boolean isOnMeteredNetwork() {
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+            return cm != null && cm.isActiveNetworkMetered();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private void initializePlayer(String videoUrl, String referer, String subtitlesJson, long startPositionMs, boolean playWhenReady) {
         // Adaptive rendition info belongs to the ExoPlayer instance that
         // reported it - a fresh instance (retry, or a URL-based quality
@@ -2095,6 +2126,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 .build();
         playerView.setPlayer(player);
         player.setPlaybackSpeed(playbackSpeed);
+        applyViewerPreferences();
         // Start position goes in with the item: prepare() then seekTo()
         // downloaded the opening segments first and threw them away.
         player.setMediaItem(mediaItem, Math.max(0L, startPositionMs));
@@ -2321,7 +2353,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
         String lower = url.toLowerCase(java.util.Locale.US);
         int query = lower.indexOf('?');
         String path = query >= 0 ? lower.substring(0, query) : lower;
-        if (path.endsWith(".srt")) return MimeTypes.APPLICATION_SUBRIP;
+        if (path.endsWith(".srt") || lower.contains("strem.io/")) return MimeTypes.APPLICATION_SUBRIP;
         if (path.endsWith(".ssa") || path.endsWith(".ass")) return MimeTypes.TEXT_SSA;
         if (path.endsWith(".ttml") || path.endsWith(".dfxp") || path.endsWith(".xml")) return MimeTypes.APPLICATION_TTML;
         return MimeTypes.TEXT_VTT;

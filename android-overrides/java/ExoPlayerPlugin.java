@@ -102,6 +102,8 @@ public class ExoPlayerPlugin extends Plugin {
         intent.putExtra("qualities", qualities != null ? qualities.toString() : null);
         intent.putExtra("audios", audios != null ? audios.toString() : null);
         intent.putExtra("episodes", episodes != null ? episodes.toString() : null);
+        intent.putExtra("preferredAudio", call.getString("preferredAudio", ""));
+        intent.putExtra("dataSaver", Boolean.TRUE.equals(call.getBoolean("dataSaver", false)));
         intent.putExtra("isFallback", isFallback);
         intent.putExtra("autoSkipIntro", autoSkipIntro);
         intent.putExtra("autoPlayNext", autoPlayNext);

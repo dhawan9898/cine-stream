@@ -1,6 +1,6 @@
 // SettingsScreen.tsx - Appearance, playback, data, and Telegram integration settings.
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, SkipForward, Trash2, Database, Send, LogOut, CheckCircle2, ChevronRight } from 'lucide-react';
+import { Settings as SettingsIcon, SkipForward, Gauge, Trash2, Database, Send, LogOut, CheckCircle2, ChevronRight } from 'lucide-react';
 import { clearWatchHistory, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../core/persistentCache.ts';
@@ -14,6 +14,25 @@ const THEMES: { id: Theme; label: string }[] = [
   { id: 'slate', label: 'Slate' },
   { id: 'light', label: 'Light' }
 ];
+
+const PLAYBACK_LANGS: { code: string; label: string }[] = [
+  { code: 'en', label: 'English' }, { code: 'hi', label: 'Hindi' }, { code: 'te', label: 'Telugu' },
+  { code: 'ta', label: 'Tamil' }, { code: 'ml', label: 'Malayalam' }, { code: 'kn', label: 'Kannada' }
+];
+
+const LangChips: React.FC<{ title: string; hint: string; offLabel: string; value: string; onChange: (code: string) => void }> = ({ title, hint, offLabel, value, onChange }) => (
+  <div style={{ padding: '14px 16px' }}>
+    <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>{title}</h4>
+    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '2px 0 10px' }}>{hint}</p>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+      {[{ code: '', label: offLabel }, ...PLAYBACK_LANGS].map(l => (
+        <button key={l.code} onClick={() => onChange(l.code)} className={`interactive seg-pill ${value === l.code ? 'active' : ''}`} style={{ flex: '0 0 auto', padding: '6px 12px' }}>
+          {l.label}
+        </button>
+      ))}
+    </div>
+  </div>
+);
 
 const IconBox: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div style={{ width: '38px', height: '38px', borderRadius: 'var(--radius-sm)', background: 'rgba(229, 9, 20, 0.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-primary)', flexShrink: 0 }}>
@@ -166,6 +185,21 @@ export const SettingsScreen: React.FC = () => {
               onClick={() => update({ autoplayNext: !prefs.autoplayNext })}
               trailing={<div className={`toggle-switch ${prefs.autoplayNext ? 'on' : ''}`}><div className="knob" /></div>}
             />
+            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              <Row
+                icon={<Gauge size={18} />}
+                title="Data Saver"
+                text="Limit video to 720p on mobile data"
+                onClick={() => update({ dataSaver: !prefs.dataSaver })}
+                trailing={<div className={`toggle-switch ${prefs.dataSaver ? 'on' : ''}`}><div className="knob" /></div>}
+              />
+            </div>
+            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              <LangChips title="Preferred Audio" hint="Used when a title offers several languages" offLabel="Auto" value={prefs.audioLanguage} onChange={code => update({ audioLanguage: code })} />
+            </div>
+            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              <LangChips title="Subtitles" hint="Turned on automatically when available" offLabel="Off" value={prefs.subtitleLanguage} onChange={code => update({ subtitleLanguage: code })} />
+            </div>
           </div>
         </section>
 

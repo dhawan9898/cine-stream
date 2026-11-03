@@ -271,6 +271,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
     return () => { cancelled = true; };
   }, [tasteKey]);
 
+  // Get what you were watching ready first, so Continue Watching plays at once.
+  useEffect(() => {
+    warmStreams(history.slice(0, 3).map(h => ({
+      id: h.id,
+      mediaType: h.type,
+      title: h.title,
+      language: h.language,
+      // A finished episode means the next one is what you'll press.
+      season: h.season,
+      episode: h.type === 'tv' && h.episode ? (h.progressPercent >= 92 ? h.episode + 1 : h.episode) : undefined
+    })), 3);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasteKey]);
+
   useEffect(() => {
     let cancelled = false;
     setTrending([]);

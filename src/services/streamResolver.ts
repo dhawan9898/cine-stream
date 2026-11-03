@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import type { MediaType } from '../core/cineHypeCore.ts';
 import { readPersisted, readPersistedAsync, writePersisted } from '../core/persistentCache.ts';
 import { extractorRegistry } from '../extractors/extractorRegistry.ts';
+import { fetchSubtitles } from './subtitleService.ts';
 import type { ExtractedStream } from '../extractors/types.ts';
 
 export interface StreamParams {
@@ -16,6 +17,8 @@ export interface StreamParams {
   preferredServerId?: string;
   // Background prefetch: never launch the web-view sniffer.
   prefetch?: boolean;
+  // Retry after a failure: skip remembered-provider shortcuts.
+  fresh?: boolean;
 }
 
 export interface ResolvedStream extends ExtractedStream {
@@ -31,7 +34,7 @@ export interface ResolvedStream extends ExtractedStream {
 
 const memoryCache = new Map<string, { at: number; prefetch: boolean; promise: Promise<ResolvedStream> }>();
 const REUSE_MS = 30 * 60 * 1000; // 30 minutes in-memory
-const CACHE_VERSION = 'v5';
+const CACHE_VERSION = 'v6';
 const keyOf = (p: StreamParams) => `${CACHE_VERSION}|${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.language ?? ''}|${p.title ?? ''}|${p.preferredServerId ?? ''}`;
 
 function getTitleFallbackUrl(params: StreamParams): string {
@@ -49,6 +52,7 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
     return persisted;
   }
 
+  const subtitlesPromise = fetchSubtitles(params);
   let allStreams: ExtractedStream[] = [];
   try {
     allStreams = await extractorRegistry.resolveAllStreams({
@@ -58,7 +62,9 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
       episode: params.episode,
       title: params.title,
       language: params.language,
-      allowSniff: !params.prefetch
+      allowSniff: !params.prefetch,
+      fresh: params.fresh,
+      preferredServerId: params.preferredServerId
     });
   } catch (err) {
     console.warn('[StreamResolver] Extraction resolution error:', err);
@@ -92,7 +98,7 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
     };
   } else if (Capacitor.isNativePlatform()) {
     // ExoPlayer only ever receives direct stream data, never an iframe page.
-    throw new Error('No direct stream found for this title. Try again or pick another server.');
+    throw new Error('No working stream was found for this title right now. It may not be available yet - try again in a moment or switch server.');
   } else {
     // Exact TMDB title fallback URL (2embed clean multi-server embed)
     const fallbackUrl = getTitleFallbackUrl(params);
@@ -110,6 +116,13 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
       language: params.language,
       availableServers: availableServers.length > 0 ? availableServers : [{ serverId: 'multiembed', serverName: 'MultiEmbed Server', isFallbackEmbed: true }]
     };
+  }
+
+  // Subtitles the stream itself carries stay first; external ones are added after.
+  const external = await subtitlesPromise;
+  if (external.length > 0) {
+    const have = new Set((result.subtitles ?? []).map(t => t.url));
+    result.subtitles = [...(result.subtitles ?? []), ...external.filter(t => !have.has(t.url))];
   }
 
   // Persist resolved stream (2 hours for direct, 45 mins for fallback embed)
@@ -144,7 +157,7 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean }
     }
   }
 
-  const entry = { at: Date.now(), prefetch: Boolean(params.prefetch), promise: resolveUncached(params) };
+  const entry = { at: Date.now(), prefetch: Boolean(params.prefetch), promise: resolveUncached(options.fresh ? { ...params, fresh: true } : params) };
   memoryCache.set(key, entry);
   entry.promise.catch(() => {
     if (memoryCache.get(key) === entry) memoryCache.delete(key);
@@ -202,14 +215,14 @@ function pumpWarmQueue() {
   }
 }
 
-export function warmStreams(items: Array<{ id: number; mediaType: MediaType; title: string; language?: string }>, limit = 8): void {
+export function warmStreams(items: Array<{ id: number; mediaType: MediaType; title: string; language?: string; season?: number; episode?: number }>, limit = 8): void {
   for (const m of items.slice(0, limit)) {
     const params: StreamParams = {
       id: m.id,
       type: m.mediaType,
       title: m.title,
       language: m.language,
-      ...(m.mediaType === 'tv' ? { season: 1, episode: 1 } : {})
+      ...(m.mediaType === 'tv' ? { season: m.season ?? 1, episode: m.episode ?? 1 } : {})
     };
     const key = keyOf(params);
     if (warmSeen.has(key)) continue;
@@ -217,4 +230,20 @@ export function warmStreams(items: Array<{ id: number; mediaType: MediaType; tit
     warmQueue.push(params);
   }
   whenIdle(pumpWarmQueue);
+}
+
+// While an episode plays, resolve the next few so they start instantly. Uses
+// exactly the params playback uses, so the cached result is a direct hit.
+export function prefetchUpcomingEpisodes(
+  base: Omit<StreamParams, 'episode' | 'prefetch'>,
+  currentEpisode: number,
+  knownEpisodes: number[],
+  count = 2
+): void {
+  const upcoming = knownEpisodes.filter(n => n > currentEpisode).sort((a, b) => a - b).slice(0, count);
+  // One after another, so they never compete with the stream being watched.
+  upcoming.reduce<Promise<unknown>>(
+    (chain, n) => chain.then(() => resolveStream({ ...base, episode: n, prefetch: true }).catch(() => {})),
+    Promise.resolve()
+  );
 }

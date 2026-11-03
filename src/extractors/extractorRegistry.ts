@@ -8,10 +8,6 @@ import { VidLinkExtractor } from './vidlinkExtractor.ts';
 import { VidSrcExtractor } from './vidsrcExtractor.ts';
 import { AutoEmbedExtractor } from './autoembedExtractor.ts';
 import { MultiEmbedExtractor } from './multiembedExtractor.ts';
-import { EmbedSuExtractor } from './embedSuExtractor.ts';
-import { SmashyExtractor } from './smashyExtractor.ts';
-import { RiveExtractor } from './riveExtractor.ts';
-import { InsertUnitExtractor } from './insertunitExtractor.ts';
 import { TelegramExtractor } from './telegramExtractor.ts';
 
 const MAX_SNIFF_ATTEMPTS = 4;
@@ -24,6 +20,21 @@ const FAILS_BEFORE_COOLDOWN = 3;
 const COOLDOWN_MS = 10 * 60 * 1000;
 
 interface Health { fails: number; until: number }
+
+// Which provider last gave a working stream for a title - tried first next time.
+const LAST_GOOD_KEY = 'cinestream_last_good_v1';
+const LAST_GOOD_MAX = 300;
+const LAST_GOOD_TIMEOUT_MS = 4500;
+function loadLastGood(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(LAST_GOOD_KEY) || '{}'); } catch { return {}; }
+}
+function saveLastGood(m: Record<string, string>) {
+  try {
+    const keys = Object.keys(m);
+    if (keys.length > LAST_GOOD_MAX) keys.slice(0, keys.length - LAST_GOOD_MAX).forEach(k => delete m[k]);
+    localStorage.setItem(LAST_GOOD_KEY, JSON.stringify(m));
+  } catch { /* storage unavailable */ }
+}
 
 function loadHealth(): Record<string, Health> {
   try { return JSON.parse(localStorage.getItem(HEALTH_KEY) || '{}'); } catch { return {}; }
@@ -38,6 +49,16 @@ export class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
   private sniffer: Sniffer = embed => sniffDirectStream(embed);
   private health: Record<string, Health> = loadHealth();
+  private lastGood: Record<string, string> = loadLastGood();
+
+  private rememberGood(params: { id: number; type: string }, serverId?: string) {
+    if (!serverId) return;
+    const key = `${params.type}:${params.id}`;
+    if (this.lastGood[key] === serverId) return;
+    delete this.lastGood[key];
+    this.lastGood[key] = serverId;
+    saveLastGood(this.lastGood);
+  }
 
   // Providers that failed several times in a row sit out for a while so they
   // stop slowing every lookup; one success brings them straight back.
@@ -64,17 +85,16 @@ export class ExtractorRegistry {
 
   constructor(withDefaults = true) {
     if (!withDefaults) return;
+    // Retired from the defaults (hosts unreachable in testing, each wasted a
+    // lookup slot): Rive, EmbedSu, Smashy, InsertUnit. Their extractor files are
+    // kept - re-register one here if its host comes back.
     // Primary multi-server embed sources with 100% TMDB coverage first
     this.register(new MultiEmbedExtractor());
     this.register(new AutoEmbedExtractor());
-    this.register(new InsertUnitExtractor());
     this.register(new MovierulzExtractor());
     this.register(new VidLinkExtractor());
     this.register(new VidSrcExtractor());
     this.register(new FlixeoExtractor());
-    this.register(new RiveExtractor());
-    this.register(new EmbedSuExtractor());
-    this.register(new SmashyExtractor());
     // Secondary / private channel source
     this.register(new TelegramExtractor());
   }
@@ -99,11 +119,36 @@ export class ExtractorRegistry {
     directOnly?: boolean;
     // Background prefetches must not spin up hidden web views.
     allowSniff?: boolean;
+    // Skip the remembered-provider shortcut (retry after a failure).
+    fresh?: boolean;
+    preferredServerId?: string;
   }): Promise<ExtractedStream[]> {
     const directOnly = params.directOnly ?? Capacitor.isNativePlatform();
     // Skip providers on cooldown, but never skip everything.
     const healthy = this.extractors.filter(e => !this.isCoolingDown(e.id));
     const active = healthy.length > 0 ? healthy : this.extractors;
+
+    // Shortcut: the provider that worked for this title last time, alone and
+    // quickly. Falls through to the full race if it no longer delivers.
+    if (!params.fresh && !params.preferredServerId) {
+      const goodId = this.lastGood[`${params.type}:${params.id}`];
+      const good = goodId ? this.extractors.find(e => e.id === goodId && !this.isCoolingDown(e.id)) : undefined;
+      if (good) {
+        let t: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const stream = await Promise.race([
+            (async () => good.extract(params))(),
+            new Promise<null>(r => { t = setTimeout(() => r(null), LAST_GOOD_TIMEOUT_MS); })
+          ]);
+          if (stream && stream.url && !stream.isFallbackEmbed && !stream.url.startsWith('blob:')) {
+            this.recordResult(good.id, true);
+            return [{ ...stream, serverId: stream.serverId || good.id, serverName: stream.serverName || good.name }];
+          }
+        } catch { /* fall through to the full lookup */ } finally {
+          if (t) clearTimeout(t);
+        }
+      }
+    }
 
     const fulfilled: ExtractedStream[] = [];
     const isDirect = (s: ExtractedStream) => !s.isFallbackEmbed;
@@ -147,7 +192,10 @@ export class ExtractorRegistry {
       return bDirect - aDirect;
     });
 
-    if (!directOnly) return sorted;
+    if (!directOnly) {
+      this.rememberGood(params, sorted.find(x => !x.isFallbackEmbed)?.serverId);
+      return sorted;
+    }
 
     // Method 2: no provider gave a direct stream from its page/API, so load the
     // embed pages in a hidden WebView and capture the real media request.
@@ -170,6 +218,7 @@ export class ExtractorRegistry {
         }
       }
     }
+    this.rememberGood(params, direct[0]?.serverId);
     return direct;
   }
 

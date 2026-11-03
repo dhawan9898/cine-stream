@@ -61,6 +61,10 @@ export interface ExoPlayerPluginInterface {
     subtitles?: PlayerSubtitle[];
     qualities?: QualityOption[];
     audios?: AudioOption[];
+    // Language code to start with when the stream has several audio tracks.
+    preferredAudio?: string;
+    // Cap video at 720p on metered (mobile) networks.
+    dataSaver?: boolean;
     episodes?: PlayEpisodeOption[];
     intro?: { start: number; end: number };
     outro?: { start: number; end: number };

@@ -23,6 +23,11 @@ export interface UserPreferences {
   defaultServer: string;
   autoplayNext: boolean;
   theme: string;
+  // Language code ('en', 'hi', ...) or '' for automatic / off.
+  audioLanguage: string;
+  subtitleLanguage: string;
+  // Cap video at 720p on mobile data.
+  dataSaver: boolean;
 }
 
 const HISTORY_KEY = 'cinestream_watch_history';
@@ -32,7 +37,10 @@ const PREFS_KEY = 'cinestream_preferences';
 const DEFAULT_PREFS: UserPreferences = {
   defaultServer: 'vidsrc',
   autoplayNext: true,
-  theme: 'dark'
+  theme: 'dark',
+  audioLanguage: '',
+  subtitleLanguage: '',
+  dataSaver: false
 };
 
 // In-Memory state caches to eliminate redundant JSON parsing on renders
