@@ -33,6 +33,7 @@ import { QuickPreview } from '../components/QuickPreview.tsx';
 import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { ErrorState } from 'streamkit/ui/ErrorState.tsx';
 import { GenrePicker } from '../components/GenrePicker.tsx';
+import { hapticLight, hapticMedium, hapticSelection } from '../services/hapticsService.ts';
 
 interface HomeScreenProps {
   onSelectMedia: (item: MediaItem) => void;
@@ -116,7 +117,7 @@ const RailHeader: React.FC<{ title: string; onSeeAll?: () => void }> = ({ title,
     <h2 style={{ fontSize: '17px', fontWeight: 800, color: 'var(--text-primary)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</h2>
     {onSeeAll && (
       <button
-        onClick={onSeeAll}
+        onClick={() => { hapticLight(); onSeeAll(); }}
         className="interactive"
         aria-label={`See all ${title}`}
         style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center', whiteSpace: 'nowrap', flexShrink: 0 }}
@@ -167,7 +168,7 @@ const LazyRail: React.FC<{
       <div className="rail" style={{ gap: '10px', padding: '0 20px 6px 20px' }}>
         {items === null
           ? Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="skeleton" style={{ flex: '0 0 112px', height: '162px', borderRadius: '6px' }} />
+              <div key={i} className="skeleton" style={{ flex: '0 0 112px', height: '162px', borderRadius: 'var(--radius-md)' }} />
             ))
           : items.map(m => (
               <PosterCard key={`${m.mediaType}-${m.id}`} media={m} width={112} onSelect={onSelectMedia} onPreview={onPreview} />
@@ -376,7 +377,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button
-            onClick={openPicker}
+            onClick={() => { hapticLight(); openPicker(); }}
             className="interactive glass-pill-dark"
             style={{ padding: '7px 12px', borderRadius: 'var(--radius-full)', display: 'flex', alignItems: 'center', gap: '4px', color: '#fff', fontSize: '13px', fontWeight: 600 }}
           >
@@ -384,7 +385,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
             <ChevronDown size={16} />
           </button>
           <button
-            onClick={onOpenSearch}
+            onClick={() => { hapticLight(); onOpenSearch(); }}
             className="interactive glass-pill-dark"
             aria-label="Search"
             style={{ width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}
@@ -399,7 +400,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
         {MODES.map(m => (
           <button
             key={m.id}
-            onClick={() => setMode(m.id)}
+            onClick={() => { hapticSelection(); setMode(m.id); }}
             className={`interactive glass-pill-dark chip ${mode === m.id ? 'active' : ''}`}
             aria-pressed={mode === m.id}
             style={{ padding: '7px 16px', borderRadius: 'var(--radius-full)', color: '#fff', fontSize: '13px', fontWeight: 700, whiteSpace: 'nowrap' }}
@@ -411,7 +412,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
         {chips.map(src => (
           <button
             key={src.key}
-            onClick={() => onOpenSource(src)}
+            onClick={() => { hapticLight(); onOpenSource(src); }}
             className="interactive glass-pill-dark"
             style={{ padding: '7px 14px', borderRadius: 'var(--radius-full)', color: 'var(--text-secondary)', fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap' }}
           >
@@ -452,7 +453,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
               return (
               <div
                 key={`${item.type}-${item.id}`}
-                onClick={resume}
+                onClick={() => { hapticMedium(); resume(); }}
                 onKeyDown={e => {
                   if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); resume(); }
                 }}
@@ -464,7 +465,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
               >
                 <div style={{ position: 'relative', height: '110px' }}>
                   <button
-                    onClick={e => { e.stopPropagation(); removeWatchHistory(item.id, item.type); }}
+                    onClick={e => { e.stopPropagation(); hapticLight(); removeWatchHistory(item.id, item.type); }}
                     className="interactive"
                     aria-label={`Remove ${item.title} from Continue Watching`}
                     style={{ position: 'absolute', top: '6px', right: '6px', zIndex: 2, width: '26px', height: '26px', borderRadius: '50%', border: 'none', backgroundColor: 'rgba(0,0,0,0.65)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}

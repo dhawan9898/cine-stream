@@ -8,6 +8,7 @@ import { categorySource, type Category, type TypeFilter } from '../services/cate
 import { computeTaste, EMPTY_TASTE, type Taste } from '../services/tasteService.ts';
 import { PosterCard } from '../components/PosterCard.tsx';
 import { GenrePicker } from '../components/GenrePicker.tsx';
+import { hapticLight, hapticSelection } from '../services/hapticsService.ts';
 
 interface BrowseScreenProps {
   source: BrowseSource;
@@ -110,7 +111,7 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
         gap: '12px'
       }}>
         <button
-          onClick={onBack}
+          onClick={() => { hapticLight(); onBack(); }}
           className="interactive glass-pill"
           aria-label="Back"
           style={{ width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-primary)', flexShrink: 0 }}
@@ -119,7 +120,7 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
         </button>
         <h1 style={{ flex: 1, fontSize: '20px', fontWeight: 800, color: 'var(--text-primary)', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{source.title}</h1>
         <button
-          onClick={() => setPickerOpen(true)}
+          onClick={() => { hapticLight(); setPickerOpen(true); }}
           className="interactive glass-pill"
           style={{ padding: '7px 12px', borderRadius: 'var(--radius-full)', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--text-primary)', fontSize: '13px', fontWeight: 600 }}
         >
@@ -133,7 +134,7 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
           {SORT_OPTIONS.map(opt => (
             <button
               key={opt.id}
-              onClick={() => changeSort(opt.id)}
+              onClick={() => { hapticSelection(); changeSort(opt.id); }}
               className={`interactive glass-pill chip ${sortBy === opt.id ? 'active' : ''}`}
               style={{ padding: '6px 14px', borderRadius: 'var(--radius-full)', color: sortBy === opt.id ? undefined : 'var(--text-secondary)', fontSize: '12px', fontWeight: 700, whiteSpace: 'nowrap' }}
             >
@@ -148,7 +149,7 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
           <PosterCard key={`${media.mediaType}-${media.id}`} media={media} onSelect={onSelectMedia} />
         ))}
         {items.length === 0 && loading && Array.from({ length: 9 }).map((_, i) => (
-          <div key={i} className="skeleton" style={{ borderRadius: '6px', paddingTop: '145%' }} />
+          <div key={i} className="skeleton" style={{ borderRadius: 'var(--radius-md)', paddingTop: '145%' }} />
         ))}
       </div>
 

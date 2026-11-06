@@ -5,6 +5,7 @@ import { ArrowLeft, Search as SearchIcon, X, Loader2, Play } from 'lucide-react'
 import { getTrending, searchMedia, type MediaItem, type MediaType } from '../providers/cineHypeCore.ts';
 import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { PosterCard } from '../components/PosterCard.tsx';
+import { hapticLight, hapticMedium, hapticSelection } from '../services/hapticsService.ts';
 
 interface SearchScreenProps {
   // True while this tab is the visible one (tabs stay mounted when hidden).
@@ -70,7 +71,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ active, onBack, onSe
         borderBottom: '1px solid var(--border-subtle)'
       }}>
         <button
-          onClick={onBack}
+          onClick={() => { hapticLight(); onBack(); }}
           className="interactive glass-pill"
           aria-label="Back"
           style={{ width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-primary)', flexShrink: 0 }}
@@ -103,7 +104,7 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ active, onBack, onSe
             {([['all', 'All'], ['movie', 'Movies'], ['tv', 'TV']] as const).map(([id, label]) => (
               <button
                 key={id}
-                onClick={() => setFilter(id)}
+                onClick={() => { hapticSelection(); setFilter(id); }}
                 className={`interactive glass-pill chip ${filter === id ? 'active' : ''}`}
                 style={{ padding: '5px 12px', borderRadius: 'var(--radius-full)', color: filter === id ? undefined : 'var(--text-secondary)', fontSize: '12px', fontWeight: 700 }}
               >
@@ -125,14 +126,14 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ active, onBack, onSe
           <h2 style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '12px' }}>Top Searches</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             {topSearches.length === 0 && Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="skeleton" style={{ height: '68px', borderRadius: '6px' }} />
+              <div key={i} className="skeleton" style={{ height: '68px', borderRadius: 'var(--radius-md)' }} />
             ))}
             {topSearches.map(media => (
               <button
                 key={`${media.mediaType}-${media.id}`}
-                onClick={() => onSelectMedia(media)}
+                onClick={() => { hapticMedium(); onSelectMedia(media); }}
                 className="interactive"
-                style={{ display: 'flex', alignItems: 'center', gap: '14px', background: 'var(--bg-surface)', border: 'none', borderRadius: '6px', padding: 0, overflow: 'hidden', textAlign: 'left', color: 'var(--text-primary)' }}
+                style={{ display: 'flex', alignItems: 'center', gap: '14px', background: 'var(--bg-surface)', border: 'none', borderRadius: 'var(--radius-md)', padding: 0, overflow: 'hidden', textAlign: 'left', color: 'var(--text-primary)' }}
               >
                 <div style={{ position: 'relative', width: '120px', height: '68px', flexShrink: 0, backgroundColor: 'rgba(127,127,127,0.15)' }}>
                   <FadeImage src={media.backdrop || media.poster} alt="" loading="lazy" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }} />

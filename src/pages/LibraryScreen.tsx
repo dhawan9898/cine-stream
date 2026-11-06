@@ -1,6 +1,6 @@
 // LibraryScreen.tsx - Watch history and My List.
 import React, { useEffect, useState } from 'react';
-import { Bookmark, Clock, Library, Play, Trash2, X } from 'lucide-react';
+import { Bookmark, Clock, Play, Trash2, X } from 'lucide-react';
 import type { MediaItem } from '../providers/cineHypeCore.ts';
 import {
   clearWatchHistory,
@@ -13,6 +13,7 @@ import {
 import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { PosterCard } from '../components/PosterCard.tsx';
 import { ConfirmModal } from 'streamkit/ui/ConfirmModal.tsx';
+import { hapticLight, hapticMedium, hapticSuccess, hapticWarning } from '../services/hapticsService.ts';
 
 interface LibraryScreenProps {
   onPlayMedia: (item: MediaItem, season?: number, episode?: number) => void;
@@ -62,15 +63,10 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onPlayMedia, onSel
         alignItems: 'center',
         justifyContent: 'space-between'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{ width: '36px', height: '36px', borderRadius: 'var(--radius-sm)', background: 'var(--accent-gradient)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'var(--shadow-glow)' }}>
-            <Library size={18} color="#fff" />
-          </div>
-          <h1 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>Library</h1>
-        </div>
+        <h1 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>My Library</h1>
         {tab === 'history' && history.length > 0 && (
           <button
-            onClick={() => setConfirming(true)}
+            onClick={() => { hapticWarning(); setConfirming(true); }}
             className="interactive"
             style={{ background: 'none', border: 'none', color: 'var(--accent-danger)', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}
           >
@@ -87,17 +83,17 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onPlayMedia, onSel
         confirmLabel="Clear"
         cancelLabel="Cancel"
         danger
-        onConfirm={() => { clearWatchHistory(); setConfirming(false); }}
+        onConfirm={() => { clearWatchHistory(); setConfirming(false); hapticSuccess(); }}
         onCancel={() => setConfirming(false)}
       />
 
       <div style={{ padding: '16px 20px 8px 20px' }}>
         <div className="seg-track">
-          <button onClick={() => setTab('history')} className={`interactive seg-pill ${tab === 'history' ? 'active' : ''}`}>
+          <button onClick={() => { hapticLight(); setTab('history'); }} className={`interactive seg-pill ${tab === 'history' ? 'active' : ''}`}>
             <Clock size={16} />
             <span>History ({history.length})</span>
           </button>
-          <button onClick={() => setTab('list')} className={`interactive seg-pill ${tab === 'list' ? 'active' : ''}`}>
+          <button onClick={() => { hapticLight(); setTab('list'); }} className={`interactive seg-pill ${tab === 'list' ? 'active' : ''}`}>
             <Bookmark size={16} />
             <span>My List ({list.length})</span>
           </button>
@@ -113,32 +109,34 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onPlayMedia, onSel
               {history.map(item => (
                 <div
                   key={`${item.type}-${item.id}`}
-                  onClick={() => onPlayMedia(historyToMedia(item), item.season, item.episode)}
+                  onClick={() => { hapticMedium(); onPlayMedia(historyToMedia(item), item.season, item.episode); }}
                   className="interactive glass-panel"
-                  style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden', display: 'flex', gap: '14px', padding: '10px', alignItems: 'center' }}
+                  style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden', display: 'flex', gap: '14px', padding: '12px', alignItems: 'center' }}
                 >
-                  <div style={{ position: 'relative', width: '96px', height: '60px', borderRadius: '8px', overflow: 'hidden', flexShrink: 0 }}>
+                  <div style={{ position: 'relative', width: '96px', height: '62px', borderRadius: 'var(--radius-sm)', overflow: 'hidden', flexShrink: 0 }}>
                     <FadeImage src={item.backdrop || item.poster} alt={item.title} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Play size={16} fill="#fff" color="#fff" />
+                    <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <div style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <Play size={13} fill="#fff" color="#fff" style={{ marginLeft: '1px' }} />
+                      </div>
                     </div>
                     <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '3px', backgroundColor: 'rgba(255,255,255,0.2)' }}>
                       <div style={{ width: `${Math.min(100, item.progressPercent)}%`, height: '100%', background: 'var(--accent-primary)' }} />
                     </div>
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <h3 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.title}</h3>
+                    <h3 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', letterSpacing: '-0.2px' }}>{item.title}</h3>
                     <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                       {item.type === 'tv' && item.season ? `S${item.season} E${item.episode} • ` : ''}{Math.round(item.progressPercent)}% watched
                     </p>
                   </div>
                   <button
-                    onClick={(e) => { e.stopPropagation(); removeWatchHistory(item.id, item.type); }}
-                    className="interactive"
+                    onClick={(e) => { e.stopPropagation(); hapticLight(); removeWatchHistory(item.id, item.type); }}
+                    className="interactive glass-pill"
                     aria-label={`Remove ${item.title} from history`}
-                    style={{ width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'none', color: 'var(--text-muted)', flexShrink: 0 }}
+                    style={{ width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', color: 'var(--text-muted)', flexShrink: 0 }}
                   >
-                    <X size={18} />
+                    <X size={15} />
                   </button>
                 </div>
               ))}

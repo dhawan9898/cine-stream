@@ -1,7 +1,8 @@
 // MediaDetailScreen.tsx - Title page: banner, Play/Resume, My List, trailer,
 // and tabs for episodes, cast and recommendations.
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Check, Clapperboard, Loader2, Play, Plus } from 'lucide-react';
+import { ArrowLeft, Check, Clapperboard, ChevronDown, Loader2, Play, Plus } from 'lucide-react';
+import { CategoryPicker, type CategorySection } from 'streamkit/ui/CategoryPicker.tsx';
 import {
   getMediaDetails,
   getTVSeasonEpisodes,
@@ -15,6 +16,7 @@ import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { PosterCard } from '../components/PosterCard.tsx';
 import { ErrorState } from 'streamkit/ui/ErrorState.tsx';
 import { TrailerModal } from '../components/TrailerModal.tsx';
+import { hapticLight, hapticMedium, hapticSelection, hapticSuccess } from '../services/hapticsService.ts';
 
 interface MediaDetailScreenProps {
   media: MediaItem;
@@ -42,6 +44,9 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
   const [tab, setTab] = useState<DetailTab>(isSeries ? 'episodes' : 'similar');
   const [expanded, setExpanded] = useState(false);
   const [trailerOpen, setTrailerOpen] = useState(false);
+  const [seasonPickerOpen, setSeasonPickerOpen] = useState(false);
+  // The one episode tile whose full description is open (accordion).
+  const [expandedEp, setExpandedEp] = useState<number | null>(null);
 
   useEffect(() => subscribeLibraryChanges(() => {
     setSaved(isBookmarked(media.id, media.mediaType));
@@ -99,6 +104,8 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
   const cast = details?.cast ?? [];
   const similar = details?.recommendations ?? [];
   const seasons = details?.seasons?.filter(s => s.seasonNumber > 0) ?? [];
+  const seasonLabel = (n: number) => seasons.find(x => x.seasonNumber === n)?.name || `Season ${n}`;
+  const seasonSections: CategorySection[] = [{ items: seasons.map(x => ({ key: String(x.seasonNumber), name: x.name || `Season ${x.seasonNumber}` })) }];
 
   const metaParts = [
     isSeries ? 'Series' : 'Movie',
@@ -134,27 +141,55 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
       <div style={{ position: 'relative', width: '100%', height: '280px' }}>
         <FadeImage src={shown.backdrop || shown.poster} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(9,9,15,0.55) 0%, rgba(9,9,15,0.82) 70%, var(--bg-main) 100%)' }} />
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: 'calc(var(--safe-top) + 12px) 20px 0 20px', zIndex: 20 }}>
+        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, padding: 'calc(var(--safe-top) + 12px) 20px 0 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', zIndex: 20 }}>
           <button
-            onClick={onBack}
+            onClick={() => { hapticLight(); onBack(); }}
             className="interactive glass-pill-dark"
             aria-label="Back"
-            style={{ width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            style={{ width: '42px', height: '42px', borderRadius: 'var(--radius-pill)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 14px rgba(0,0,0,0.45)' }}
           >
             <ArrowLeft size={20} />
           </button>
+
+          <div style={{ display: 'flex', gap: '10px' }}>
+            {trailer && (
+              <button
+                onClick={() => { hapticLight(); setTrailerOpen(true); }}
+                className="interactive glass-pill-dark"
+                aria-label="Watch trailer"
+                style={{ width: '42px', height: '42px', borderRadius: 'var(--radius-pill)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 14px rgba(0,0,0,0.45)' }}
+              >
+                <Clapperboard size={20} />
+              </button>
+            )}
+            <button
+              onClick={() => { if (!saved) hapticSuccess(); else hapticLight(); toggleBookmark(media); }}
+              className="interactive glass-pill-dark"
+              aria-label={saved ? 'In My List' : 'Add to My List'}
+              style={{
+                width: '42px', height: '42px', borderRadius: 'var(--radius-pill)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: saved ? '0 4px 16px rgba(229, 9, 20, 0.45)' : '0 4px 14px rgba(0,0,0,0.45)',
+                background: saved ? 'linear-gradient(135deg, #ff3b45 0%, #e50914 100%)' : undefined,
+                color: saved ? '#ffffff' : 'var(--text-primary)'
+              }}
+            >
+              {saved ? <Check size={20} /> : <Plus size={20} />}
+            </button>
+          </div>
         </div>
       </div>
 
-      <div style={{ padding: '0 20px', marginTop: '-70px', position: 'relative', zIndex: 10 }}>
-        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', marginBottom: '14px' }}>
-          <FadeImage
-            src={shown.poster}
-            alt={shown.title}
-            style={{ width: '104px', height: '150px', objectFit: 'cover', borderRadius: '6px', boxShadow: '0 8px 24px rgba(0,0,0,0.7)', flexShrink: 0 }}
-          />
+      <div style={{ padding: '0 20px', marginTop: '-74px', position: 'relative', zIndex: 10 }}>
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', marginBottom: '16px' }}>
+          <div id="detail-poster-target" style={{ flexShrink: 0 }}>
+            <FadeImage
+              src={shown.poster}
+              alt={shown.title}
+              style={{ width: '108px', height: '154px', objectFit: 'cover', borderRadius: 'var(--radius-md)', boxShadow: 'var(--card-shadow-hover)', border: '1px solid rgba(255, 255, 255, 0.16)', display: 'block' }}
+            />
+          </div>
           <div style={{ flex: 1, paddingBottom: '4px', minWidth: 0 }}>
-            <h1 style={{ fontSize: '21px', fontWeight: 800, color: 'var(--text-primary)', lineHeight: '1.25' }}>{shown.title}</h1>
+            <h1 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', lineHeight: '1.25', letterSpacing: '-0.3px' }}>{shown.title}</h1>
             <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px', fontWeight: 600 }}>
               {metaParts.join('  •  ')}
             </div>
@@ -162,9 +197,9 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
         </div>
 
         <button
-          onClick={handlePlay}
+          onClick={() => { hapticMedium(); handlePlay(); }}
           className="interactive"
-          style={{ width: '100%', padding: '12px', borderRadius: '6px', background: '#fff', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#000', fontSize: '15px', fontWeight: 800, marginBottom: '10px' }}
+          style={{ width: '100%', padding: '13px', borderRadius: 'var(--radius-md)', background: '#ffffff', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#000000', fontSize: '15px', fontWeight: 800, marginBottom: '12px', boxShadow: '0 8px 24px rgba(255, 255, 255, 0.18)' }}
         >
           <Play size={20} fill="#000" />
           <span>{playLabel}</span>
@@ -182,7 +217,7 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
 
         {shown.overview && (
           <p
-            onClick={() => setExpanded(e => !e)}
+            onClick={() => { hapticLight(); setExpanded(e => !e); }}
             style={{
               fontSize: '13px',
               color: 'var(--text-primary)',
@@ -204,50 +239,17 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
           </p>
         )}
 
-        <div style={{ display: 'flex', gap: '28px', marginBottom: '18px' }}>
-          <button
-            onClick={() => toggleBookmark(media)}
-            className="interactive"
-            style={{ background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', color: 'var(--text-primary)', fontSize: '11px', fontWeight: 600 }}
-          >
-            {saved ? <Check size={22} /> : <Plus size={22} />}
-            <span style={{ color: 'var(--text-secondary)' }}>My List</span>
-          </button>
-          {trailer && (
-            <button
-              onClick={() => setTrailerOpen(true)}
-              className="interactive"
-              style={{ background: 'none', border: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', color: 'var(--text-primary)', fontSize: '11px', fontWeight: 600 }}
-            >
-              <Clapperboard size={22} />
-              <span style={{ color: 'var(--text-secondary)' }}>Trailer</span>
-            </button>
-          )}
-        </div>
-
-        <div style={{ display: 'flex', gap: '22px', borderTop: '1px solid var(--border-subtle)', marginBottom: '16px', overflowX: 'auto', scrollbarWidth: 'none' }}>
+        <div className="seg-track" style={{ marginBottom: '18px' }}>
           {tabs.map(t => {
             const active = activeTab === t.id;
             return (
               <button
                 key={t.id}
-                onClick={() => setTab(t.id)}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  borderTop: `4px solid ${active ? 'var(--accent-primary)' : 'transparent'}`,
-                  padding: '10px 0 0 0',
-                  marginTop: '-1px',
-                  color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
-                  fontSize: '13px',
-                  fontWeight: 800,
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.3px',
-                  whiteSpace: 'nowrap',
-                  cursor: 'pointer'
-                }}
+                onClick={() => { hapticLight(); setTab(t.id); }}
+                className={`interactive seg-pill ${active ? 'active' : ''}`}
+                style={{ padding: '8px 14px', fontSize: '13px' }}
               >
-                {t.label}
+                <span>{t.label}</span>
               </button>
             );
           })}
@@ -256,18 +258,24 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
         {activeTab === 'episodes' && (
           <>
             {seasons.length > 1 && (
-              <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '12px', scrollbarWidth: 'none' }}>
-                {seasons.map(s => (
-                  <button
-                    key={s.seasonNumber}
-                    onClick={() => setSeason(s.seasonNumber)}
-                    className={`interactive glass-pill chip ${season === s.seasonNumber ? 'active' : ''}`}
-                    style={{ padding: '6px 14px', borderRadius: 'var(--radius-full)', color: season === s.seasonNumber ? undefined : 'var(--text-secondary)', fontSize: '12px', fontWeight: 700, whiteSpace: 'nowrap' }}
-                  >
-                    {s.name || `Season ${s.seasonNumber}`}
-                  </button>
-                ))}
-              </div>
+              <>
+                <button
+                  onClick={() => { hapticLight(); setSeasonPickerOpen(true); }}
+                  className="interactive"
+                  aria-haspopup="dialog"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '12px', padding: '10px 14px', marginBottom: '14px', background: 'var(--track-bg)', border: '1px solid var(--border-subtle)', borderRadius: '4px', color: 'var(--text-primary)', fontSize: '15px', fontWeight: 700 }}
+                >
+                  <span>{seasonLabel(season)}</span>
+                  <ChevronDown size={18} />
+                </button>
+                <CategoryPicker
+                  open={seasonPickerOpen}
+                  sections={seasonSections}
+                  selectedKey={String(season)}
+                  onSelect={key => { hapticSelection(); setSeasonPickerOpen(false); setExpandedEp(null); setSeason(Number(key)); }}
+                  onClose={() => { hapticLight(); setSeasonPickerOpen(false); }}
+                />
+              </>
             )}
 
             {episodesError && !loadingEpisodes ? (
@@ -278,31 +286,67 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
                 <span style={{ fontSize: '14px' }}>Fetching episodes...</span>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {episodes.map(ep => {
                   const current = history?.season === ep.seasonNumber && history.episode === ep.episodeNumber;
+                  const expanded = expandedEp === ep.id;
+                  const play = () => { hapticMedium(); onPlay(media, ep.seasonNumber, ep.episodeNumber, episodes); };
+                  const status = current ? 'Last watched' : ep.runtime ? `${ep.runtime} min` : null;
                   return (
-                    <button
+                    <div
                       key={ep.id}
-                      onClick={() => onPlay(media, ep.seasonNumber, ep.episodeNumber, episodes)}
+                      role="button"
+                      tabIndex={0}
+                      aria-expanded={expanded}
+                      // Tapping the tile opens (or closes) its description; opening
+                      // another one closes this one. Only the thumbnail plays.
+                      onClick={() => { hapticSelection(); setExpandedEp(expanded ? null : ep.id); }}
+                      onKeyDown={e => {
+                        if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+                          e.preventDefault();
+                          setExpandedEp(expanded ? null : ep.id);
+                        }
+                      }}
                       className="interactive glass-panel"
-                      style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden', display: 'flex', gap: '12px', padding: '10px', alignItems: 'center', textAlign: 'left' }}
+                      aria-label={`Episode ${ep.episodeNumber}, ${ep.name}`}
+                      style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden', display: 'flex', gap: '14px', padding: '12px', alignItems: expanded ? 'flex-start' : 'center' }}
                     >
-                      <div style={{ position: 'relative', width: '112px', height: '63px', borderRadius: '6px', overflow: 'hidden', flexShrink: 0, backgroundColor: 'rgba(127,127,127,0.15)' }}>
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Play episode ${ep.episodeNumber}`}
+                        onClick={e => { e.stopPropagation(); play(); }}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); play(); } }}
+                        style={{ position: 'relative', width: '124px', height: '70px', borderRadius: 'var(--radius-sm)', overflow: 'hidden', flexShrink: 0, background: 'var(--track-bg)', cursor: 'pointer' }}
+                      >
                         {ep.still && <FadeImage src={ep.still} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
-                        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.25)' }}>
-                          <Play size={16} fill="#fff" color="#fff" />
+                        <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <div style={{ width: '30px', height: '30px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Play size={14} fill="#fff" color="#fff" style={{ marginLeft: '1px' }} />
+                          </div>
                         </div>
                       </div>
+
                       <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <h3 style={{
+                          fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.2px',
+                          ...(expanded ? {} : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden' })
+                        }}>
                           {ep.episodeNumber}. {ep.name}
-                        </div>
-                        <div style={{ fontSize: '11px', color: current ? 'var(--accent-primary)' : 'var(--text-secondary)', marginTop: '3px', fontWeight: 600 }}>
-                          {current ? 'Resume' : ep.runtime ? `${ep.runtime} min` : 'Play'}
-                        </div>
+                        </h3>
+                        {status && (
+                          <p style={{ fontSize: '12px', color: current ? 'var(--accent-primary)' : 'var(--text-muted)', marginTop: '3px', fontWeight: 600 }}>{status}</p>
+                        )}
+                        {(ep.overview || expanded) && (
+                          <p style={{
+                            fontSize: '12px', lineHeight: 1.45, color: 'var(--text-secondary)', marginTop: '4px',
+                            ...(expanded ? {} : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden' })
+                          }}>
+                            {ep.overview || 'No description available for this episode.'}
+                          </p>
+                        )}
                       </div>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -314,7 +358,7 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
           details === null && !detailsError ? (
             <div className="grid-collection">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="skeleton" style={{ borderRadius: '6px', paddingTop: '145%' }} />
+                <div key={i} className="skeleton" style={{ borderRadius: 'var(--radius-md)', paddingTop: '145%' }} />
               ))}
             </div>
           ) : similar.length === 0 ? (

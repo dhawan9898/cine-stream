@@ -12,6 +12,12 @@ test('manifest gets the player activity exactly once', () => {
   assert.equal(patchManifest(once), once);
 });
 
+test('player activity supports Picture-in-Picture', () => {
+  const out = patchManifest(manifest);
+  assert.match(out, /supportsPictureInPicture="true"/);
+  assert.match(out, /smallestScreenSize/);
+});
+
 test('manifest without </application> fails loudly', () => {
   assert.throws(() => patchManifest('<manifest/>'), /no <\/application>/);
 });

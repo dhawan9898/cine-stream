@@ -24,7 +24,9 @@ export function patchManifest(xml) {
   if (xml.includes('android:name=".ExoPlayerActivity"')) return xml; // already patched
   const activity =
     '        <activity android:name=".ExoPlayerActivity"' +
-    ' android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"' +
+    ' android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"' +
+    ' android:supportsPictureInPicture="true"' +
+    ' android:resizeableActivity="true"' +
     ' android:launchMode="singleTask"' +
     ' android:screenOrientation="sensorLandscape"' +
     ' android:theme="@style/Theme.CineStream.Player"' +

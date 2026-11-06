@@ -12,6 +12,8 @@ import { getMediaWatchHistory, setPlaybackActive } from './services/historyServi
 import { getSavedTheme, applyTheme } from './services/themeService.ts';
 import { handleLayerBack } from 'streamkit/core/backStack.ts';
 import { useTvNavigation } from './services/tvNavigationService.ts';
+import { SharedElementTransitionOverlay } from './components/SharedElementTransitionOverlay.tsx';
+import { startSharedTransition } from './services/sharedTransitionService.ts';
 
 // Everything except Home is loaded on demand so the first paint ships less JS;
 // the player chunk also carries hls.js.
@@ -34,7 +36,8 @@ const TABS: DockTab<Tab>[] = [
 type NewLayer =
   | { kind: 'detail'; media: MediaItem }
   | { kind: 'browse'; source: BrowseSource };
-type Layer = NewLayer & { id: string };
+// `shared`: opened by flying a poster to it (the page then only fades in; see index.css).
+type Layer = NewLayer & { id: string; shared?: boolean };
 
 interface ActivePlayerState {
   media: MediaItem;
@@ -101,14 +104,17 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('popstate', onPopState);
   }, [dropLayers]);
 
-  const pushLayer = useCallback((layer: NewLayer) => {
-    const next: Layer = { ...layer, id: `layer-${++layerSeq}` };
+  const pushLayer = useCallback((layer: NewLayer, shared = false) => {
+    const next: Layer = { ...layer, id: `layer-${++layerSeq}`, shared };
     const stack = [...layersRef.current, next];
     setLayers(stack);
     window.history.pushState({ screen: 'layer', depth: stack.length }, '');
   }, []);
 
-  const openDetails = useCallback((media: MediaItem) => pushLayer({ kind: 'detail', media }), [pushLayer]);
+  const openDetails = useCallback((media: MediaItem, rect?: DOMRect) => {
+    if (rect) startSharedTransition(rect, { poster: media.poster, banner: media.backdrop });
+    pushLayer({ kind: 'detail', media }, !!rect);
+  }, [pushLayer]);
 
   const openSource = useCallback((source: BrowseSource) => {
     const currentStack = layersRef.current;
@@ -186,7 +192,7 @@ export const App: React.FC = () => {
   const dockHidden = activePlayer !== null || layers.some(l => l.kind === 'detail');
 
   const renderLayer = (layer: Layer, leaving: boolean) => (
-    <div key={layer.id} className={leaving ? 'overlay leaving' : 'overlay'}>
+    <div key={layer.id} className={`overlay${leaving ? ' leaving' : ''}${layer.shared ? ' shared-open' : ''}`}>
       {layer.kind === 'detail' ? (
         <MediaDetailScreen
           media={layer.media}
@@ -240,6 +246,7 @@ export const App: React.FC = () => {
             {layers.map(l => renderLayer(l, false))}
             {closing.map(l => renderLayer(l, true))}
           </Suspense>
+          <SharedElementTransitionOverlay />
         </div>
 
         {/* Floating glass dock: slides away over a title page or the player. */}

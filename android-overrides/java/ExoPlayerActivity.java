@@ -154,6 +154,15 @@ public class ExoPlayerActivity extends AppCompatActivity {
     private ImageView seekPreviewImage;
     private TextView seekPreviewTime;
     private ThumbnailSprites sprites;
+    private TextView btnPip;
+    private TextView btnAspectRatio;
+    private int aspectRatioMode = 0; // 0 = Fit, 1 = Crop, 2 = Fill
+    private static final String[] ASPECT_RATIO_LABELS = new String[]{"Fit", "Crop", "Fill"};
+    private static final int[] ASPECT_RATIO_MODES = new int[]{
+            AspectRatioFrameLayout.RESIZE_MODE_FIT,
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM,
+            AspectRatioFrameLayout.RESIZE_MODE_FILL
+    };
     private long scrubTargetMs = -1;
     private boolean scrubSeekQueued = false;
     private boolean scrubWasPlaying = false;
@@ -874,6 +883,16 @@ public class ExoPlayerActivity extends AppCompatActivity {
         textSpeedLabel = findViewById(R.id.text_speed_label);
         btnLock = findViewById(R.id.btn_lock);
         btnEpisodes = findViewById(R.id.btn_episodes);
+        btnPip = findViewById(R.id.btn_pip);
+        btnAspectRatio = findViewById(R.id.btn_aspect_ratio);
+        for (TextView btn : new TextView[]{btnPip, btnAspectRatio}) {
+            if (btn == null) continue;
+            android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
+            bg.setCornerRadius(4f * getResources().getDisplayMetrics().density);
+            bg.setColor(android.graphics.Color.argb(165, 20, 20, 20));
+            bg.setStroke(Math.round(1.5f * getResources().getDisplayMetrics().density), android.graphics.Color.argb(220, 255, 255, 255));
+            btn.setBackground(bg);
+        }
         btnAudioSubs = findViewById(R.id.btn_audio_subs);
         btnNextEp = findViewById(R.id.btn_next_ep);
         btnSkipIntro = findViewById(R.id.btn_skip_intro);
@@ -1027,6 +1046,11 @@ public class ExoPlayerActivity extends AppCompatActivity {
         btnUnlock.setOnClickListener(v -> unlockScreen());
         btnAudioSubs.setOnClickListener(this::showAudioSubtitlesMenu);
         btnEpisodes.setOnClickListener(this::showEpisodeMenu);
+        if (btnAspectRatio != null) btnAspectRatio.setOnClickListener(v -> toggleAspectRatio());
+        if (btnPip != null) {
+            btnPip.setVisibility(pipSupported() ? View.VISIBLE : View.GONE);
+            btnPip.setOnClickListener(v -> enterPip());
+        }
         btnNextEp.setOnClickListener(v -> triggerNextEpisode());
         btnRetry.setOnClickListener(v -> retryPlayback());
 
@@ -2137,6 +2161,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
             @Override
             public void onIsPlayingChanged(boolean isPlaying) {
                 updateKeepScreenOn();
+                updatePipParams();
                 btnPlayPause.setImageResource(isPlaying ? R.drawable.ic_pause : R.drawable.ic_play);
                 if (isPlaying) scheduleAutoHide(); else handler.removeCallbacks(hideControlsRunnable);
             }
@@ -2686,6 +2711,118 @@ public class ExoPlayerActivity extends AppCompatActivity {
         }
     }
 
+    private void toggleAspectRatio() {
+        aspectRatioMode = (aspectRatioMode + 1) % 3;
+        if (playerView != null) playerView.setResizeMode(ASPECT_RATIO_MODES[aspectRatioMode]);
+        if (btnAspectRatio != null) btnAspectRatio.setText(ASPECT_RATIO_LABELS[aspectRatioMode]);
+    }
+
+    // ---- Picture-in-Picture -------------------------------------------------
+
+    private static final String ACTION_PIP_TOGGLE = "com.cinehype.stream.PIP_TOGGLE";
+    private android.content.BroadcastReceiver pipReceiver;
+
+    private boolean pipSupported() {
+        return android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
+                && getPackageManager().hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE);
+    }
+
+    private boolean inPip() {
+        return android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N && isInPictureInPictureMode();
+    }
+
+    private android.app.PictureInPictureParams buildPipParams() {
+        int w = 16, h = 9;
+        if (player != null) {
+            androidx.media3.common.VideoSize vs = player.getVideoSize();
+            if (vs.width > 0 && vs.height > 0) { w = vs.width; h = vs.height; }
+        }
+        // The system rejects ratios outside 1:2.39 .. 2.39:1.
+        double ratio = (double) w / h;
+        if (ratio > 2.39) { w = 239; h = 100; } else if (ratio < 1 / 2.39) { w = 100; h = 239; }
+
+        boolean playing = player != null && player.getPlayWhenReady();
+        java.util.ArrayList<android.app.RemoteAction> actions = new java.util.ArrayList<>();
+        android.app.PendingIntent pi = android.app.PendingIntent.getBroadcast(this, 0,
+                new Intent(ACTION_PIP_TOGGLE).setPackage(getPackageName()),
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+        actions.add(new android.app.RemoteAction(
+                android.graphics.drawable.Icon.createWithResource(this, playing ? R.drawable.ic_pause : R.drawable.ic_play),
+                playing ? "Pause" : "Play", playing ? "Pause" : "Play", pi));
+
+        android.app.PictureInPictureParams.Builder b = new android.app.PictureInPictureParams.Builder()
+                .setAspectRatio(new android.util.Rational(w, h))
+                .setActions(actions);
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            // Swiping home while a video plays shrinks it to PiP automatically.
+            b.setAutoEnterEnabled(playing && !screenLocked);
+            b.setSeamlessResizeEnabled(true);
+        }
+        return b.build();
+    }
+
+    private void updatePipParams() {
+        if (!pipSupported() || player == null) return;
+        try {
+            setPictureInPictureParams(buildPipParams());
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            Log.w("ExoPlayerActivity", "PiP params rejected", e);
+        }
+    }
+
+    private void enterPip() {
+        if (!pipSupported() || player == null) return; // not for the embedded web player
+        try {
+            enterPictureInPictureMode(buildPipParams());
+        } catch (IllegalStateException | IllegalArgumentException e) {
+            Log.w("ExoPlayerActivity", "enter PiP failed", e);
+        }
+    }
+
+    @Override
+    protected void onUserLeaveHint() {
+        super.onUserLeaveHint();
+        // Android 12+ enters PiP by itself (setAutoEnterEnabled); older
+        // versions need it requested here while a video plays.
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S
+                && player != null && player.getPlayWhenReady() && !screenLocked && !awaitingStream) {
+            enterPip();
+        }
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean isInPip, android.content.res.Configuration newConfig) {
+        super.onPictureInPictureModeChanged(isInPip, newConfig);
+        if (isInPip) {
+            // A tiny window has no room for chrome: hide every overlay.
+            handler.removeCallbacks(hideControlsRunnable);
+            controlsRoot.setVisibility(View.INVISIBLE);
+            chromeVisible = false;
+            postPlayContainer.setVisibility(View.GONE);
+            unlockContainer.setVisibility(View.GONE);
+            pipReceiver = new android.content.BroadcastReceiver() {
+                @Override
+                public void onReceive(Context context, Intent intent) {
+                    if (player == null) return;
+                    player.setPlayWhenReady(!player.getPlayWhenReady());
+                    updatePipParams();
+                }
+            };
+            android.content.IntentFilter f = new android.content.IntentFilter(ACTION_PIP_TOGGLE);
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(pipReceiver, f, Context.RECEIVER_NOT_EXPORTED);
+            } else {
+                registerReceiver(pipReceiver, f);
+            }
+        } else {
+            if (pipReceiver != null) {
+                try { unregisterReceiver(pipReceiver); } catch (IllegalArgumentException ignored) { }
+                pipReceiver = null;
+            }
+            if (!activityStopped) setControlsVisible(true);
+        }
+    }
+
     @Override
     protected void onStart() {
         super.onStart();
@@ -2697,13 +2834,20 @@ public class ExoPlayerActivity extends AppCompatActivity {
         super.onStop();
         activityStopped = true;
         reportProgressNow();
-        if (player != null) {
+        // In Picture-in-Picture the window is still on screen: keep playing.
+        // (Closing the PiP window also stops the activity, but by then the
+        // system has already left PiP mode, so this pauses as before.)
+        if (player != null && !inPip()) {
             player.pause();
         }
     }
 
     @Override
     protected void onDestroy() {
+        if (pipReceiver != null) {
+            try { unregisterReceiver(pipReceiver); } catch (IllegalArgumentException ignored) { }
+            pipReceiver = null;
+        }
         stopStreamSniffer();
         if (embedWebView != null) {
             try {

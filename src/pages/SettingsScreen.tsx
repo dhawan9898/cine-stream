@@ -1,10 +1,11 @@
 // SettingsScreen.tsx - Appearance, playback, data, and Telegram integration settings.
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { Settings as SettingsIcon, SkipForward, Gauge, Trash2, Database, Send, LogOut, ChevronRight } from 'lucide-react';
+import { SkipForward, Gauge, Trash2, Database, Send, LogOut, ChevronRight, Vibrate } from 'lucide-react';
 import { clearWatchHistory, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../services/persistentCache.ts';
 import { ConfirmModal } from 'streamkit/ui/ConfirmModal.tsx';
+import { getHapticSettings, saveHapticSettings, hapticLight, hapticMedium, hapticSelection, hapticToggle, type HapticIntensity } from '../services/hapticsService.ts';
 import {
   hasSavedSession, getSelectedChannels, getCachedAuthStatus, saveCachedAuthStatus
 } from '../providers/telegramSession.ts';
@@ -60,7 +61,7 @@ const Row: React.FC<{
   trailing: React.ReactNode;
   danger?: boolean;
 }> = ({ icon, title, text, onClick, trailing, danger }) => (
-  <div onClick={onClick} className="interactive" style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px' }}>
+  <div onClick={() => { hapticLight(); onClick(); }} className="interactive" style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px' }}>
     <IconBox>{icon}</IconBox>
     <div style={{ flex: 1, minWidth: 0 }}>
       <h4 style={{ fontSize: '14px', fontWeight: 700, color: danger ? 'var(--accent-danger)' : 'var(--text-primary)' }}>{title}</h4>
@@ -73,6 +74,7 @@ const Row: React.FC<{
 export const SettingsScreen: React.FC = () => {
   const [prefs, setPrefs] = useState(getUserPreferences());
   const [theme, setTheme] = useState<Theme>(getSavedTheme());
+  const [haptics, setHaptics] = useState(getHapticSettings);
   const [historyCount, setHistoryCount] = useState(() => getWatchHistory().length);
   const [confirming, setConfirming] = useState(false);
   const [cacheCleared, setCacheCleared] = useState(false);
@@ -133,9 +135,6 @@ export const SettingsScreen: React.FC = () => {
         borderBottom: '1px solid var(--border-subtle)'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <div style={{ width: '36px', height: '36px', borderRadius: 'var(--radius-sm)', background: 'var(--accent-gradient)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'var(--shadow-glow)' }}>
-            <SettingsIcon size={18} color="#fff" />
-          </div>
           <h1 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>Settings</h1>
         </div>
       </div>
@@ -182,7 +181,7 @@ export const SettingsScreen: React.FC = () => {
             <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px' }}>Theme</h4>
             <div className="seg-track">
               {THEMES.map(t => (
-                <button key={t.id} onClick={() => changeTheme(t.id)} className={`interactive seg-pill ${theme === t.id ? 'active' : ''}`}>
+                <button key={t.id} onClick={() => { hapticSelection(); changeTheme(t.id); }} className={`interactive seg-pill ${theme === t.id ? 'active' : ''}`}>
                   {t.label}
                 </button>
               ))}
@@ -214,6 +213,34 @@ export const SettingsScreen: React.FC = () => {
             </div>
             <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
               <LangChips title="Subtitles" hint="Turned on automatically when available" offLabel="Off" value={prefs.subtitleLanguage} onChange={code => update({ subtitleLanguage: code })} />
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <SectionLabel>Haptic Feedback</SectionLabel>
+          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+            <Row
+              icon={<Vibrate size={18} />}
+              title="Vibration"
+              text="Short vibrations when you tap, switch or confirm something."
+              onClick={() => { const next = !haptics.enabled; setHaptics(saveHapticSettings({ enabled: next })); hapticToggle(next); }}
+              trailing={<div className={`toggle-switch ${haptics.enabled ? 'on' : ''}`}><div className="knob" /></div>}
+            />
+            <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '14px 16px', opacity: haptics.enabled ? 1 : 0.45 }}>
+              <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>Intensity</h4>
+              <div className="seg-track">
+                {(['low', 'medium', 'high'] as HapticIntensity[]).map(level => (
+                  <button
+                    key={level}
+                    disabled={!haptics.enabled}
+                    onClick={() => { setHaptics(saveHapticSettings({ intensity: level })); hapticMedium(); }}
+                    className={`interactive seg-pill ${haptics.intensity === level ? 'active' : ''}`}
+                  >
+                    {level === 'low' ? 'Low' : level === 'medium' ? 'Medium' : 'High'}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </section>
