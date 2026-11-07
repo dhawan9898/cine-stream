@@ -15,6 +15,12 @@ const PROVIDER_TIMEOUT_MS = 7000;
 const SNIFF_TIMEOUT_MS = 15000;
 // After a direct stream arrives, wait this long for a better one then stop.
 const EARLY_EXIT_GRACE_MS = 350;
+// Native: with only embed pages in hand (no direct stream yet), stop waiting for
+// slow providers after this long and move on to sniffing the embeds.
+const EMBED_GRACE_MS = 3000;
+// Sniffing runs several embeds at once; each next one joins after this long
+// (or at once when the previous one fails).
+const SNIFF_STAGGER_MS = 2500;
 const HEALTH_KEY = 'cinestream_provider_health_v1';
 const FAILS_BEFORE_COOLDOWN = 3;
 const COOLDOWN_MS = 10 * 60 * 1000;
@@ -126,7 +132,12 @@ export class ExtractorRegistry {
     await new Promise<void>(resolve => {
       let pending = active.length;
       let graceTimer: ReturnType<typeof setTimeout> | undefined;
-      const finish = () => { if (graceTimer) clearTimeout(graceTimer); resolve(); };
+      let embedTimer: ReturnType<typeof setTimeout> | undefined;
+      const finish = () => {
+        if (graceTimer) clearTimeout(graceTimer);
+        if (embedTimer) clearTimeout(embedTimer);
+        resolve();
+      };
       if (pending === 0) { finish(); return; }
 
       active.forEach(extractor => {
@@ -147,6 +158,7 @@ export class ExtractorRegistry {
                 serverName: stream.serverName || extractor.name
               });
               if (isDirect(stream) && !graceTimer) graceTimer = setTimeout(finish, EARLY_EXIT_GRACE_MS);
+              else if (!isDirect(stream) && directOnly && !graceTimer && !embedTimer) embedTimer = setTimeout(finish, EMBED_GRACE_MS);
             }
           })
           .finally(() => { if (--pending === 0) finish(); });
@@ -170,24 +182,52 @@ export class ExtractorRegistry {
     const direct = sorted.filter(s => !s.isFallbackEmbed);
     if (direct.length === 0 && params.allowSniff !== false) {
       const embeds = sorted.filter(s => s.isFallbackEmbed).slice(0, MAX_SNIFF_ATTEMPTS);
-      for (const embed of embeds) {
-        let sniffed: ExtractedStream | null = null;
-        try {
-          sniffed = await Promise.race([
-            this.sniffer(embed),
-            new Promise<null>(r => setTimeout(() => r(null), SNIFF_TIMEOUT_MS))
-          ]);
-        } catch {
-          sniffed = null;
-        }
-        if (sniffed?.url) {
-          direct.push(sniffed);
-          break;
-        }
-      }
+      const sniffed = await this.sniffFirst(embeds);
+      if (sniffed?.url) direct.push(sniffed);
     }
     this.rememberGood(params, direct[0]?.serverId);
     return direct;
+  }
+
+  // Sniffs embed pages in hidden web views, staggered rather than one after
+  // the other: the first embed starts at once, the next joins after
+  // SNIFF_STAGGER_MS (immediately if the previous one failed), and the first
+  // stream found wins. One slow or dead embed no longer costs its whole timeout
+  // before the next is even tried.
+  private sniffFirst(embeds: ExtractedStream[]): Promise<ExtractedStream | null> {
+    return new Promise(resolve => {
+      let next = 0;
+      let running = 0;
+      let settled = false;
+      let stagger: ReturnType<typeof setTimeout> | undefined;
+
+      const finish = (stream: ExtractedStream | null) => {
+        if (settled) return;
+        settled = true;
+        if (stagger) clearTimeout(stagger);
+        resolve(stream);
+      };
+      const launch = () => {
+        if (stagger) clearTimeout(stagger);
+        if (settled || next >= embeds.length) return;
+        const embed = embeds[next++];
+        running++;
+        if (next < embeds.length) stagger = setTimeout(launch, SNIFF_STAGGER_MS);
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<null>(r => { timer = setTimeout(() => r(null), SNIFF_TIMEOUT_MS); });
+        Promise.race([(async () => this.sniffer(embed))(), timeout])
+          .catch(() => null)
+          .then(found => {
+            if (timer) clearTimeout(timer);
+            running--;
+            if (found?.url) { finish(found); return; }
+            if (next < embeds.length) launch(); // this one failed: bring the next in now
+            else if (running === 0) finish(null);
+          });
+      };
+      if (embeds.length === 0) finish(null);
+      else launch();
+    });
   }
 
   async resolveBestStream(params: {

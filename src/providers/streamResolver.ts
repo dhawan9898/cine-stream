@@ -4,7 +4,7 @@ import type { MediaType } from './cineHypeCore.ts';
 import { readPersisted, readPersistedAsync, writePersisted } from '../services/persistentCache.ts';
 import { extractorRegistry } from './extractors/extractorRegistry.ts';
 import { fetchSubtitles } from './subtitleService.ts';
-import type { ExtractedStream } from './extractors/types.ts';
+import type { ExtractedStream, ExtractorSubtitle } from './extractors/types.ts';
 
 export interface StreamParams {
   id: number;
@@ -35,6 +35,8 @@ export interface ResolvedStream extends ExtractedStream {
 const memoryCache = new Map<string, { at: number; prefetch: boolean; promise: Promise<ResolvedStream> }>();
 const REUSE_MS = 30 * 60 * 1000; // 30 minutes in-memory
 const CACHE_VERSION = 'v6';
+// How long a ready stream waits for the (optional) external subtitle lookup.
+const SUBTITLE_GRACE_MS = 800;
 const keyOf = (p: StreamParams) => `${CACHE_VERSION}|${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.language ?? ''}|${p.title ?? ''}|${p.preferredServerId ?? ''}`;
 
 function getTitleFallbackUrl(params: StreamParams): string {
@@ -119,16 +121,32 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
     };
   }
 
-  // Subtitles the stream itself carries stay first; external ones are added after.
-  const external = await subtitlesPromise;
-  if (external.length > 0) {
-    const have = new Set((result.subtitles ?? []).map(t => t.url));
-    result.subtitles = [...(result.subtitles ?? []), ...external.filter(t => !have.has(t.url))];
-  }
+  // Subtitles the stream itself carries stay first; external ones are added
+  // after. Playback never waits long for them: if the subtitle lookup is slow
+  // the stream starts without them, and they are saved with the cached stream
+  // as soon as they arrive (so the next play, or a retry, has them).
+  const addExternal = (target: ResolvedStream, external: ExtractorSubtitle[]) => {
+    if (external.length === 0) return;
+    const have = new Set((target.subtitles ?? []).map(t => t.url));
+    target.subtitles = [...(target.subtitles ?? []), ...external.filter(t => !have.has(t.url))];
+  };
+  const early = await Promise.race([
+    subtitlesPromise,
+    new Promise<null>(r => setTimeout(() => r(null), SUBTITLE_GRACE_MS))
+  ]);
+  addExternal(result, early ?? []);
 
   // Persist resolved stream (1 hour for direct - signed links expire, 30 mins for fallback embed)
   const ttlMs = result.isFallbackEmbed ? 30 * 60 * 1000 : 60 * 60 * 1000;
   writePersisted(cacheKey, result, ttlMs);
+  if (early === null) {
+    subtitlesPromise.then(late => {
+      if (late.length === 0) return;
+      const withSubs: ResolvedStream = { ...result, subtitles: [...(result.subtitles ?? [])] };
+      addExternal(withSubs, late);
+      writePersisted(cacheKey, withSubs, ttlMs);
+    }).catch(() => {});
+  }
 
   return result;
 }

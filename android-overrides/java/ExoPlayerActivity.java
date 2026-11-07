@@ -83,6 +83,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
     private static final int MIN_BUFFER_MS = 40_000;
     private static final int MAX_BUFFER_MS = 120_000;
     private static final int BUFFER_FOR_PLAYBACK_MS = 1_500;
+    // Assumed throughput until the first segments have been measured (~1.2 Mbit/s).
+    private static final long INITIAL_BITRATE_ESTIMATE_BPS = 1_200_000L;
     private static final int BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS = 4_000;
     // Already-played media kept in memory so short seeks back don't refetch.
     private static final int BACK_BUFFER_MS = 30_000;
@@ -2148,9 +2150,19 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
                 .build();
 
+        // Start on a modest rendition and step up as the real throughput is
+        // measured: opening a 1080p master at ExoPlayer's optimistic default
+        // estimate makes the first segment slow to arrive on ordinary
+        // connections, which is most of the wait before the picture shows.
+        androidx.media3.exoplayer.upstream.DefaultBandwidthMeter bandwidthMeter =
+                new androidx.media3.exoplayer.upstream.DefaultBandwidthMeter.Builder(this)
+                        .setInitialBitrateEstimate(INITIAL_BITRATE_ESTIMATE_BPS)
+                        .build();
+
         player = new ExoPlayer.Builder(this)
                 .setMediaSourceFactory(mediaSourceFactory)
                 .setLoadControl(loadControl)
+                .setBandwidthMeter(bandwidthMeter)
                 .setAudioAttributes(audioAttributes, true)
                 .setHandleAudioBecomingNoisy(true)
                 .build();
