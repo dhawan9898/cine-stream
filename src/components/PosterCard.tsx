@@ -7,6 +7,7 @@ import { prefetchMediaDetails, posterSrcSet } from '../providers/cineHypeCore.ts
 import { prefetchStream } from '../providers/streamResolver.ts';
 import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { hapticMedium } from '../services/hapticsService.ts';
+import { openPreview } from '../services/previewService.ts';
 
 interface PosterCardProps {
   media: MediaItem;
@@ -18,14 +19,15 @@ interface PosterCardProps {
   // (grid cells also show the title underneath).
   width?: number;
   badge?: string;
-  // Long-press (or the context-menu key) opens a quick preview.
+  // Long-press (or the context-menu key) opens a quick preview; by default the
+  // shared one rendered by App.
   onPreview?: (media: MediaItem) => void;
 }
 
-const LONG_PRESS_MS = 800;
+const LONG_PRESS_MS = 500;
 const MOVE_TOLERANCE_PX = 10;
 
-const PosterCardBase: React.FC<PosterCardProps> = ({ media, onSelect, width, badge, onPreview }) => {
+const PosterCardBase: React.FC<PosterCardProps> = ({ media, onSelect, width, badge, onPreview = openPreview }) => {
   const posterRef = useRef<HTMLDivElement | null>(null);
   const onClick = () => {
     hapticMedium();
@@ -51,13 +53,12 @@ const PosterCardBase: React.FC<PosterCardProps> = ({ media, onSelect, width, bad
       onClick();
     }}
     onPointerDown={e => {
-      if (!onPreview) return;
       fired.current = false;
       origin.current = { x: e.clientX, y: e.clientY };
       cancel();
       timer.current = window.setTimeout(() => {
         fired.current = true;
-        navigator.vibrate?.(15);
+        hapticMedium();
         onPreview(media);
       }, LONG_PRESS_MS);
     }}
@@ -68,14 +69,14 @@ const PosterCardBase: React.FC<PosterCardProps> = ({ media, onSelect, width, bad
     onPointerUp={cancel}
     onPointerCancel={cancel}
     onPointerLeave={cancel}
-    onContextMenu={e => { if (onPreview) e.preventDefault(); }}
+    onContextMenu={e => e.preventDefault()}
     onMouseEnter={handlePrefetch}
     onFocus={handlePrefetch}
     onKeyDown={(e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         onClick();
-      } else if (onPreview && (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey))) {
+      } else if ((e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey))) {
         e.preventDefault();
         onPreview(media);
       }

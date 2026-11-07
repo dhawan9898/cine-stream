@@ -1,7 +1,7 @@
 // App.tsx - CineStream shell: four tabs that stay mounted (state and scroll
 // position are kept), title/browse pages that slide over them, a floating
 // glass dock, and the player.
-import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useSyncExternalStore, lazy, Suspense } from 'react';
 import { Home, Search, Library, Settings } from 'lucide-react';
 import { HomeScreen } from './pages/HomeScreen.tsx';
 import { ErrorBoundary } from 'streamkit/ui/ErrorBoundary.tsx';
@@ -14,6 +14,8 @@ import { handleLayerBack } from 'streamkit/core/backStack.ts';
 import { useTvNavigation } from './services/tvNavigationService.ts';
 import { SharedElementTransitionOverlay } from './components/SharedElementTransitionOverlay.tsx';
 import { startSharedTransition } from './services/sharedTransitionService.ts';
+import { QuickPreview } from './components/QuickPreview.tsx';
+import { closePreview, getPreview, subscribePreview } from './services/previewService.ts';
 import { initDownloads, type DownloadRecord } from './services/downloadService.ts';
 
 // Everything except Home is loaded on demand so the first paint ships less JS;
@@ -56,6 +58,7 @@ export const App: React.FC = () => {
   const [layers, setLayers] = useState<Layer[]>([]);
   const [closing, setClosing] = useState<Layer[]>([]);
   const [activePlayer, setActivePlayer] = useState<ActivePlayerState | null>(null);
+  const preview = useSyncExternalStore(subscribePreview, getPreview, getPreview);
   // While the player is open, progress saves don't re-render the screens beneath it.
   const playerOpen = activePlayer !== null;
   useEffect(() => { setPlaybackActive(playerOpen); }, [playerOpen]);
@@ -260,6 +263,7 @@ export const App: React.FC = () => {
             {closing.map(l => renderLayer(l, true))}
           </Suspense>
           <SharedElementTransitionOverlay />
+          <QuickPreview media={preview} onClose={closePreview} onPlay={m => handlePlayMedia(m)} onOpenDetails={m => openDetails(m)} />
         </div>
 
         {/* Floating glass dock: slides away over a title page or the player. */}

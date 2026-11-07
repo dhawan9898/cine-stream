@@ -1,6 +1,6 @@
-// QuickPreview.tsx - Bottom sheet opened by long-pressing a poster: backdrop,
-// rating, genres, synopsis and the three actions (Play, My List, More info),
-// so a title can be judged without leaving the row.
+// QuickPreview.tsx - Card opened by long-pressing any poster: backdrop, rating,
+// genres, synopsis and the three actions (Play, My List, More info), so a title
+// can be judged without leaving the screen. Sits over a blurred, dimmed page.
 import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Play, Plus, Check, Info, X, Star } from 'lucide-react';
@@ -44,15 +44,38 @@ export const QuickPreview: React.FC<QuickPreviewProps> = ({ media, onClose, onPl
       data-modal-root="true"
       onClick={onClose}
       className="animate-fade-in"
-      style={{ position: 'fixed', inset: 0, zIndex: 9400, backgroundColor: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'flex-end' }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9400,
+        backgroundColor: 'var(--picker-card-scrim, rgba(8, 8, 12, 0.7))',
+        WebkitBackdropFilter: 'blur(18px) saturate(150%)',
+        backdropFilter: 'blur(18px) saturate(150%)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 'calc(var(--safe-top) + 16px) 16px calc(var(--safe-bottom) + 16px) 16px'
+      }}
     >
       <div
         onClick={e => e.stopPropagation()}
-        style={{ width: '100%', maxHeight: '85%', overflowY: 'auto', backgroundColor: 'var(--bg-surface)', borderRadius: '16px 16px 0 0', paddingBottom: 'calc(var(--safe-bottom) + 20px)' }}
+        className="animate-pop-in"
+        style={{
+          width: 'min(100%, 440px)',
+          maxHeight: '70vh',
+          overflowY: 'auto',
+          backgroundColor: 'rgba(var(--bg-main-rgb), 0.9)',
+          WebkitBackdropFilter: 'blur(24px) saturate(160%)',
+          backdropFilter: 'blur(24px) saturate(160%)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: 'var(--radius-xl, 24px)',
+          boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
+          paddingBottom: '20px'
+        }}
       >
         <div style={{ position: 'relative', height: '190px' }}>
           <FadeImage src={media.backdrop || media.poster} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,0.1) 30%, var(--bg-surface) 100%)' }} />
+          <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, rgba(0,0,0,0.1) 30%, rgba(var(--bg-main-rgb), 0.95) 100%)' }} />
           <button
             onClick={onClose}
             aria-label="Close preview"
@@ -83,11 +106,12 @@ export const QuickPreview: React.FC<QuickPreviewProps> = ({ media, onClose, onPl
               className="interactive glass-pill hero-list"
               aria-pressed={saved}
               aria-label={saved ? 'Remove from My List' : 'Add to My List'}
+              style={{ color: 'var(--text-primary)' }}
             >
               {saved ? <Check size={18} /> : <Plus size={18} />}
               <span>My List</span>
             </button>
-            <button onClick={() => { onClose(); onOpenDetails(media); }} className="interactive glass-pill hero-list" aria-label="More info">
+            <button onClick={() => { onClose(); onOpenDetails(media); }} className="interactive glass-pill hero-list" aria-label="More info" style={{ color: 'var(--text-primary)' }}>
               <Info size={18} />
             </button>
           </div>

@@ -300,6 +300,8 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
                 </button>
                 <CategoryPicker
                   open={seasonPickerOpen}
+                  presentation="card"
+                  title="Seasons"
                   sections={seasonSections}
                   selectedKey={String(season)}
                   onSelect={key => { hapticSelection(); setSeasonPickerOpen(false); setExpandedEp(null); setSeason(Number(key)); }}
