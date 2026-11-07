@@ -18,6 +18,8 @@
         padding: 0;
         overflow-x: hidden;
       }
+      html[data-theme="obsidian"], html[data-theme="obsidian"] body { background: #000000; }
+      html[data-theme="slate"], html[data-theme="slate"] body { background: #0a1120; }
       html[data-theme="light"], html[data-theme="light"] body {
         background: #f1f2f6;
       }
@@ -27,6 +29,9 @@
         try {
           var saved = window.localStorage.getItem('cinestream_theme');
           document.documentElement.setAttribute('data-theme', saved || 'dark');
+          if (window.localStorage.getItem('cinestream_glass') === 'clear') {
+            document.documentElement.setAttribute('data-glass', 'clear');
+          }
         } catch (e) {
           document.documentElement.setAttribute('data-theme', 'dark');
         }

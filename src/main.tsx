@@ -6,12 +6,16 @@ import 'streamkit/styles/fonts.css';
 import 'streamkit/styles/dock.css'
 import 'streamkit/styles/shared.css';
 import './index.css';
+import { applyGlassStyle, getGlassStyle } from './services/glassService.ts';
 
 // Keep stray async failures (e.g. blocked autoplay, dropped requests) from surfacing as crashes.
 window.addEventListener('unhandledrejection', (e) => {
   console.warn('Unhandled rejection:', e.reason);
   e.preventDefault();
 });
+
+// Transparent-glass setting (index.html applies it pre-paint too).
+applyGlassStyle(getGlassStyle());
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -1,10 +1,11 @@
 // SettingsScreen.tsx - Appearance, haptics, playback and data settings.
 import React, { useState } from 'react';
-import { SkipForward, Gauge, Trash2, Database, Vibrate } from 'lucide-react';
+import { SkipForward, Gauge, Trash2, Database, Vibrate, Droplets } from 'lucide-react';
 import { clearWatchHistory, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../services/persistentCache.ts';
 import { ConfirmModal } from 'streamkit/ui/ConfirmModal.tsx';
+import { getGlassStyle, setGlassStyle } from '../services/glassService.ts';
 import { getHapticSettings, saveHapticSettings, hapticLight, hapticMedium, hapticSelection, hapticToggle, type HapticIntensity } from '../services/hapticsService.ts';
 
 const THEMES: { id: Theme; label: string }[] = [
@@ -67,6 +68,7 @@ export const SettingsScreen: React.FC = () => {
   const [prefs, setPrefs] = useState(getUserPreferences());
   const [theme, setTheme] = useState<Theme>(getSavedTheme());
   const [haptics, setHaptics] = useState(getHapticSettings);
+  const [glassClear, setGlassClear] = useState(() => getGlassStyle() === 'clear');
   const [historyCount, setHistoryCount] = useState(() => getWatchHistory().length);
   const [confirming, setConfirming] = useState(false);
   const [cacheCleared, setCacheCleared] = useState(false);
@@ -109,6 +111,15 @@ export const SettingsScreen: React.FC = () => {
                 </button>
               ))}
             </div>
+          </div>
+          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden', marginTop: '12px' }}>
+            <Row
+              icon={<Droplets size={18} />}
+              title="Transparent Glass"
+              text="Floating bars, buttons and tiles turn see-through instead of blurred."
+              onClick={() => { const next = !glassClear; setGlassClear(next); setGlassStyle(next ? 'clear' : 'frosted'); }}
+              trailing={<div className={`toggle-switch ${glassClear ? 'on' : ''}`}><div className="knob" /></div>}
+            />
           </div>
         </section>
 

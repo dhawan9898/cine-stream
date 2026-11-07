@@ -780,3 +780,51 @@ body {
 
 .ptr-indicator.spinning svg { animation: spin 0.8s linear infinite; }
 
+
+/* ---- Transparent glass (Settings > Appearance > Transparent Glass) ----
+   Off (default): frosted glass - translucent fills with a backdrop blur.
+   On: clear glass - no blur anywhere. The same floating surfaces (dock, popovers,
+   search bar, buttons, tiles, badges) become see-through panes with a bright
+   hairline edge, so whatever is behind them stays sharp.
+   Must stay after every theme block: it overrides their glass tokens. */
+:root[data-glass="clear"] {
+  --glass-blur: none;
+  --clear-fill: rgba(16, 16, 22, 0.24);
+  --clear-fill-strong: rgba(16, 16, 22, 0.38);
+  --clear-edge: rgba(255, 255, 255, 0.3);
+  --clear-edge-soft: rgba(255, 255, 255, 0.16);
+  /* Surfaces that are always dark glass (over photos / the video player). */
+  --clear-dark-fill: rgba(12, 12, 16, 0.3);
+
+  --glass-fill: var(--clear-fill);
+  --bg-glass: var(--clear-fill);
+  --bg-glass-heavy: var(--clear-fill-strong);
+  --bg-dock: var(--clear-fill);
+}
+
+:root[data-glass="clear"][data-theme="light"] {
+  --clear-fill: rgba(255, 255, 255, 0.3);
+  --clear-fill-strong: rgba(255, 255, 255, 0.5);
+  --clear-edge: rgba(255, 255, 255, 0.9);
+  --clear-edge-soft: rgba(255, 255, 255, 0.75);
+}
+
+/* No backdrop blur on anything - including inline styles. */
+:root[data-glass="clear"] *,
+:root[data-glass="clear"] *::before,
+:root[data-glass="clear"] *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+:root[data-glass="clear"] .glass-dock { background: var(--clear-fill); border-color: var(--clear-edge); }
+:root[data-glass="clear"] .glass-nav { background: var(--clear-fill-strong); }
+:root[data-glass="clear"] .glass-panel { background: var(--clear-fill); border-color: var(--clear-edge-soft); }
+:root[data-glass="clear"] .glass-pill { background: var(--clear-fill); border-color: var(--clear-edge-soft); }
+:root[data-glass="clear"] .seg-track { background-color: var(--clear-fill); border-color: var(--clear-edge-soft); }
+:root[data-glass="clear"] .glass-pill-dark,
+:root[data-glass="clear"] .glass-panel-dark,
+:root[data-glass="clear"] .hero-dots,
+:root[data-glass="clear"] .apple-toast { background: var(--clear-dark-fill); }
+/* Badges and overlay chips that set their own dark fill + blur inline. */
+:root[data-glass="clear"] [style*="blur("] { background-color: var(--clear-dark-fill) !important; }
