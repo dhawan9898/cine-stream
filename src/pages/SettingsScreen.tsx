@@ -141,6 +141,27 @@ export const SettingsScreen: React.FC = () => {
         </section>
 
         <section>
+          <SectionLabel>Downloads</SectionLabel>
+          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden', padding: '16px' }}>
+            <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>Download Quality</h4>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px', lineHeight: 1.35 }}>
+              Highest video quality saved for offline viewing. Lower qualities use much less storage.
+            </p>
+            <div className="seg-track">
+              {(['1080', '720', '480'] as const).map(q => (
+                <button
+                  key={q}
+                  onClick={() => { hapticSelection(); update({ downloadQuality: q }); }}
+                  className={`interactive seg-pill ${(prefs.downloadQuality || '720') === q ? 'active' : ''}`}
+                >
+                  {q}p
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section>
           <SectionLabel>Haptic Feedback</SectionLabel>
           <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
             <Row

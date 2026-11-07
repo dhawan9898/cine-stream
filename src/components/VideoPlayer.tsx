@@ -8,6 +8,7 @@ import { resolveStream, prefetchUpcomingEpisodes, type ResolvedStream } from '..
 import { getResumePositionMs, getUserPreferences, saveWatchProgress } from '../services/historyService.ts';
 import { openNativeExoPlayer } from '../services/nativePlayer.ts';
 import { ExoPlayerPlugin } from '../plugins/exoPlayerPlugin.ts';
+import { findCompletedDownload } from '../services/downloadService.ts';
 import { WebPlayer, type StreamSource, type EpisodeItem as PlayerEpisode } from './WebPlayer.tsx';
 
 interface VideoPlayerProps {
@@ -244,6 +245,36 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     const startPositionMs = reloadResumeMsRef.current ?? initialPositionMs;
     reloadResumeMsRef.current = null;
+
+    // A downloaded copy plays offline, with no stream lookup at all.
+    const download = isNative
+      ? findCompletedDownload(media.mediaType, media.id, isSeries ? season : undefined, isSeries ? episode : undefined)
+      : undefined;
+    if (download) {
+      const saved: ResolvedStream = {
+        id: media.id, type: media.mediaType, season, episode, title: media.title,
+        url: download.streamUrl, format: 'hls', headers: download.headers
+      };
+      setSource(saved);
+      sourceRef.current = saved;
+      setLoading(false);
+      const prefs = getUserPreferences();
+      openNativeExoPlayer({
+        url: download.streamUrl,
+        title: media.title,
+        episode: isSeries ? String(episode) : '1',
+        seasonPrefix: isSeries ? `S${season}:` : '',
+        referer: download.referer,
+        headers: download.headers,
+        mode: langMode,
+        subtitles: download.subtitles,
+        episodes: isSeries ? episodes.map(e => ({ id: String(e.id), number: String(e.episodeNumber) })) : undefined,
+        startPositionMs: startPositionMs > 0 ? startPositionMs : undefined,
+        autoPlayNext: prefs.autoplayNext && hasNextEpisode,
+        offline: true
+      });
+      return () => { active = false; };
+    }
 
     resolveStream(
       { id: media.id, type: media.mediaType, season, episode, languageMode: langMode, language: media.language, title: media.title, preferredServerId: selectedServerId },

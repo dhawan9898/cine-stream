@@ -1,7 +1,7 @@
 // MediaDetailScreen.tsx - Title page: banner, Play/Resume, My List, trailer,
 // and tabs for episodes, cast and recommendations.
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, Check, Clapperboard, ChevronDown, Loader2, Play, Plus } from 'lucide-react';
+import { ArrowLeft, Check, Clapperboard, ChevronDown, Download, Loader2, Play, Plus, RotateCw } from 'lucide-react';
 import { CategoryPicker, type CategorySection } from 'streamkit/ui/CategoryPicker.tsx';
 import {
   getMediaDetails,
@@ -16,6 +16,9 @@ import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { PosterCard } from '../components/PosterCard.tsx';
 import { ErrorState } from 'streamkit/ui/ErrorState.tsx';
 import { TrailerModal } from '../components/TrailerModal.tsx';
+import { DownloadButton } from '../components/DownloadButton.tsx';
+import { downloadsSupported, downloadId, startDownload, removeDownload } from '../services/downloadService.ts';
+import { useDownloads } from '../services/useDownloads.ts';
 import { hapticLight, hapticMedium, hapticSelection, hapticSuccess } from '../services/hapticsService.ts';
 
 interface MediaDetailScreenProps {
@@ -44,6 +47,8 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
   const [tab, setTab] = useState<DetailTab>(isSeries ? 'episodes' : 'similar');
   const [expanded, setExpanded] = useState(false);
   const [trailerOpen, setTrailerOpen] = useState(false);
+  const downloads = useDownloads();
+  const canDownload = downloadsSupported();
   const [seasonPickerOpen, setSeasonPickerOpen] = useState(false);
   // The one episode tile whose full description is open (accordion).
   const [expandedEp, setExpandedEp] = useState<number | null>(null);
@@ -205,6 +210,31 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
           <span>{playLabel}</span>
         </button>
 
+        {canDownload && !isSeries && (() => {
+          const rec = downloads.find(d => d.id === downloadId('movie', media.id));
+          const done = rec?.state === 'completed';
+          const failed = rec?.state === 'failed';
+          const active = !!rec && !done && !failed;
+          const label = !rec ? 'Download' : done ? 'Downloaded - tap to delete' : failed ? 'Download failed - tap to retry' : rec.state === 'stopped' ? `Paused at ${Math.round(rec.percent)}%` : `Downloading ${Math.round(rec.percent)}% - tap to cancel`;
+          return (
+            <button
+              onClick={() => {
+                hapticSelection();
+                if (!rec || failed) startDownload(media).catch(err => console.warn('[downloads] start failed:', err));
+                else void removeDownload(rec.id);
+              }}
+              className="interactive glass-panel"
+              style={{ position: 'relative', width: '100%', padding: '12px', borderRadius: 'var(--radius-md)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: 'var(--text-primary)', fontSize: '14px', fontWeight: 700, marginBottom: '12px', border: 'none', overflow: 'hidden' }}
+            >
+              {done ? <Check size={18} /> : failed ? <RotateCw size={17} /> : <Download size={18} />}
+              <span>{label}</span>
+              {active && rec && (
+                <span style={{ position: 'absolute', left: 0, bottom: 0, height: 3, width: `${Math.round(rec.percent)}%`, background: 'var(--accent-primary)', transition: 'width 0.4s linear' }} />
+              )}
+            </button>
+          );
+        })()}
+
         {history && history.progressPercent > 0 && history.progressPercent < 98 && (
           <div style={{ height: '3px', backgroundColor: 'rgba(127,127,127,0.35)', borderRadius: '2px', marginBottom: '12px' }}>
             <div style={{ width: `${history.progressPercent}%`, height: '100%', backgroundColor: 'var(--accent-primary)', borderRadius: '2px' }} />
@@ -346,6 +376,14 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
                           </p>
                         )}
                       </div>
+
+                      {canDownload && (
+                        <DownloadButton
+                          record={downloads.find(d => d.id === downloadId('tv', media.id, ep.seasonNumber, ep.episodeNumber))}
+                          onStart={() => { hapticSelection(); startDownload(media, ep.seasonNumber, ep.episodeNumber, ep.name).catch(err => console.warn('[downloads] start failed:', err)); }}
+                          onRemove={() => { hapticLight(); void removeDownload(downloadId('tv', media.id, ep.seasonNumber, ep.episodeNumber)); }}
+                        />
+                      )}
                     </div>
                   );
                 })}

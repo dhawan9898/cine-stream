@@ -1,6 +1,6 @@
 // LibraryScreen.tsx - Watch history and My List.
 import React, { useEffect, useState } from 'react';
-import { Bookmark, Clock, Play, Trash2, X } from 'lucide-react';
+import { Bookmark, Clock, Download, Play, Trash2, X } from 'lucide-react';
 import type { MediaItem } from '../providers/cineHypeCore.ts';
 import {
   clearWatchHistory,
@@ -12,12 +12,17 @@ import {
 } from '../services/historyService.ts';
 import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { PosterCard } from '../components/PosterCard.tsx';
+import { DownloadsList } from '../components/DownloadsList.tsx';
+import { useDownloads } from '../services/useDownloads.ts';
+import type { DownloadRecord } from '../services/downloadService.ts';
 import { ConfirmModal } from 'streamkit/ui/ConfirmModal.tsx';
 import { hapticLight, hapticMedium, hapticSuccess, hapticWarning } from '../services/hapticsService.ts';
 
 interface LibraryScreenProps {
   onPlayMedia: (item: MediaItem, season?: number, episode?: number) => void;
   onSelectMedia: (item: MediaItem) => void;
+  // Plays a downloaded movie/episode (offline).
+  onPlayDownload: (record: DownloadRecord) => void;
 }
 
 const historyToMedia = (item: WatchHistoryItem): MediaItem => ({
@@ -39,8 +44,9 @@ const Empty: React.FC<{ icon: React.ReactNode; title: string; text: string }> = 
   </div>
 );
 
-export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onPlayMedia, onSelectMedia }) => {
-  const [tab, setTab] = useState<'history' | 'list'>('history');
+export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onPlayMedia, onSelectMedia, onPlayDownload }) => {
+  const [tab, setTab] = useState<'history' | 'list' | 'downloads'>('history');
+  const downloadedCount = useDownloads().filter(d => d.state === 'completed').length;
   const [history, setHistory] = useState<WatchHistoryItem[]>(() => getWatchHistory());
   const [list, setList] = useState<MediaItem[]>(() => getBookmarks());
   const [confirming, setConfirming] = useState(false);
@@ -97,11 +103,17 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onPlayMedia, onSel
             <Bookmark size={16} />
             <span>My List ({list.length})</span>
           </button>
+          <button onClick={() => { hapticLight(); setTab('downloads'); }} className={`interactive seg-pill ${tab === 'downloads' ? 'active' : ''}`}>
+            <Download size={16} />
+            <span>Downloads ({downloadedCount})</span>
+          </button>
         </div>
       </div>
 
       <div style={{ padding: '12px 20px' }}>
-        {tab === 'history' ? (
+        {tab === 'downloads' ? (
+          <DownloadsList onPlay={onPlayDownload} />
+        ) : tab === 'history' ? (
           history.length === 0 ? (
             <Empty icon={<Clock size={40} color="var(--accent-primary)" />} title="No watch history" text="Movies and episodes you stream will appear here so you can easily resume." />
           ) : (

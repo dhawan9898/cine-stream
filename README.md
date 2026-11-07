@@ -34,7 +34,12 @@ Inspired by the native architecture and fluid UI of [Anistream](../Anistream), C
 - **Interactive Season & Episode Navigator**: Browse all seasons and episodes with thumbnails, runtimes, and plot synopses, or switch episodes directly inside the player.
 - **Official YouTube Trailers**: Watch trailers in a popup modal (`TrailerModal.tsx`).
 
-### 4. 💾 Local Persistence & Hybrid Caching
+### 4. 📥 Offline Downloads & Offline Browsing (Android)
+- **Downloads**: save a movie or an episode from its title page (button on each episode row, or under Play for movies). They appear in **Library > Downloads** with progress, size, retry and delete, and play offline in the native player with their subtitles. Download quality (1080p / 720p / 480p) is set in Settings. Only direct HLS / DASH / MP4 streams can be saved, not provider embed pages.
+- **Pause and resume**: downloads pause when the connection drops and carry on from what is already saved when it returns; retrying a failed download reuses its saved link instead of starting over.
+- **Offline browsing**: every TMDB response (lists, title details, season episode lists) is kept in IndexedDB for 30 days, so titles you have already viewed open without a connection.
+
+### 5. 💾 Local Persistence & Hybrid Caching
 - **Continue Watching & Exact Resume**: Persists last watched season, episode, percentage, and playback timestamp (`positionMs`) to resume where you left off.
 - **My List (Bookmarks)**: Save titles to your personal watchlist.
 - **Hybrid `localStorage` + `IndexedDB` Cache**: TTL-based caching (`persistentCache.ts`) with automatic `IndexedDB` fallback when `localStorage` is full or evicted.

@@ -89,6 +89,7 @@ public class ExoPlayerPlugin extends Plugin {
         boolean autoPlayNext = call.getBoolean("autoPlayNext", true);
         boolean hasDub = call.getBoolean("hasDub", true);
         String spriteVtt = call.getString("spriteVtt");
+        boolean offline = call.getBoolean("offline", false);
 
         Intent intent = new Intent(getContext(), ExoPlayerActivity.class);
         intent.putExtra("url", url);
@@ -105,6 +106,7 @@ public class ExoPlayerPlugin extends Plugin {
         intent.putExtra("preferredAudio", call.getString("preferredAudio", ""));
         intent.putExtra("dataSaver", Boolean.TRUE.equals(call.getBoolean("dataSaver", false)));
         intent.putExtra("isFallback", isFallback);
+        intent.putExtra("offline", offline);
         intent.putExtra("autoSkipIntro", autoSkipIntro);
         intent.putExtra("autoPlayNext", autoPlayNext);
         intent.putExtra("hasDub", hasDub);

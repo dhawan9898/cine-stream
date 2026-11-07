@@ -29,6 +29,8 @@ export interface UserPreferences {
   subtitleLanguage: string;
   // Cap video at 720p on mobile data.
   dataSaver: boolean;
+  // Highest video height (px) fetched by Downloads.
+  downloadQuality: '1080' | '720' | '480';
 }
 
 const HISTORY_KEY = 'cinestream_watch_history';
@@ -41,7 +43,8 @@ const DEFAULT_PREFS: UserPreferences = {
   theme: 'dark',
   audioLanguage: '',
   subtitleLanguage: '',
-  dataSaver: false
+  dataSaver: false,
+  downloadQuality: '720'
 };
 
 // In-Memory state caches to eliminate redundant JSON parsing on renders

@@ -1,6 +1,7 @@
 // cineHypeCore.ts - CineHype Core Provider (TMDB API & Media Models)
 import { request, HttpError } from 'streamkit/core/http.ts';
 import { readPersisted, readPersistedAsync, writePersisted } from '../services/persistentCache.ts';
+import { cachePrune, cacheRead, cacheWrite } from '../services/offlineStore.ts';
 
 // The TMDB key is supplied at build time (VITE_TMDB_API_KEY in .env locally, a
 // repository secret in CI). It is deliberately not hardcoded in the source.
@@ -142,31 +143,29 @@ function tmdbFetch<T>(endpoint: string, params: Record<string, string | number |
   return request;
 }
 
-// Last good copy of the home/browse lists, kept past their normal expiry so the
-// app still has something to show without a connection.
-const STALE_PREFIX = 'cinestream_stale_';
-const STALE_MAX_ENTRIES = 14;
-const STALE_ENDPOINT = /\/(trending|discover|movie\/(popular|top_rated|now_playing)|tv\/(popular|top_rated|on_the_air))/;
+// Last good copy of every TMDB response (lists, title details, season episode
+// lists), kept in IndexedDB past the normal cache expiry so previously viewed
+// content still opens without a connection. Searches are not kept.
+const STALE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const STALE_MAX_ENTRIES = 400;
+const STALE_SKIP = /\/search\//;
+const LEGACY_STALE_PREFIX = 'cinestream_stale_';
+
+void cachePrune(STALE_MAX_AGE_MS, STALE_MAX_ENTRIES);
+
+const staleKey = (url: string) => 'tmdb:' + url.replace(/api_key=[^&]*&?/, '');
 
 function saveStale(url: string, data: unknown): void {
-  if (!STALE_ENDPOINT.test(url)) return;
-  try {
-    const key = STALE_PREFIX + url.replace(/api_key=[^&]*&?/, '');
-    localStorage.setItem(key, JSON.stringify({ at: Date.now(), data }));
-    const keys = Object.keys(localStorage).filter(k => k.startsWith(STALE_PREFIX));
-    if (keys.length > STALE_MAX_ENTRIES) {
-      const oldest = keys
-        .map(k => { try { return { k, at: JSON.parse(localStorage.getItem(k) || '{}').at ?? 0 }; } catch { return { k, at: 0 }; } })
-        .sort((a, b) => a.at - b.at)
-        .slice(0, keys.length - STALE_MAX_ENTRIES);
-      oldest.forEach(o => localStorage.removeItem(o.k));
-    }
-  } catch { /* storage full or unavailable */ }
+  if (STALE_SKIP.test(url)) return;
+  void cacheWrite(staleKey(url), data);
 }
 
-function readStale<T>(url: string): T | null {
+async function readStale<T>(url: string): Promise<T | null> {
+  const saved = await cacheRead<T>(staleKey(url));
+  if (saved) return saved.value;
+  // Copies saved by earlier versions (list endpoints only).
   try {
-    const raw = localStorage.getItem(STALE_PREFIX + url.replace(/api_key=[^&]*&?/, ''));
+    const raw = localStorage.getItem(LEGACY_STALE_PREFIX + url.replace(/api_key=[^&]*&?/, ''));
     return raw ? (JSON.parse(raw).data as T) : null;
   } catch { return null; }
 }
@@ -182,6 +181,12 @@ async function tmdbFetchOnce<T>(endpoint: string, params: Record<string, string 
   });
 
   const url = `${TMDB_API_BASE}${endpoint}?${query.toString()}`;
+  // No connection: use the saved copy right away instead of waiting for the
+  // request to time out and retry.
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    const offlineCopy = await readStale<T>(url);
+    if (offlineCopy) return offlineCopy;
+  }
   // Shared HTTP layer: per-attempt timeout, retry with backoff on network
   // errors / 408 / 429 / 5xx (4xx fails fast), and a cap on concurrent requests.
   let lastError: unknown;
@@ -198,7 +203,7 @@ async function tmdbFetchOnce<T>(endpoint: string, params: Record<string, string 
       : err;
   }
   // Offline or TMDB down: show the last good copy of a list instead of an error.
-  const stale = readStale<T>(url);
+  const stale = await readStale<T>(url);
   if (stale) return stale;
   throw lastError instanceof Error ? lastError : new Error(`TMDB request failed: ${endpoint}`);
 }

@@ -18,6 +18,12 @@ test('player activity supports Picture-in-Picture', () => {
   assert.match(out, /smallestScreenSize/);
 });
 
+test('manifest gets the network-state permission once (downloads pause offline)', () => {
+  const out = patchManifest(manifest);
+  assert.equal(out.match(/ACCESS_NETWORK_STATE/g)?.length, 1);
+  assert.equal(patchManifest(out).match(/ACCESS_NETWORK_STATE/g)?.length, 1);
+});
+
 test('manifest without </application> fails loudly', () => {
   assert.throws(() => patchManifest('<manifest/>'), /no <\/application>/);
 });

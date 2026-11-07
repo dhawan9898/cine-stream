@@ -20,6 +20,8 @@ export function parseArgs(argv) {
   return out;
 }
 
+const NETWORK_STATE_PERMISSION = '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />';
+
 export function patchManifest(xml) {
   if (xml.includes('android:name=".ExoPlayerActivity"')) return xml; // already patched
   const activity =
@@ -32,7 +34,14 @@ export function patchManifest(xml) {
     ' android:theme="@style/Theme.CineStream.Player"' +
     ' android:exported="false" />\n';
   if (!xml.includes('</application>')) throw new Error('AndroidManifest.xml has no </application> tag');
-  return xml.replace('</application>', activity + '    </application>');
+  let out = xml.replace('</application>', activity + '    </application>');
+  // Lets downloads pause while offline and resume when a network returns.
+  if (!out.includes('android.permission.ACCESS_NETWORK_STATE')) {
+    out = out.includes('</manifest>')
+      ? out.replace('</manifest>', `    ${NETWORK_STATE_PERMISSION}\n</manifest>`)
+      : out;
+  }
+  return out;
 }
 
 export function patchGradle(gradle, version, versionCode) {
@@ -44,7 +53,7 @@ export function patchGradle(gradle, version, versionCode) {
   out = out.replace(codeRe, `versionCode ${versionCode}`).replace(nameRe, `versionName "${version}"`);
 
   if (!out.includes('media3-exoplayer:')) {
-    const deps = ['exoplayer', 'ui', 'exoplayer-hls', 'datasource', 'common', 'exoplayer-dash']
+    const deps = ['exoplayer', 'ui', 'exoplayer-hls', 'datasource', 'common', 'exoplayer-dash', 'database']
       .map(m => `    implementation "androidx.media3:media3-${m}:${MEDIA3}"`)
       .join('\n');
     out += `\n// CineStream native player\ndependencies {\n${deps}\n}\n`;

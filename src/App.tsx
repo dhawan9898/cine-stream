@@ -14,6 +14,7 @@ import { handleLayerBack } from 'streamkit/core/backStack.ts';
 import { useTvNavigation } from './services/tvNavigationService.ts';
 import { SharedElementTransitionOverlay } from './components/SharedElementTransitionOverlay.tsx';
 import { startSharedTransition } from './services/sharedTransitionService.ts';
+import { initDownloads, type DownloadRecord } from './services/downloadService.ts';
 
 // Everything except Home is loaded on demand so the first paint ships less JS;
 // the player chunk also carries hls.js.
@@ -58,6 +59,9 @@ export const App: React.FC = () => {
   // While the player is open, progress saves don't re-render the screens beneath it.
   const playerOpen = activePlayer !== null;
   useEffect(() => { setPlaybackActive(playerOpen); }, [playerOpen]);
+
+  // Load saved downloads so a downloaded episode is found the moment it is played.
+  useEffect(() => { void initDownloads(); }, []);
 
   // Enable Android TV & Keyboard Remote D-Pad spatial navigation
   useTvNavigation(true);
@@ -160,6 +164,15 @@ export const App: React.FC = () => {
     window.history.pushState({ screen: 'player', id: media.id }, '');
   }, []);
 
+  // Library > Downloads: play the saved copy (VideoPlayer finds it by title/season/episode).
+  const handlePlayDownload = useCallback((rec: DownloadRecord) => {
+    const media: MediaItem = {
+      id: rec.media.id, title: rec.media.title, mediaType: rec.media.mediaType, poster: rec.media.poster, backdrop: rec.media.backdrop,
+      overview: rec.media.overview, releaseDate: rec.media.releaseDate, voteAverage: rec.media.voteAverage, language: rec.media.language
+    };
+    handlePlayMedia(media, rec.season, rec.episode, []);
+  }, [handlePlayMedia]);
+
   const handleClosePlayer = useCallback(() => {
     if (window.history.state?.screen === 'player') window.history.back();
     else setActivePlayer(null);
@@ -239,7 +252,7 @@ export const App: React.FC = () => {
               onSelectMedia={openDetails}
             />
           ))}
-          {pane('library', <LibraryScreen onPlayMedia={handlePlayMedia} onSelectMedia={openDetails} />)}
+          {pane('library', <LibraryScreen onPlayMedia={handlePlayMedia} onSelectMedia={openDetails} onPlayDownload={handlePlayDownload} />)}
           {pane('settings', <SettingsScreen />)}
 
           <Suspense fallback={null}>

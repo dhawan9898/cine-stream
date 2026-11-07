@@ -16,6 +16,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(ExoPlayerPlugin.class);
+        registerPlugin(DownloadsPlugin.class);
         super.onCreate(savedInstanceState);
 
         // Disable ad popups and window hijacks

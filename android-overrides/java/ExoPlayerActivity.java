@@ -154,6 +154,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
     private ImageView seekPreviewImage;
     private TextView seekPreviewTime;
     private ThumbnailSprites sprites;
+    // True while the current stream is a download: read it from the offline store.
+    private boolean offlinePlayback = false;
     private TextView btnPip;
     private TextView btnAspectRatio;
     private int aspectRatioMode = 0; // 0 = Fit, 1 = Crop, 2 = Fill
@@ -479,6 +481,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
         String episode = intent.getStringExtra("episode");
         if (episode != null) episodeNumber = episode;
         if (intent.hasExtra("seasonPrefix")) seasonPrefix = intent.getStringExtra("seasonPrefix");
+        offlinePlayback = intent.getBooleanExtra("offline", false);
         String headersJson = intent.getStringExtra("headers");
         if (headersJson != null) pendingHeadersJson = headersJson;
         String mode = intent.getStringExtra("mode");
@@ -2117,7 +2120,10 @@ public class ExoPlayerActivity extends AppCompatActivity {
         MediaItem mediaItem = buildMediaItem(videoUrl, subtitleConfigs);
         androidx.media3.datasource.DataSource.Factory upstreamFactory = dataSourceFactory;
         androidx.media3.datasource.cache.SimpleCache cache = getDiskCache(getApplicationContext());
-        if (cache != null) {
+        if (offlinePlayback) {
+            // A downloaded episode: serve it from the downloads store (read-only).
+            upstreamFactory = MediaDownloads.get(this).cacheDataSourceFactory(dataSourceFactory);
+        } else if (cache != null) {
             upstreamFactory = new androidx.media3.datasource.cache.CacheDataSource.Factory()
                     .setCache(cache)
                     .setUpstreamDataSourceFactory(dataSourceFactory)

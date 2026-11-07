@@ -75,6 +75,8 @@ export interface ExoPlayerPluginInterface {
     hasDub?: boolean;
     isFallback?: boolean;
     mode?: string;
+    // The stream is a download: read it from the offline store.
+    offline?: boolean;
   }): Promise<{ success: boolean }>;
 
   setNextEpisode(options: PlayOptions & { afterEpisode: string }): Promise<void>;
