@@ -1,6 +1,7 @@
 package com.cinehype.stream;
 
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.webkit.WebResourceRequest;
@@ -217,6 +218,10 @@ public class ExoPlayerPlugin extends Plugin {
                 ws.setJavaScriptEnabled(true);
                 ws.setDomStorageEnabled(true);
                 ws.setMediaPlaybackRequiresUserGesture(false);
+                // Only the page's scripts and API calls matter for finding the stream: no
+                // pictures, so the embed page is ready sooner and uses less data.
+                ws.setLoadsImagesAutomatically(false);
+                ws.setBlockNetworkImage(true);
                 ws.setSupportMultipleWindows(false);
                 ws.setJavaScriptCanOpenWindowsAutomatically(false);
                 ws.setUserAgentString("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
@@ -227,6 +232,12 @@ public class ExoPlayerPlugin extends Plugin {
                     public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
                         if (!done.get() && request != null && request.getUrl() != null) {
                             String req = request.getUrl().toString();
+                            // Ad networks and page furniture (fonts, stylesheets, images) are
+                            // answered empty without touching the network: they slow the embed
+                            // down and never carry the stream.
+                            if (ExoPlayerActivity.isAdRequest(req) || isPageFurniture(req)) {
+                                return new WebResourceResponse("text/plain", "UTF-8", new java.io.ByteArrayInputStream(new byte[0]));
+                            }
                             if (isMediaUrl(req) && !req.equalsIgnoreCase(pageUrl)) {
                                 if (isManifestUrl(req)) {
                                     succeed.accept(req, request.getRequestHeaders());
@@ -242,9 +253,13 @@ public class ExoPlayerPlugin extends Plugin {
 
                     @Override
                     public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                        // Keep the top frame on the embed; block ad redirects.
-                        return request != null && request.isForMainFrame() && request.getUrl() != null
-                                && !request.getUrl().toString().equalsIgnoreCase(pageUrl);
+                        // Keep the top frame on the embed; block ad redirects. A plain server
+                        // redirect within the same site (a provider that moved host, e.g.
+                        // http -> https, www -> bare) is part of loading the embed, not a hijack.
+                        if (request == null || !request.isForMainFrame() || request.getUrl() == null) return false;
+                        String target = request.getUrl().toString();
+                        if (target.equalsIgnoreCase(pageUrl)) return false;
+                        return !(request.isRedirect() && sameSite(target, pageUrl));
                     }
 
                     @Override
@@ -262,6 +277,33 @@ public class ExoPlayerPlugin extends Plugin {
                 finish[0].run();
             }
         });
+    }
+
+    private static boolean isPageFurniture(String url) {
+        String path = url.toLowerCase().split("[?#]")[0];
+        return path.endsWith(".css") || path.endsWith(".woff") || path.endsWith(".woff2") || path.endsWith(".ttf")
+                || path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg") || path.endsWith(".gif")
+                || path.endsWith(".webp") || path.endsWith(".svg") || path.endsWith(".ico");
+    }
+
+    // Same registrable site: the last two host labels match (vidsrc.to -> www.vidsrc.to).
+    // A provider that moved to a sibling domain (autoembed.co -> .me) is handled by
+    // updating its URL in the extractor, not by trusting any redirect.
+    private static boolean sameSite(String a, String b) {
+        try {
+            String ha = Uri.parse(a).getHost();
+            String hb = Uri.parse(b).getHost();
+            if (ha == null || hb == null) return false;
+            return siteOf(ha).equalsIgnoreCase(siteOf(hb));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static String siteOf(String host) {
+        String[] parts = host.split("\\.");
+        if (parts.length <= 2) return host;
+        return parts[parts.length - 2] + "." + parts[parts.length - 1];
     }
 
     private static void destroySniffer(WebView web) {

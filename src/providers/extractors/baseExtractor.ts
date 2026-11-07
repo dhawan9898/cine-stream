@@ -3,6 +3,9 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import type { StreamExtractor, ExtractedStream, ExtractorSubtitle } from './types.ts';
 import { discover, pickBest, type FoundStream } from './streamDiscovery.ts';
 
+// Per-request limit. A provider's whole lookup is capped by the registry anyway.
+const HTTP_TIMEOUT_MS = 5000;
+
 export abstract class BaseExtractor implements StreamExtractor {
   abstract id: string;
   abstract name: string;
@@ -19,24 +22,24 @@ export abstract class BaseExtractor implements StreamExtractor {
     };
 
     if (Capacitor.isNativePlatform()) {
-      try {
-        const response = await CapacitorHttp.get({
-          url,
-          headers: mergedHeaders,
-          connectTimeout: 6000,
-          readTimeout: 6000
-        });
-        if (response.status >= 200 && response.status < 300) {
-          return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
-        }
-      } catch (err) {
-        console.warn(`[${this.id}] CapacitorHttp GET failed for ${url}:`, err);
+      // Native networking is not subject to CORS, so a failure here is final:
+      // retrying the same request through the WebView's fetch() could only
+      // fail again (CORS) and doubled the time a dead provider cost.
+      const response = await CapacitorHttp.get({
+        url,
+        headers: mergedHeaders,
+        connectTimeout: HTTP_TIMEOUT_MS,
+        readTimeout: HTTP_TIMEOUT_MS
+      });
+      if (response.status >= 200 && response.status < 300) {
+        return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
       }
+      throw new Error(`HTTP ${response.status}`);
     }
 
-    // Standard web fetch fallback
+    // Web: standard fetch
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 6000);
+    const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
     try {
       const res = await fetch(url, {
         headers: mergedHeaders,
@@ -62,19 +65,22 @@ export abstract class BaseExtractor implements StreamExtractor {
 
     for (let depth = 0; depth <= maxDepth && queue.length > 0 && visited.size < maxPages; depth++) {
       const next: Array<{ url: string; referer: string }> = [];
-      for (const page of queue) {
-        if (visited.has(page.url) || visited.size >= maxPages) continue;
-        visited.add(page.url);
-        let body: string;
+      // The pages of one level are independent: fetch them together.
+      const batch = queue.filter(page => !visited.has(page.url)).slice(0, maxPages - visited.size);
+      batch.forEach(page => visited.add(page.url));
+      const bodies = await Promise.all(batch.map(async page => {
         try {
-          body = await this.httpGet(page.url, { Referer: page.referer, Accept: '*/*' });
+          return { page, body: await this.httpGet(page.url, { Referer: page.referer, Accept: '*/*' }) };
         } catch {
-          continue;
+          return null;
         }
-        const result = discover(body, page.url);
-        result.streams.forEach(s => found.push({ ...s, pageUrl: page.url }));
+      }));
+      for (const item of bodies) {
+        if (!item) continue;
+        const result = discover(item.body, item.page.url);
+        result.streams.forEach(s => found.push({ ...s, pageUrl: item.page.url }));
         result.subtitles.forEach(s => subtitles.set(s.url, s));
-        result.pages.forEach(p => { if (!visited.has(p)) next.push({ url: p, referer: page.url }); });
+        result.pages.forEach(p => { if (!visited.has(p)) next.push({ url: p, referer: item.page.url }); });
       }
       if (found.length > 0) break;
       queue = next;

@@ -5,9 +5,10 @@ import type { ExtractedStream } from './types.ts';
 export class AutoEmbedExtractor extends BaseExtractor {
   id = 'autoembed';
   name = 'AutoEmbed CDN';
-  mainUrl = 'https://autoembed.co';
+  // autoembed.co now redirects to autoembed.me. Use the final host: the sniffer's
+  // web view treats a main-frame redirect as an ad hijack, so a redirecting URL never loaded.
+  mainUrl = 'https://autoembed.me';
 
-  private mirrorUrl = 'https://player.autoembed.cc';
 
   async extract(params: {
     id: number;
@@ -20,11 +21,8 @@ export class AutoEmbedExtractor extends BaseExtractor {
       ? `${this.mainUrl}/tv/tmdb/${id}-${season}-${episode}`
       : `${this.mainUrl}/movie/tmdb/${id}`;
 
-    const mirrorEmbedUrl = type === 'tv'
-      ? `${this.mirrorUrl}/embed/tv/${id}/${season}/${episode}`
-      : `${this.mirrorUrl}/embed/movie/${id}`;
-
-    for (const targetUrl of [embedUrl, mirrorEmbedUrl]) {
+    // (The old player.autoembed.cc mirror no longer resolves, so there is only one page to try.)
+    for (const targetUrl of [embedUrl]) {
       try {
         const extracted = await this.resolveFromPage(targetUrl, { referer: `${new URL(targetUrl).origin}/` });
         if (extracted && extracted.url) {

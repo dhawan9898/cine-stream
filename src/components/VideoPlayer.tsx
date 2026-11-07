@@ -4,7 +4,7 @@ import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { getTVSeasonEpisodes, type MediaItem, type EpisodeItem } from '../providers/cineHypeCore.ts';
 import { subtitlesForPlayer, pickAudio } from '../services/playbackPrefs.ts';
-import { resolveStream, prefetchUpcomingEpisodes, type ResolvedStream } from '../providers/streamResolver.ts';
+import { resolveStream, forgetStream, prefetchUpcomingEpisodes, type ResolvedStream } from '../providers/streamResolver.ts';
 import { getResumePositionMs, getUserPreferences, saveWatchProgress } from '../services/historyService.ts';
 import { openNativeExoPlayer } from '../services/nativePlayer.ts';
 import { ExoPlayerPlugin } from '../plugins/exoPlayerPlugin.ts';
@@ -50,6 +50,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [selectedServerId, setSelectedServerId] = useState<string | undefined>(undefined);
   const [reportCopied, setReportCopied] = useState(false);
   const sourceRef = useRef<ResolvedStream | null>(null);
+  // Servers whose stream failed for this title/episode: the next lookup skips them,
+  // so "retry" reaches a different provider instead of the same dead one.
+  const failedServersRef = useRef<{ key: string; servers: Set<string> }>({ key: '', servers: new Set() });
+  const contentKey = `${media.mediaType}|${media.id}|${season}|${episode}`;
+  const failedServers = (key: string = contentKey): string[] => (failedServersRef.current.key === key ? [...failedServersRef.current.servers] : []);
+  const markServerFailed = (serverId: string | undefined, key: string = contentKey) => {
+    if (!serverId) return;
+    if (failedServersRef.current.key !== key) failedServersRef.current = { key, servers: new Set() };
+    failedServersRef.current.servers.add(serverId);
+  };
+  // The native-event listeners below are set up once per episode change; this keeps
+  // what they need to know about the current title (season, language, server) fresh.
+  const latestRef = useRef({ contentKey, media, season, episode, langMode: 'sub', selectedServerId: undefined as string | undefined });
+  useEffect(() => { latestRef.current = { contentKey, media, season, episode, langMode, selectedServerId }; });
   const [frameReady, setFrameReady] = useState<boolean>(false);
   const [reloadKey, setReloadKey] = useState<number>(0);
   const [fetchedEpisodes, setFetchedEpisodes] = useState<EpisodeItem[]>([]);
@@ -174,12 +188,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         });
         const h6 = await ExoPlayerPlugin.addListener('reloadRequested', (e) => {
           reloadResumeMsRef.current = e.positionMs > 0 ? e.positionMs : null;
-          // The stream failed: move on to the next server rather than retrying the same one.
-          const servers = sourceRef.current?.availableServers ?? [];
-          if (servers.length > 1) {
-            const cur = servers.findIndex(s => s.serverId === (sourceRef.current?.serverId));
-            setSelectedServerId(servers[(cur + 1) % servers.length].serverId);
-          }
+          // The stream failed: forget it (so it is not served from the cache again),
+          // skip that server, and look the title up again on the others.
+          const L = latestRef.current;
+          markServerFailed(sourceRef.current?.serverId, L.contentKey);
+          forgetStream({ id: L.media.id, type: L.media.mediaType, season: L.season, episode: L.episode, languageMode: L.langMode, language: L.media.language, title: L.media.title, preferredServerId: L.selectedServerId });
+          setSelectedServerId(undefined);
           setAttempt(n => n + 1);
         });
         if (disposed) {
@@ -277,7 +291,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }
 
     resolveStream(
-      { id: media.id, type: media.mediaType, season, episode, languageMode: langMode, language: media.language, title: media.title, preferredServerId: selectedServerId },
+      { id: media.id, type: media.mediaType, season, episode, languageMode: langMode, language: media.language, title: media.title, preferredServerId: selectedServerId, exclude: failedServers() },
       { fresh: attempt > 0 }
     )
       .then(res => {
@@ -404,14 +418,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           >
             {reportCopied ? 'Copied' : 'Copy Details'}
           </button>
-          {source?.availableServers && source.availableServers.length > 1 && (
+          {source?.serverId && (
             <button
               className="interactive btn-secondary"
               onClick={() => {
-                const servers = source.availableServers || [];
-                const currentIdx = servers.findIndex(s => s.serverId === (source.serverId || selectedServerId));
-                const nextIdx = (currentIdx + 1) % servers.length;
-                setSelectedServerId(servers[nextIdx].serverId);
+                // Skip the server that just failed and look the title up on the others.
+                markServerFailed(source.serverId);
+                setSelectedServerId(undefined);
                 setAttempt(n => n + 1);
               }}
               style={{ padding: '10px 24px', background: 'rgba(255,255,255,0.2)' }}

@@ -19,6 +19,9 @@ export interface StreamParams {
   prefetch?: boolean;
   // Retry after a failure: skip remembered-provider shortcuts.
   fresh?: boolean;
+  // Providers whose stream just failed to play: not used for this lookup, so a
+  // retry goes to a different server instead of the same dead one.
+  exclude?: string[];
 }
 
 export interface ResolvedStream extends ExtractedStream {
@@ -38,6 +41,16 @@ const CACHE_VERSION = 'v6';
 // How long a ready stream waits for the (optional) external subtitle lookup.
 const SUBTITLE_GRACE_MS = 800;
 const keyOf = (p: StreamParams) => `${CACHE_VERSION}|${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.language ?? ''}|${p.title ?? ''}|${p.preferredServerId ?? ''}`;
+
+/**
+ * Drops the saved stream for a title/episode (memory and disk). Called when it
+ * failed to play, so neither a retry nor the next visit is handed the same dead link.
+ */
+export function forgetStream(params: StreamParams): void {
+  const key = keyOf(params);
+  memoryCache.delete(key);
+  writePersisted(`stream_${key}`, {}, 1);
+}
 
 function getTitleFallbackUrl(params: StreamParams): string {
   const { id, type, season = 1, episode = 1 } = params;
@@ -67,7 +80,8 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
       language: params.language,
       allowSniff: !params.prefetch,
       fresh: params.fresh,
-      preferredServerId: params.preferredServerId
+      preferredServerId: params.preferredServerId,
+      exclude: params.exclude
     });
   } catch (err) {
     console.warn('[StreamResolver] Extraction resolution error:', err);

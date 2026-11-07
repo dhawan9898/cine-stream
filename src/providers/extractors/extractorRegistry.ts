@@ -11,16 +11,14 @@ import { AutoEmbedExtractor } from './autoembedExtractor.ts';
 import { MultiEmbedExtractor } from './multiembedExtractor.ts';
 
 const MAX_SNIFF_ATTEMPTS = 4;
-const PROVIDER_TIMEOUT_MS = 7000;
-const SNIFF_TIMEOUT_MS = 15000;
+// Hidden web views sniffing at the same time (each is a full browser page).
+const SNIFF_CONCURRENCY = 2;
+const PROVIDER_TIMEOUT_MS = 6000;
+const SNIFF_TIMEOUT_MS = 12000;
+// A lookup never runs longer than this, whatever the providers do.
+const RESOLVE_DEADLINE_MS = 20000;
 // After a direct stream arrives, wait this long for a better one then stop.
 const EARLY_EXIT_GRACE_MS = 350;
-// Native: with only embed pages in hand (no direct stream yet), stop waiting for
-// slow providers after this long and move on to sniffing the embeds.
-const EMBED_GRACE_MS = 3000;
-// Sniffing runs several embeds at once; each next one joins after this long
-// (or at once when the previous one fails).
-const SNIFF_STAGGER_MS = 2500;
 const HEALTH_KEY = 'cinestream_provider_health_v1';
 const FAILS_BEFORE_COOLDOWN = 3;
 const COOLDOWN_MS = 10 * 60 * 1000;
@@ -28,13 +26,14 @@ const COOLDOWN_MS = 10 * 60 * 1000;
 // Which provider last gave a working stream for a title - tried first next time.
 const LAST_GOOD_KEY = 'cinestream_last_good_v1';
 const LAST_GOOD_MAX = 300;
-const LAST_GOOD_TIMEOUT_MS = 4500;
+const LAST_GOOD_TIMEOUT_MS = 3500;
+const LAST_GOOD_SNIFF_TIMEOUT_MS = 8000;
 
 type Sniffer = (embed: ExtractedStream) => Promise<ExtractedStream | null>;
 
 export class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
-  private sniffer: Sniffer = embed => sniffDirectStream(embed);
+  private sniffer: Sniffer = embed => sniffDirectStream(embed, SNIFF_TIMEOUT_MS);
   private health = new ProviderHealth({
     storageKey: HEALTH_KEY,
     failsBeforeCooldown: FAILS_BEFORE_COOLDOWN,
@@ -96,51 +95,98 @@ export class ExtractorRegistry {
     // Skip the remembered-provider shortcut (retry after a failure).
     fresh?: boolean;
     preferredServerId?: string;
+    // Providers whose stream just failed: not asked again for this lookup.
+    exclude?: string[];
   }): Promise<ExtractedStream[]> {
     const directOnly = params.directOnly ?? Capacitor.isNativePlatform();
+    const canSniff = directOnly && params.allowSniff !== false;
+    const excluded = new Set(params.exclude ?? []);
+    // Servers that just failed are skipped - unless that would leave none at all.
+    const notExcluded = this.extractors.filter(e => !excluded.has(e.id));
+    const usable = notExcluded.length > 0 ? notExcluded : this.extractors;
     // Skip providers on cooldown, but never skip everything.
-    const healthy = this.extractors.filter(e => !this.isCoolingDown(e.id));
-    const active = healthy.length > 0 ? healthy : this.extractors;
+    const healthy = usable.filter(e => !this.isCoolingDown(e.id));
+    const active = healthy.length > 0 ? healthy : usable;
+    const goodId = this.lastGood.get(`${params.type}:${params.id}`);
 
-    // Shortcut: the provider that worked for this title last time, alone and
-    // quickly. Falls through to the full race if it no longer delivers.
+    // Shortcut: the provider that worked for this title last time, alone. It
+    // either hands over a direct stream or an embed page, which is sniffed at
+    // once - so a title that played before starts without waiting on (or
+    // loading) any other provider. Falls through to the full race if it no
+    // longer delivers.
     if (!params.fresh && !params.preferredServerId) {
-      const goodId = this.lastGood.get(`${params.type}:${params.id}`);
-      const good = goodId ? this.extractors.find(e => e.id === goodId && !this.isCoolingDown(e.id)) : undefined;
+      const good = goodId ? active.find(e => e.id === goodId) : undefined;
       if (good) {
-        let t: ReturnType<typeof setTimeout> | undefined;
-        try {
-          const stream = await Promise.race([
-            (async () => good.extract(params))(),
-            new Promise<null>(r => { t = setTimeout(() => r(null), LAST_GOOD_TIMEOUT_MS); })
-          ]);
-          if (stream && stream.url && !stream.isFallbackEmbed && !stream.url.startsWith('blob:')) {
-            this.recordResult(good.id, true);
-            return [{ ...stream, serverId: stream.serverId || good.id, serverName: stream.serverName || good.name }];
-          }
-        } catch { /* fall through to the full lookup */ } finally {
-          if (t) clearTimeout(t);
+        const viaGood = await this.tryProvider(good, params, canSniff, directOnly);
+        if (viaGood) {
+          this.rememberGood(params, good.id);
+          return [viaGood];
         }
       }
     }
 
-    const fulfilled: ExtractedStream[] = [];
-    const isDirect = (s: ExtractedStream) => !s.isFallbackEmbed;
+    const race = active.filter(e => !(e.id === goodId && !params.fresh && !params.preferredServerId));
+    const raceList = race.length > 0 ? race : active;
 
-    // Collect results as they arrive and stop shortly after the first direct
-    // stream instead of waiting for the slowest provider.
-    await new Promise<void>(resolve => {
-      let pending = active.length;
-      let graceTimer: ReturnType<typeof setTimeout> | undefined;
-      let embedTimer: ReturnType<typeof setTimeout> | undefined;
+    return new Promise<ExtractedStream[]>(resolve => {
+      const found: ExtractedStream[] = []; // direct streams (or, on the web, embeds too)
+      const queue: ExtractedStream[] = [];  // embed pages waiting for a sniff slot
+      const queuedUrls = new Set<string>();
+      let pendingExtract = raceList.length;
+      let sniffRunning = 0;
+      let sniffStarted = 0;
+      let done = false;
+      let grace: ReturnType<typeof setTimeout> | undefined;
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+
       const finish = () => {
-        if (graceTimer) clearTimeout(graceTimer);
-        if (embedTimer) clearTimeout(embedTimer);
-        resolve();
+        if (done) return;
+        done = true;
+        if (grace) clearTimeout(grace);
+        if (deadline) clearTimeout(deadline);
+        const sorted = [...found].sort((x, y) => Number(Boolean(x.isFallbackEmbed)) - Number(Boolean(y.isFallbackEmbed)));
+        this.rememberGood(params, sorted.find(x => !x.isFallbackEmbed)?.serverId);
+        resolve(directOnly ? sorted.filter(x => !x.isFallbackEmbed) : sorted);
       };
-      if (pending === 0) { finish(); return; }
+      const maybeFinish = () => {
+        if (done) return;
+        if (pendingExtract === 0 && sniffRunning === 0 && (queue.length === 0 || sniffStarted >= MAX_SNIFF_ATTEMPTS)) finish();
+      };
+      const finishSoon = () => { if (!grace) grace = setTimeout(finish, EARLY_EXIT_GRACE_MS); };
 
-      active.forEach(extractor => {
+      // Sniff slots: a couple of hidden web views at a time, each embed page as
+      // soon as its provider has answered (no waiting for the slowest provider).
+      const pump = () => {
+        while (!done && sniffRunning < SNIFF_CONCURRENCY && sniffStarted < MAX_SNIFF_ATTEMPTS && queue.length > 0) {
+          const embed = queue.shift()!;
+          sniffRunning++;
+          sniffStarted++;
+          this.sniffWithTimeout(embed, SNIFF_TIMEOUT_MS).then(stream => {
+            sniffRunning--;
+            // Health follows what really happened: a sniffed stream is a success,
+            // an embed that never gave one is a failure.
+            this.recordResult(embed.serverId ?? 'unknown', Boolean(stream));
+            if (stream) {
+              found.push({ ...stream, serverId: embed.serverId, serverName: embed.serverName });
+              finishSoon();
+            }
+            pump();
+            maybeFinish();
+          });
+        }
+      };
+      const enqueue = (embed: ExtractedStream) => {
+        if (queuedUrls.has(embed.url)) return;
+        queuedUrls.add(embed.url);
+        // The remembered provider goes to the front.
+        if (embed.serverId && embed.serverId === goodId) queue.unshift(embed);
+        else queue.push(embed);
+      };
+
+      deadline = setTimeout(finish, RESOLVE_DEADLINE_MS);
+      if (raceList.length === 0) { finish(); return; }
+
+      raceList.forEach(extractor => {
         let timer: ReturnType<typeof setTimeout> | undefined;
         const timeout = new Promise<null>(r => { timer = setTimeout(() => r(null), PROVIDER_TIMEOUT_MS); });
         // extract() may throw synchronously; wrap so one bad provider never breaks the lookup.
@@ -149,85 +195,71 @@ export class ExtractorRegistry {
           .catch(() => null)
           .then(stream => {
             if (timer) clearTimeout(timer);
-            const ok = Boolean(stream && stream.url && (isDirect(stream) || !directOnly));
-            this.recordResult(extractor.id, ok);
+            if (done) return;
             if (stream && stream.url) {
-              fulfilled.push({
-                ...stream,
-                serverId: stream.serverId || extractor.id,
-                serverName: stream.serverName || extractor.name
-              });
-              if (isDirect(stream) && !graceTimer) graceTimer = setTimeout(finish, EARLY_EXIT_GRACE_MS);
-              else if (!isDirect(stream) && directOnly && !graceTimer && !embedTimer) embedTimer = setTimeout(finish, EMBED_GRACE_MS);
+              const tagged = { ...stream, serverId: stream.serverId || extractor.id, serverName: stream.serverName || extractor.name };
+              if (!tagged.isFallbackEmbed) {
+                this.recordResult(extractor.id, true);
+                found.push(tagged);
+                finishSoon();
+              } else if (canSniff) {
+                enqueue(tagged); // judged by what the sniff finds
+              } else if (!directOnly) {
+                found.push(tagged);
+              }
+            } else {
+              this.recordResult(extractor.id, false);
             }
           })
-          .finally(() => { if (--pending === 0) finish(); });
+          .finally(() => {
+            pendingExtract--;
+            pump();
+            maybeFinish();
+          });
       });
     });
-
-    // Sort streams: direct non-blob streams first, then other direct streams, then fallback embeds
-    const sorted = fulfilled.sort((a, b) => {
-      const aDirect = !a.isFallbackEmbed && !a.url.startsWith('blob:') ? 2 : (!a.isFallbackEmbed ? 1 : 0);
-      const bDirect = !b.isFallbackEmbed && !b.url.startsWith('blob:') ? 2 : (!b.isFallbackEmbed ? 1 : 0);
-      return bDirect - aDirect;
-    });
-
-    if (!directOnly) {
-      this.rememberGood(params, sorted.find(x => !x.isFallbackEmbed)?.serverId);
-      return sorted;
-    }
-
-    // Method 2: no provider gave a direct stream from its page/API, so load the
-    // embed pages in a hidden WebView and capture the real media request.
-    const direct = sorted.filter(s => !s.isFallbackEmbed);
-    if (direct.length === 0 && params.allowSniff !== false) {
-      const embeds = sorted.filter(s => s.isFallbackEmbed).slice(0, MAX_SNIFF_ATTEMPTS);
-      const sniffed = await this.sniffFirst(embeds);
-      if (sniffed?.url) direct.push(sniffed);
-    }
-    this.rememberGood(params, direct[0]?.serverId);
-    return direct;
   }
 
-  // Sniffs embed pages in hidden web views, staggered rather than one after
-  // the other: the first embed starts at once, the next joins after
-  // SNIFF_STAGGER_MS (immediately if the previous one failed), and the first
-  // stream found wins. One slow or dead embed no longer costs its whole timeout
-  // before the next is even tried.
-  private sniffFirst(embeds: ExtractedStream[]): Promise<ExtractedStream | null> {
-    return new Promise(resolve => {
-      let next = 0;
-      let running = 0;
-      let settled = false;
-      let stagger: ReturnType<typeof setTimeout> | undefined;
+  // Asks one provider for a stream; an embed page it returns is sniffed.
+  private async tryProvider(
+    extractor: StreamExtractor,
+    params: Parameters<StreamExtractor['extract']>[0],
+    canSniff: boolean,
+    directOnly: boolean
+  ): Promise<ExtractedStream | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const stream = await Promise.race([
+        (async () => extractor.extract(params))(),
+        new Promise<null>(r => { timer = setTimeout(() => r(null), LAST_GOOD_TIMEOUT_MS); })
+      ]);
+      if (!stream || !stream.url) { this.recordResult(extractor.id, false); return null; }
+      const tagged = { ...stream, serverId: stream.serverId || extractor.id, serverName: stream.serverName || extractor.name };
+      if (!tagged.isFallbackEmbed) { this.recordResult(extractor.id, true); return tagged; }
+      if (!canSniff) return directOnly ? null : tagged;
+      const sniffed = await this.sniffWithTimeout(tagged, LAST_GOOD_SNIFF_TIMEOUT_MS);
+      this.recordResult(extractor.id, Boolean(sniffed));
+      return sniffed ? { ...sniffed, serverId: tagged.serverId, serverName: tagged.serverName } : null;
+    } catch {
+      return null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
 
-      const finish = (stream: ExtractedStream | null) => {
-        if (settled) return;
-        settled = true;
-        if (stagger) clearTimeout(stagger);
-        resolve(stream);
-      };
-      const launch = () => {
-        if (stagger) clearTimeout(stagger);
-        if (settled || next >= embeds.length) return;
-        const embed = embeds[next++];
-        running++;
-        if (next < embeds.length) stagger = setTimeout(launch, SNIFF_STAGGER_MS);
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const timeout = new Promise<null>(r => { timer = setTimeout(() => r(null), SNIFF_TIMEOUT_MS); });
-        Promise.race([(async () => this.sniffer(embed))(), timeout])
-          .catch(() => null)
-          .then(found => {
-            if (timer) clearTimeout(timer);
-            running--;
-            if (found?.url) { finish(found); return; }
-            if (next < embeds.length) launch(); // this one failed: bring the next in now
-            else if (running === 0) finish(null);
-          });
-      };
-      if (embeds.length === 0) finish(null);
-      else launch();
-    });
+  private async sniffWithTimeout(embed: ExtractedStream, ms: number): Promise<ExtractedStream | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const stream = await Promise.race([
+        (async () => this.sniffer(embed))(),
+        new Promise<null>(r => { timer = setTimeout(() => r(null), ms); })
+      ]);
+      return stream && stream.url ? stream : null;
+    } catch {
+      return null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   async resolveBestStream(params: {

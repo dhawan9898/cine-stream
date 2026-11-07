@@ -375,10 +375,23 @@ public class ExoPlayerActivity extends AppCompatActivity {
     private static final long LOADING_WATCHDOG_MS = 30_000;
     private final Runnable loadingWatchdog = this::showLoadingStalled;
 
-    // HTTP failures (e.g. a 404 that a fresh lookup doesn't hit) get one
-    // automatic re-resolve of the same episode per episode/audio, the same
-    // thing closing and reopening the episode does. Key = "episode|mode".
+    // HTTP failures (e.g. a 404 that a fresh lookup doesn't hit) get automatic
+    // re-resolves of the same episode - each one goes to a different server (the
+    // app skips the one that failed) - up to MAX_SERVER_RELOADS per episode/audio.
+    // Key = "episode|mode".
     private String reloadAttemptedKey;
+    private int reloadCount = 0;
+    private static final int MAX_SERVER_RELOADS = 3;
+
+    private int reloadsFor(String key) {
+        return key != null && key.equals(reloadAttemptedKey) ? reloadCount : 0;
+    }
+
+    private void noteReload(String key) {
+        if (key == null) return;
+        if (!key.equals(reloadAttemptedKey)) { reloadAttemptedKey = key; reloadCount = 0; }
+        reloadCount++;
+    }
 
     // Next episode's stream, resolved ahead of time by JS (setNextEpisode).
     // Valid only while the episode/audio it was resolved after is playing.
@@ -566,6 +579,11 @@ public class ExoPlayerActivity extends AppCompatActivity {
     };
 
     private boolean isAdUrl(String url) {
+        return isAdRequest(url);
+    }
+
+    // Shared with the stream sniffer in ExoPlayerPlugin.
+    static boolean isAdRequest(String url) {
         if (url == null || url.isEmpty()) return false;
         String lower = url.toLowerCase();
         for (String host : AD_HOSTS) {
@@ -824,6 +842,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
     // and hands it back via onNewIntent - stay open, show the spinner.
     private void enterLoading(String newEpisodeNumber, String newMode) {
         reloadAttemptedKey = null;
+        reloadCount = 0;
         pendingResumeMs = -1;
         pendingResumeEpisode = null;
         reportProgressNow();
@@ -1906,6 +1925,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
             prefetchedNextIntent = null;
             reportProgressNow(); // final position of the episode that's ending
             reloadAttemptedKey = null;
+            reloadCount = 0;
             Intent intent = new Intent(prefetched);
             intent.removeExtra("startPositionMs");
             intent.removeExtra("episodes"); // keep the list already loaded
@@ -2234,11 +2254,15 @@ public class ExoPlayerActivity extends AppCompatActivity {
                     final String number = episodeNumber;
                     final String mode = currentMode;
                     final String title = animeTitle;
-                    releasePlayer();
-                    errorOverlay.setVisibility(View.GONE);
-                    showLoadingState();
-                    if (ExoPlayerPlugin.notifyReloadRequested(title, number, mode, resumeAt)) {
-                        return;
+                    final String reloadKey = number + "|" + mode;
+                    if (reloadsFor(reloadKey) < MAX_SERVER_RELOADS) {
+                        releasePlayer();
+                        errorOverlay.setVisibility(View.GONE);
+                        showLoadingState();
+                        if (ExoPlayerPlugin.notifyReloadRequested(title, number, mode, resumeAt)) {
+                            noteReload(reloadKey);
+                            return;
+                        }
                     }
                 }
                 // A side-loaded subtitle file that fails (e.g. 404) is fatal
@@ -2263,8 +2287,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 // lookup of the episode (that's why closing and reopening it
                 // works) - do that once automatically, resuming here.
                 String key = episodeNumber + "|" + currentMode;
-                if (failedUri != null && !key.equals(reloadAttemptedKey)) {
-                    Log.w(TAG, "HTTP error, re-resolving episode " + key + " once: " + failedUri);
+                if (failedUri != null && reloadsFor(key) < MAX_SERVER_RELOADS) {
+                    Log.w(TAG, "HTTP error, re-resolving episode " + key + " on another server (" + (reloadsFor(key) + 1) + "/" + MAX_SERVER_RELOADS + "): " + failedUri);
                     final long resumeAt = lastKnownPositionMs;
                     final String number = episodeNumber;
                     final String mode = currentMode;
@@ -2279,12 +2303,11 @@ public class ExoPlayerActivity extends AppCompatActivity {
                         // Native lookup failed: ask the app once; if it is not
                         // there either, show the error.
                         if (ExoPlayerPlugin.notifyReloadRequested(title, number, mode, resumeAt)) {
-                            reloadAttemptedKey = number + "|" + mode;
+                            noteReload(number + "|" + mode);
                         } else {
                             showPlaybackError(describePlaybackError(error));
                         }
                     });
-                    reloadAttemptedKey = key;
                     return;
                 }
                 showPlaybackError(describePlaybackError(error));

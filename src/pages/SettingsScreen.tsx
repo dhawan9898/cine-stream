@@ -1,6 +1,6 @@
 // SettingsScreen.tsx - Appearance, haptics, playback and data settings.
 import React, { useState } from 'react';
-import { SkipForward, Gauge, Trash2, Database, Vibrate, Droplets } from 'lucide-react';
+import { SkipForward, Gauge, Trash2, Database, Vibrate, Droplets, Zap } from 'lucide-react';
 import { clearWatchHistory, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../services/persistentCache.ts';
@@ -140,6 +140,15 @@ export const SettingsScreen: React.FC = () => {
                 text="Limit video to 720p on mobile data"
                 onClick={() => update({ dataSaver: !prefs.dataSaver })}
                 trailing={<div className={`toggle-switch ${prefs.dataSaver ? 'on' : ''}`}><div className="knob" /></div>}
+              />
+            </div>
+            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              <Row
+                icon={<Zap size={18} />}
+                title="Faster Start"
+                text="Prepares the stream while you read a title page, so Play starts almost at once. Uses a little extra data."
+                onClick={() => update({ preloadStreams: !(prefs.preloadStreams ?? true) })}
+                trailing={<div className={`toggle-switch ${(prefs.preloadStreams ?? true) ? 'on' : ''}`}><div className="knob" /></div>}
               />
             </div>
             <div style={{ borderTop: '1px solid var(--border-subtle)' }}>

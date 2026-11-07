@@ -11,7 +11,9 @@ import {
   type MediaItem
 } from '../providers/cineHypeCore.ts';
 import { getWatchHistory, isBookmarked, subscribeLibraryChanges, toggleBookmark, type WatchHistoryItem } from '../services/historyService.ts';
-import { prefetchStream } from '../providers/streamResolver.ts';
+import { prefetchStream, resolveStream } from '../providers/streamResolver.ts';
+import { Capacitor } from '@capacitor/core';
+import { getUserPreferences } from '../services/historyService.ts';
 import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { PosterCard } from '../components/PosterCard.tsx';
 import { ErrorState } from 'streamkit/ui/ErrorState.tsx';
@@ -29,6 +31,9 @@ interface MediaDetailScreenProps {
 }
 
 type DetailTab = 'episodes' | 'similar' | 'cast';
+
+// How long a title page stays open before its stream is prepared in the background.
+const PRELOAD_DWELL_MS = 1500;
 
 const findHistory = (m: MediaItem): WatchHistoryItem | undefined =>
   getWatchHistory().find(h => h.id === m.id && h.type === m.mediaType);
@@ -74,6 +79,26 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
       title: media.title,
       language: media.language
     });
+  }, [media.id, media.mediaType, media.title, media.language, season, history?.season, history?.episode]);
+
+  // "Faster start": once the viewer has stayed on this page for a moment, do the
+  // full lookup (including the hidden web view that finds the real stream) so Play
+  // finds it ready. It is the very request Play would make, so Play simply joins it.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const prefs = getUserPreferences();
+    if (!prefs.preloadStreams || prefs.dataSaver) return;
+    const timer = window.setTimeout(() => {
+      resolveStream({
+        id: media.id,
+        type: media.mediaType,
+        season: history?.season ?? season,
+        episode: history?.episode ?? 1,
+        language: media.language,
+        title: media.title
+      }).catch(() => undefined);
+    }, PRELOAD_DWELL_MS);
+    return () => window.clearTimeout(timer);
   }, [media.id, media.mediaType, media.title, media.language, season, history?.season, history?.episode]);
 
   useEffect(() => {
