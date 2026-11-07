@@ -10,14 +10,13 @@ Inspired by the native architecture and fluid UI of [Anistream](../Anistream), C
 
 ### 1. 📡 Multi-Extractor Streaming Engine & TMDB Catalog
 - **Direct TMDB v3 Integration**: High-speed catalog fetching of trending titles, popular releases, critically acclaimed movies, and TV shows on the air, backed by in-flight request deduplication and exponential-backoff retries.
-- **Concurrent Stream Discovery Engine**: Seven title extractors run in parallel with automatic fallback to embedded playback or native stream sniffing:
+- **Concurrent Stream Discovery Engine**: Six title extractors run in parallel with automatic fallback to embedded playback or native stream sniffing:
   - 🔴 **Flixeo** (`flixeo.tv`)
   - 🔵 **VidLink PRO** (`vidlink.pro`)
-  - 🟢 **VidSrc TO** (`vidsrc.to`)
+  - 🟢 **VidSrc** (`vidsrc.to` and mirrors)
   - 🌐 **AutoEmbed** (`autoembed.co`)
   - 🟣 **MultiEmbed** (`multiembed.mov`)
-  - 🟠 **Embed.su** (`embed.su`)
-  - ⚡ **SmashyStream** (`player.smashy.stream`)
+  - 🇮🇳 **Movierulz Regional** (`5movierulz.site`) for Telugu, Hindi, Tamil, Malayalam and Kannada titles
 
 ### 2. 🎨 Cinema-Grade Aesthetics & WebView Performance
 - **Compositor-First Rendering**: Only `transform` and `opacity` are animated; scrolling surfaces use flat opaque cards while `backdrop-filter` is reserved for small fixed chrome (floating dock, popovers, modals).
@@ -61,8 +60,7 @@ CineStream/
     │   ├── cineHypeCore.ts       # TMDB catalog client & data models
     │   ├── streamResolver.ts     # Cached stream resolution with fallback embed URL
     │   ├── subtitleService.ts, webSniffer.ts
-    │   ├── telegramService.ts, telegramSession.ts
-    │   └── extractors/           # Seven title extractors + registry (health, last-good, early exit)
+    │   └── extractors/           # Six title extractors + registry (health, last-good, early exit)
     ├── services/                 # historyService, themeService, persistentCache config, nativePlayer, ...
     ├── components/               # Adapters over streamkit (HeroCarousel, GenrePicker) + app widgets
     ├── pages/                    # Home, Browse, Search, MediaDetail, Library, Settings

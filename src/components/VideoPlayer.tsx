@@ -252,13 +252,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       .then(res => {
         if (!active) return;
 
-        // Telegram in-memory Blob URLs cannot be directly read by Android ExoPlayer
-        if (isNative && res?.url?.startsWith('blob:')) {
-          setLoading(false);
-          setError('Telegram in-memory streams cannot be opened directly in native ExoPlayer.');
-          return;
-        }
-
         setSource(res);
         sourceRef.current = res;
         setLoading(false);

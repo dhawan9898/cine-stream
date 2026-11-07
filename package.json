@@ -23,8 +23,7 @@
     "lucide-react": "^1.46.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "streamkit": "file:./streamkit",
-    "telegram": "^2.26.16"
+    "streamkit": "file:./streamkit"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
@@ -34,7 +33,6 @@
     "oxlint": "^1.90.0",
     "tsx": "^4.23.15",
     "typescript": "~6.0.2",
-    "vite": "^8.3.0",
-    "vite-plugin-node-polyfills": "^0.28.0"
+    "vite": "^8.3.0"
   }
 }

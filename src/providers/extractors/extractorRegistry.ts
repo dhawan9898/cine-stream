@@ -9,7 +9,6 @@ import { VidLinkExtractor } from './vidlinkExtractor.ts';
 import { VidSrcExtractor } from './vidsrcExtractor.ts';
 import { AutoEmbedExtractor } from './autoembedExtractor.ts';
 import { MultiEmbedExtractor } from './multiembedExtractor.ts';
-import { TelegramExtractor } from './telegramExtractor.ts';
 
 const MAX_SNIFF_ATTEMPTS = 4;
 const PROVIDER_TIMEOUT_MS = 7000;
@@ -66,8 +65,6 @@ export class ExtractorRegistry {
     this.register(new VidLinkExtractor());
     this.register(new VidSrcExtractor());
     this.register(new FlixeoExtractor());
-    // Secondary / private channel source
-    this.register(new TelegramExtractor());
   }
 
   register(extractor: StreamExtractor) {
@@ -238,15 +235,11 @@ export class ExtractorRegistry {
       if (regionalStream) return regionalStream;
     }
 
-    // 1. Prefer direct media stream (non-fallback, non-blob)
-    const primaryDirectStream = all.find(s => !s.isFallbackEmbed && !s.url.startsWith('blob:'));
-    if (primaryDirectStream) return primaryDirectStream;
+    // 1. Prefer a direct media stream
+    const directStream = all.find(s => !s.isFallbackEmbed);
+    if (directStream) return directStream;
 
-    // 2. Secondary direct stream (e.g. verified Telegram file)
-    const secondaryDirectStream = all.find(s => !s.isFallbackEmbed);
-    if (secondaryDirectStream) return secondaryDirectStream;
-
-    // 3. Fallback embeds: prefer 2Embed/MultiEmbed/AutoEmbed/Movierulz over VidLink/VidSrc
+    // 2. Fallback embeds: prefer 2Embed/MultiEmbed/AutoEmbed/Movierulz over VidLink/VidSrc
     const cleanEmbed = all.find(s => s.serverId === 'multiembed' || s.serverId === 'autoembed' || s.serverId === 'insertunit' || s.serverId === 'movierulz');
     return cleanEmbed ?? all[0] ?? null;
   }

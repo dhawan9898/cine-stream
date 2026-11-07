@@ -1,19 +1,11 @@
-// SettingsScreen.tsx - Appearance, playback, data, and Telegram integration settings.
-import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { SkipForward, Gauge, Trash2, Database, Send, LogOut, ChevronRight, Vibrate } from 'lucide-react';
+// SettingsScreen.tsx - Appearance, haptics, playback and data settings.
+import React, { useState } from 'react';
+import { SkipForward, Gauge, Trash2, Database, Vibrate } from 'lucide-react';
 import { clearWatchHistory, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../services/persistentCache.ts';
 import { ConfirmModal } from 'streamkit/ui/ConfirmModal.tsx';
 import { getHapticSettings, saveHapticSettings, hapticLight, hapticMedium, hapticSelection, hapticToggle, type HapticIntensity } from '../services/hapticsService.ts';
-import {
-  hasSavedSession, getSelectedChannels, getCachedAuthStatus, saveCachedAuthStatus
-} from '../providers/telegramSession.ts';
-
-// The Telegram client (GramJS) is ~1.5 MB. Only load it when a session exists
-// or the user opens the login dialog; most people never do.
-const TelegramAuthModal = lazy(() => import('../components/TelegramAuthModal.tsx').then(m => ({ default: m.TelegramAuthModal })));
-const loadTelegramService = () => import('../providers/telegramService.ts').then(m => m.telegramService);
 
 const THEMES: { id: Theme; label: string }[] = [
   { id: 'dark', label: 'Dark' },
@@ -79,35 +71,6 @@ export const SettingsScreen: React.FC = () => {
   const [confirming, setConfirming] = useState(false);
   const [cacheCleared, setCacheCleared] = useState(false);
 
-  // Telegram Integration state
-  const [telegramAuthOpen, setTelegramAuthOpen] = useState(false);
-  const [tgStatus, setTgStatus] = useState<{ isLoggedIn: boolean; username?: string; phone?: string }>({ isLoggedIn: false });
-  const [selectedChannelsCount, setSelectedChannelsCount] = useState(0);
-
-  // `live` forces a real check (after login / logout); opening Settings alone
-  // reuses the last known status so it never has to connect to Telegram.
-  const refreshTgStatus = async (live = true) => {
-    if (!(await hasSavedSession())) {
-      setTgStatus({ isLoggedIn: false });
-      setSelectedChannelsCount(0);
-      return;
-    }
-    const cached = live ? null : await getCachedAuthStatus();
-    const status = cached ?? await (await loadTelegramService()).getAuthStatus();
-    if (!cached) await saveCachedAuthStatus(status);
-    setTgStatus(status);
-    if (status.isLoggedIn) {
-      const channels = await getSelectedChannels();
-      setSelectedChannelsCount(channels.length);
-    } else {
-      setSelectedChannelsCount(0);
-    }
-  };
-
-  useEffect(() => {
-    refreshTgStatus(false);
-  }, []);
-
   const update = (patch: Partial<typeof prefs>) => {
     saveUserPreferences(patch);
     setPrefs(getUserPreferences());
@@ -117,11 +80,6 @@ export const SettingsScreen: React.FC = () => {
     applyTheme(t);
     setTheme(t);
     saveUserPreferences({ theme: t });
-  };
-
-  const handleTgLogout = async () => {
-    await (await loadTelegramService()).logout();
-    await refreshTgStatus();
   };
 
   return (
@@ -140,41 +98,6 @@ export const SettingsScreen: React.FC = () => {
       </div>
 
       <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        <section>
-          <SectionLabel>Telegram Library</SectionLabel>
-          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-            {tgStatus.isLoggedIn ? (
-              <>
-                <Row
-                  icon={<Send size={18} />}
-                  title={`Telegram Connected (${tgStatus.username ? '@' + tgStatus.username : tgStatus.phone || 'User'})`}
-                  text={`${selectedChannelsCount} ${selectedChannelsCount === 1 ? 'channel' : 'channels'} selected for media scanning`}
-                  onClick={() => setTelegramAuthOpen(true)}
-                  trailing={<ChevronRight size={18} color="var(--text-muted)" />}
-                />
-                <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
-                  <Row
-                    icon={<LogOut size={18} />}
-                    title="Disconnect Telegram"
-                    text="Log out and clear saved channel indexing"
-                    onClick={handleTgLogout}
-                    danger
-                    trailing={<LogOut size={18} color="var(--accent-danger)" />}
-                  />
-                </div>
-              </>
-            ) : (
-              <Row
-                icon={<Send size={18} />}
-                title="Connect Telegram Account"
-                text="Stream movies and TV shows directly from your private Telegram channels"
-                onClick={() => setTelegramAuthOpen(true)}
-                trailing={<ChevronRight size={18} color="var(--text-muted)" />}
-              />
-            )}
-          </div>
-        </section>
-
         <section>
           <SectionLabel>Appearance</SectionLabel>
           <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', padding: '16px' }}>
@@ -291,15 +214,6 @@ export const SettingsScreen: React.FC = () => {
         onCancel={() => setConfirming(false)}
       />
 
-      {telegramAuthOpen && (
-        <Suspense fallback={null}>
-          <TelegramAuthModal
-            open={telegramAuthOpen}
-            onClose={() => setTelegramAuthOpen(false)}
-            onSuccess={() => refreshTgStatus(true)}
-          />
-        </Suspense>
-      )}
     </div>
   );
 };
