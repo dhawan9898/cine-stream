@@ -26,6 +26,9 @@ jobs:
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
+        with:
+          # Full history + tags: the release notes list every commit since the previous release.
+          fetch-depth: 0
 
       - name: Setup Node.js 22
         uses: actions/setup-node@v4
@@ -124,15 +127,17 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
+          # Every commit since the previous release (a push can carry several).
+          PREV=$(git tag --sort=-v:refname | grep -E '^v[0-9]+(\.[0-9]+)+$' | grep -vx "v${VERSION}" | head -1 || true)
+          CHANGES=$(git log --no-merges --format='#### %s%n%n%b' "${PREV:+$PREV..}HEAD" | grep -v '^Co-Authored-By' | cat -s)
           {
             echo "## CineStream v${VERSION}"
             echo
             echo "Built from commit \`${GITHUB_SHA::7}\` on $(date -u +'%Y-%m-%d %H:%M UTC')."
             echo
-            echo "### Changes"
-            echo "${COMMIT_MESSAGE:-Manual build}"
+            echo "### What's changed"
+            echo "${CHANGES:-Manual build}"
             echo
             echo "### Install"
             echo "Download **CineStream-v${VERSION}.apk** below. It updates the previous version in place and keeps your library and history. Requires Android 8.0 or later."
