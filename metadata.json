@@ -1,0 +1,7 @@
+{
+  "name": "CineStream - Movies & TV Shows",
+  "description": "CineStream - Stream Movies & TV Series powered by CineHype",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

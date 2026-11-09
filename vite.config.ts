@@ -15,8 +15,9 @@ export default defineConfig({
     chunkSizeWarningLimit: 900
   },
   server: {
-    port: 3001,
-    host: true,
+    port: 3000,
+    host: '0.0.0.0',
+    allowedHosts: true,
     proxy: {
       '/api-tmdb': {
         target: 'https://api.themoviedb.org/3',

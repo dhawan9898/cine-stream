@@ -4,7 +4,7 @@ import type { StreamExtractor, ExtractedStream, ExtractorSubtitle } from './type
 import { discover, pickBest, type FoundStream } from './streamDiscovery.ts';
 
 // Fast per-request limit for sub-second provider resolution
-const DEFAULT_HTTP_TIMEOUT_MS = 3500;
+const DEFAULT_HTTP_TIMEOUT_MS = 1000;
 
 export abstract class BaseExtractor implements StreamExtractor {
   abstract id: string;

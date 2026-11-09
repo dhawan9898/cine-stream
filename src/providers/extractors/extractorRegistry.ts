@@ -7,20 +7,20 @@ import { FlixeoExtractor } from './flixeoExtractor.ts';
 import { CineHypeExtractor } from './cinehypeExtractor.ts';
 import { MovierulzExtractor } from './movierulzExtractor.ts';
 
-const MAX_SNIFF_ATTEMPTS = 4;
+const MAX_SNIFF_ATTEMPTS = 2;
 const SNIFF_CONCURRENCY = 2;
-const PROVIDER_TIMEOUT_MS = 3500;
-const SNIFF_TIMEOUT_MS = 8000;
-const RESOLVE_DEADLINE_MS = 15000;
-const EARLY_EXIT_GRACE_MS = 250;
+const PROVIDER_TIMEOUT_MS = 1000;
+const SNIFF_TIMEOUT_MS = 900;
+const RESOLVE_DEADLINE_MS = 1200;
+const EARLY_EXIT_GRACE_MS = 20;
 const HEALTH_KEY = 'cinestream_provider_health_v1';
 const FAILS_BEFORE_COOLDOWN = 3;
 const COOLDOWN_MS = 10 * 60 * 1000;
 
 const LAST_GOOD_KEY = 'cinestream_last_good_v1';
 const LAST_GOOD_MAX = 300;
-const LAST_GOOD_TIMEOUT_MS = 2500;
-const LAST_GOOD_SNIFF_TIMEOUT_MS = 6000;
+const LAST_GOOD_TIMEOUT_MS = 500;
+const LAST_GOOD_SNIFF_TIMEOUT_MS = 800;
 
 type Sniffer = (embed: ExtractedStream) => Promise<ExtractedStream | null>;
 

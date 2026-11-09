@@ -2,9 +2,9 @@
 // category pool (movies + TV, every language and genre) and ordered by what
 // the viewer watches; rows below the fold load when scrolled near.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Play, ChevronRight, ChevronDown, Search as SearchIcon, X, RefreshCw } from 'lucide-react';
+import { Play, ChevronRight, ChevronDown, Search as SearchIcon, X, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { clearPersistedCache } from '../services/persistentCache.ts';
-import { warmStreams } from '../providers/streamResolver.ts';
+import { prefetchStream, warmStreams } from '../providers/streamResolver.ts';
 import { getTrending, getRecommendations, type MediaItem } from '../providers/cineHypeCore.ts';
 import { getWatchHistory, getBookmarks, removeWatchHistory, subscribeLibraryChanges, type WatchHistoryItem } from '../services/historyService.ts';
 import {
@@ -19,6 +19,7 @@ import {
   type BrowseSource
 } from '../services/browseSources.ts';
 import {
+  GENRES,
   MOODS,
   categorySource,
   categorySupports,
@@ -44,18 +45,17 @@ interface HomeScreenProps {
   paused: boolean;
 }
 
-const MODES: { id: TypeFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'movie', label: 'Movies' },
-  { id: 'tv', label: 'TV Shows' }
+// Top selection strictly has TV Shows and Movies (like Netflix)
+const MODES: { id: 'tv' | 'movie'; label: string }[] = [
+  { id: 'tv', label: 'TV Shows' },
+  { id: 'movie', label: 'Movies' }
 ];
 
 const MAX_RAILS = 16;
 const cat = (key: string) => getCategory(key)!;
 
-// Language / genre rows people expect on first launch, before any history.
-const DEFAULT_LANGUAGES = ['lang-te', 'lang-hi', 'lang-ta', 'lang-ml'];
-const DEFAULT_GENRES = ['action', 'comedy', 'romance', 'scifi', 'thriller', 'horror', 'crime', 'animation'];
+// Curated genres and moods matching Netflix-style discovery
+const DEFAULT_GENRES = ['action', 'comedy', 'romance', 'scifi', 'thriller', 'horror', 'crime', 'animation', 'drama', 'documentary'];
 const DEFAULT_MOODS = ['feel-good', 'edge-of-seat', 'mind-bending', 'family-night'];
 
 // Ordered list of rows for a tab. Taste-based rows come first so the top of
@@ -63,19 +63,15 @@ const DEFAULT_MOODS = ['feel-good', 'edge-of-seat', 'mind-bending', 'family-nigh
 function buildRails(filter: TypeFilter, taste: Taste): BrowseSource[] {
   const rails: BrowseSource[] = [];
   const add = (src: BrowseSource | null) => { if (src && !rails.some(r => r.key === src.key)) rails.push(src); };
-  const addCat = (c: Category, title?: string, language?: Category) => {
-    if (categorySupports(c, filter)) add(categorySource(c, filter, { title, language }));
+  const addCat = (c: Category, title?: string) => {
+    if (categorySupports(c, filter)) add(categorySource(c, filter, { title }));
   };
 
   if (taste.hasSignal) {
     const [topGenre, secondGenre, thirdGenre] = taste.genres;
-    const [topLang, secondLang] = taste.languages;
-    if (topGenre && topLang) addCat(topGenre, `${topLang.name} ${topGenre.name} for You`, topLang);
     if (topGenre) addCat(topGenre, `Because You Like ${topGenre.name}`);
-    if (topLang) addCat(topLang, `More in ${topLang.name}`);
     if (secondGenre) addCat(secondGenre, `More ${secondGenre.name} for You`);
-    if (secondLang) addCat(secondLang, `More in ${secondLang.name}`);
-    if (thirdGenre) addCat(thirdGenre, `Because You Like ${thirdGenre.name}`);
+    if (thirdGenre) addCat(thirdGenre, `Top ${thirdGenre.name} Titles`);
   }
 
   if (filter === 'tv') {
@@ -86,29 +82,27 @@ function buildRails(filter: TypeFilter, taste: Taste): BrowseSource[] {
     add(POPULAR_MOVIES); add(POPULAR_TV); add(TOP_RATED_MOVIES); add(ON_THE_AIR);
   }
 
-  // Interleave the three pools so the feed alternates language / mood / genre.
-  const langs = DEFAULT_LANGUAGES.map(cat);
+  // Interleave the genres and moods
   const moods = DEFAULT_MOODS.map(cat);
   const genres = DEFAULT_GENRES.map(cat);
-  for (let i = 0; i < Math.max(langs.length, moods.length, genres.length); i++) {
-    for (const c of [langs[i], moods[i], genres[i]]) if (c) addCat(c);
+  for (let i = 0; i < Math.max(moods.length, genres.length); i++) {
+    for (const c of [genres[i], moods[i]]) if (c) addCat(c);
   }
   return rails.slice(0, MAX_RAILS);
 }
 
-// Chips next to the tabs: what the viewer likes first, then the popular picks.
+// Quick genre and category chips for the active mode (Netflix-style, no regional languages)
 function buildChips(filter: TypeFilter, taste: Taste): BrowseSource[] {
   const seen = new Set<string>();
+  const curatedGenres = GENRES.filter(g => categorySupports(g, filter));
   const pool = [
-    ...taste.languages,
     ...taste.genres,
-    ...DEFAULT_LANGUAGES.map(cat),
-    ...DEFAULT_GENRES.map(cat),
-    ...MOODS.slice(0, 2)
+    ...curatedGenres,
+    ...MOODS
   ];
   return pool
     .filter(c => categorySupports(c, filter) && !seen.has(c.key) && seen.add(c.key))
-    .slice(0, 12)
+    .slice(0, 14)
     .map(c => categorySource(c, filter, { title: c.name }));
 }
 
@@ -290,7 +284,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
     let cancelled = false;
     setTrending([]);
     getTrending(mode, 'week')
-      .then(items => { if (!cancelled) { setTrending(items); setTrendingError(false); warmStreams(items, 6); } })
+      .then(items => {
+        if (!cancelled) {
+          setTrending(items);
+          setTrendingError(false);
+          items.slice(0, 3).forEach(m => prefetchStream({ id: m.id, type: m.mediaType, title: m.title }));
+          warmStreams(items, 6);
+        }
+      })
       .catch(() => { if (!cancelled) setTrendingError(true); });
     return () => { cancelled = true; };
   }, [attempt, mode]);
@@ -332,9 +333,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
   const watched = useMemo(() => new Set(history.map(h => `${h.type}-${h.id}`)), [history]);
   const seed = history.find(h => h.progressPercent > 5);
   const top10Source = mode === 'tv' ? TRENDING_TV : mode === 'movie' ? TRENDING_MOVIES : TRENDING_ALL;
-  const suggested = useMemo(() => [...taste.languages, ...taste.genres], [taste]);
+  const suggested = useMemo(() => taste.genres, [taste]);
 
-  const openPicker = () => { setPickerFilter(mode); setPickerOpen(true); };
+  const openPicker = () => { setPickerFilter(mode === 'all' ? 'tv' : mode); setPickerOpen(true); };
 
   return (
     <div
@@ -358,67 +359,118 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
       {/* Top bar: wordmark + Categories + search, floating over the hero.
           Gradient only, no blur - a blurred sticky bar re-renders the whole
           feed under it on every scroll frame. */}
+      {/* Optimized Top bar: wordmark + Fixed Segmented Type Switcher + Categories + Search */}
       <div
         style={{
           position: 'sticky',
           top: 0,
           zIndex: 40,
-          background: 'linear-gradient(180deg, rgba(9,9,15,0.85) 0%, rgba(9,9,15,0.5) 65%, transparent 100%)',
-          padding: 'calc(var(--safe-top) + 12px) 20px 12px 20px',
+          background: 'linear-gradient(180deg, rgba(9,9,15,0.94) 0%, rgba(9,9,15,0.72) 70%, transparent 100%)',
+          padding: 'calc(var(--safe-top) + 12px) 20px 8px 20px',
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between'
+          flexDirection: 'column',
+          gap: '10px'
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'baseline' }}>
-          <span style={{ fontSize: '24px', fontWeight: 900, letterSpacing: '-0.8px', color: 'var(--accent-primary)', textShadow: '0 2px 12px rgba(0,0,0,0.6)' }}>CINE</span>
-          <span style={{ fontSize: '24px', fontWeight: 900, letterSpacing: '-0.8px', color: '#fff', textShadow: '0 2px 12px rgba(0,0,0,0.6)' }}>STREAM</span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+          {/* Brand mark */}
+          <div style={{ display: 'flex', alignItems: 'baseline', flexShrink: 0 }}>
+            <span style={{ fontSize: '24px', fontWeight: 900, letterSpacing: '-0.8px', color: 'var(--accent-primary)', textShadow: '0 2px 12px rgba(0,0,0,0.6)' }}>CINE</span>
+            <span style={{ fontSize: '24px', fontWeight: 900, letterSpacing: '-0.8px', color: '#fff', textShadow: '0 2px 12px rgba(0,0,0,0.6)' }}>STREAM</span>
+          </div>
+
+          {/* Top Selection: TV Shows | Movies (Netflix-style) */}
+          <div
+            className="seg-track glass-panel"
+            style={{
+              padding: '3px',
+              borderRadius: 'var(--radius-full)',
+              display: 'flex',
+              alignItems: 'center',
+              backgroundColor: 'rgba(255, 255, 255, 0.08)'
+            }}
+          >
+            {MODES.map(m => {
+              const active = mode === m.id;
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => {
+                    hapticSelection();
+                    setMode(curr => curr === m.id ? 'all' : m.id);
+                  }}
+                  className={`interactive ${active ? 'active' : ''}`}
+                  aria-pressed={active}
+                  style={{
+                    padding: '5px 15px',
+                    borderRadius: 'var(--radius-full)',
+                    border: 'none',
+                    backgroundColor: active ? 'var(--accent-primary)' : 'transparent',
+                    color: active ? '#ffffff' : 'rgba(255, 255, 255, 0.75)',
+                    fontSize: '12.5px',
+                    fontWeight: active ? 800 : 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.18s ease',
+                    whiteSpace: 'nowrap'
+                  }}
+                >
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Action buttons (Categories and Search) */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+            <button
+              onClick={() => { hapticLight(); openPicker(); }}
+              className="interactive glass-pill-dark"
+              aria-label="Browse Categories"
+              style={{ padding: '6px 12px', borderRadius: 'var(--radius-full)', display: 'flex', alignItems: 'center', gap: '5px', color: '#fff', fontSize: '12px', fontWeight: 600 }}
+            >
+              <SlidersHorizontal size={14} />
+              <span>Categories</span>
+              <ChevronDown size={14} />
+            </button>
+            <button
+              onClick={() => { hapticLight(); onOpenSearch(); }}
+              className="interactive glass-pill-dark"
+              aria-label="Search"
+              style={{ width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}
+            >
+              <SearchIcon size={17} />
+            </button>
+          </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button
-            onClick={() => { hapticLight(); openPicker(); }}
-            className="interactive glass-pill-dark"
-            style={{ padding: '7px 12px', borderRadius: 'var(--radius-full)', display: 'flex', alignItems: 'center', gap: '4px', color: '#fff', fontSize: '13px', fontWeight: 600 }}
-          >
-            <span>Categories</span>
-            <ChevronDown size={16} />
-          </button>
-          <button
-            onClick={() => { hapticLight(); onOpenSearch(); }}
-            className="interactive glass-pill-dark"
-            aria-label="Search"
-            style={{ width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}
-          >
-            <SearchIcon size={18} />
-          </button>
+        {/* Quick Genre & Category Chips Strip */}
+        <div
+          className="rail"
+          style={{
+            gap: '6px',
+            paddingBottom: '2px',
+            scrollbarWidth: 'none',
+            WebkitOverflowScrolling: 'touch'
+          }}
+        >
+          {chips.map(src => (
+            <button
+              key={src.key}
+              onClick={() => { hapticLight(); onOpenSource(src); }}
+              className="interactive glass-pill-dark"
+              style={{
+                padding: '5px 13px',
+                borderRadius: 'var(--radius-full)',
+                color: 'var(--text-secondary)',
+                fontSize: '12px',
+                fontWeight: 600,
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {src.title}
+            </button>
+          ))}
         </div>
-      </div>
-
-      {/* Tabs + quick category chips (Netflix-style filter row). */}
-      <div className="rail" style={{ gap: '8px', padding: '0 20px 10px 20px', position: 'relative', zIndex: 2 }}>
-        {MODES.map(m => (
-          <button
-            key={m.id}
-            onClick={() => { hapticSelection(); setMode(m.id); }}
-            className={`interactive glass-pill-dark chip ${mode === m.id ? 'active' : ''}`}
-            aria-pressed={mode === m.id}
-            style={{ padding: '7px 16px', borderRadius: 'var(--radius-full)', color: '#fff', fontSize: '13px', fontWeight: 700, whiteSpace: 'nowrap' }}
-          >
-            {m.label}
-          </button>
-        ))}
-        <span aria-hidden style={{ width: '1px', background: 'rgba(255,255,255,0.18)', margin: '4px 2px', flexShrink: 0 }} />
-        {chips.map(src => (
-          <button
-            key={src.key}
-            onClick={() => { hapticLight(); onOpenSource(src); }}
-            className="interactive glass-pill-dark"
-            style={{ padding: '7px 14px', borderRadius: 'var(--radius-full)', color: 'var(--text-secondary)', fontSize: '13px', fontWeight: 600, whiteSpace: 'nowrap' }}
-          >
-            {src.title}
-          </button>
-        ))}
       </div>
 
       {trendingError ? (

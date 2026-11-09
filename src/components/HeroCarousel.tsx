@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { HeroCarousel as SharedHeroCarousel, type HeroSlide } from 'streamkit/ui/HeroCarousel.tsx';
 import { MOVIE_GENRES, TV_GENRES, type MediaItem } from '../providers/cineHypeCore.ts';
 import { getBookmarks, subscribeLibraryChanges, toggleBookmark } from '../services/historyService.ts';
+import { prefetchStream } from '../providers/streamResolver.ts';
 
 const MAX_SLIDES = 8;
 
@@ -29,6 +30,12 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({ items, onPlay, onOpe
   const [saved, setSaved] = useState<Set<string>>(() => new Set(getBookmarks().map(key)));
 
   useEffect(() => subscribeLibraryChanges(() => setSaved(new Set(getBookmarks().map(key)))), []);
+
+  useEffect(() => {
+    titles.slice(0, 3).forEach(m => {
+      prefetchStream({ id: m.id, type: m.mediaType, title: m.title, language: m.language });
+    });
+  }, [titles]);
 
   const slides: HeroSlide[] = useMemo(() => titles.map(m => {
     const year = m.releaseDate ? m.releaseDate.slice(0, 4) : '';

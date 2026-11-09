@@ -39,7 +39,7 @@ const memoryCache = new Map<string, { at: number; prefetch: boolean; promise: Pr
 const REUSE_MS = 30 * 60 * 1000; // 30 minutes in-memory
 const CACHE_VERSION = 'v11';
 // How long a ready stream waits for the (optional) external subtitle lookup.
-const SUBTITLE_GRACE_MS = 300;
+const SUBTITLE_GRACE_MS = 40;
 const keyOf = (p: StreamParams) => `${CACHE_VERSION}|${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.language ?? ''}|${p.title ?? ''}|${p.preferredServerId ?? ''}`;
 
 /**
@@ -117,10 +117,10 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
     if (preferredExtractor) {
       try {
         const ctl = new AbortController();
-        const timer = setTimeout(() => ctl.abort(), 6000);
+        const timer = setTimeout(() => ctl.abort(), 1000);
         const direct = await Promise.race([
           preferredExtractor.extract({ ...params, signal: ctl.signal }),
-          new Promise<null>(r => setTimeout(() => r(null), 6000))
+          new Promise<null>(r => setTimeout(() => r(null), 1000))
         ]).finally(() => clearTimeout(timer));
         // An embed page is never playable: only a direct stream is accepted.
         if (direct && direct.url && !direct.isFallbackEmbed) {
