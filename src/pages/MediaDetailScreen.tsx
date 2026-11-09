@@ -33,7 +33,7 @@ interface MediaDetailScreenProps {
 type DetailTab = 'episodes' | 'similar' | 'cast';
 
 // How long a title page stays open before its stream is prepared in the background.
-const PRELOAD_DWELL_MS = 100;
+const PRELOAD_DWELL_MS = 1500;
 
 const findHistory = (m: MediaItem): WatchHistoryItem | undefined =>
   getWatchHistory().find(h => h.id === m.id && h.type === m.mediaType);
@@ -88,8 +88,9 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
   // full lookup (including the hidden web view that finds the real stream) so Play
   // finds it ready. It is the very request Play would make, so Play simply joins it.
   useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
     const prefs = getUserPreferences();
-    if (prefs.dataSaver) return;
+    if (!prefs.preloadStreams || prefs.dataSaver) return;
     const timer = window.setTimeout(() => {
       resolveStream({
         id: media.id,

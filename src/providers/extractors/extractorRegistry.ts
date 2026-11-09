@@ -7,20 +7,20 @@ import { FlixeoExtractor } from './flixeoExtractor.ts';
 import { CineHypeExtractor } from './cinehypeExtractor.ts';
 import { MovierulzExtractor } from './movierulzExtractor.ts';
 
-const MAX_SNIFF_ATTEMPTS = 2;
+const MAX_SNIFF_ATTEMPTS = 4;
 const SNIFF_CONCURRENCY = 2;
-const PROVIDER_TIMEOUT_MS = 1000;
-const SNIFF_TIMEOUT_MS = 900;
-const RESOLVE_DEADLINE_MS = 1200;
-const EARLY_EXIT_GRACE_MS = 20;
+const PROVIDER_TIMEOUT_MS = 6000;
+const SNIFF_TIMEOUT_MS = 12000;
+const RESOLVE_DEADLINE_MS = 20000;
+const EARLY_EXIT_GRACE_MS = 250;
 const HEALTH_KEY = 'cinestream_provider_health_v1';
 const FAILS_BEFORE_COOLDOWN = 3;
 const COOLDOWN_MS = 10 * 60 * 1000;
 
 const LAST_GOOD_KEY = 'cinestream_last_good_v1';
 const LAST_GOOD_MAX = 300;
-const LAST_GOOD_TIMEOUT_MS = 500;
-const LAST_GOOD_SNIFF_TIMEOUT_MS = 800;
+const LAST_GOOD_TIMEOUT_MS = 3500;
+const LAST_GOOD_SNIFF_TIMEOUT_MS = 8000;
 
 type Sniffer = (embed: ExtractedStream) => Promise<ExtractedStream | null>;
 
@@ -226,10 +226,9 @@ export class ExtractorRegistry {
                 finishSoon();
               } else if (canSniff) {
                 enqueue(tagged);
-              } else {
-                // An embed page cannot be played and cannot be sniffed here: a failure for this lookup.
-                this.recordResult(extractor.id, false);
               }
+              // else: an embed page that cannot be sniffed here (a background prefetch, or the web).
+              // It says nothing about the provider's health, so it is neither a success nor a failure.
             } else {
               this.recordResult(extractor.id, false);
             }
@@ -258,7 +257,7 @@ export class ExtractorRegistry {
       if (!stream || !stream.url) { this.recordResult(extractor.id, false); return null; }
       const tagged = { ...stream, serverId: stream.serverId || extractor.id, serverName: stream.serverName || extractor.name };
       if (!tagged.isFallbackEmbed) { this.recordResult(extractor.id, true); return tagged; }
-      if (!canSniff) { this.recordResult(extractor.id, false); return null; }
+      if (!canSniff) return null; // cannot sniff here: says nothing about the provider's health
       const sniffed = await this.sniffWithTimeout(tagged, LAST_GOOD_SNIFF_TIMEOUT_MS);
       this.recordResult(extractor.id, Boolean(sniffed));
       return sniffed ? { ...sniffed, serverId: tagged.serverId, serverName: tagged.serverName } : null;

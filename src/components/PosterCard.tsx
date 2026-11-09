@@ -41,21 +41,6 @@ const PosterCardBase: React.FC<PosterCardProps> = ({ media, onSelect, width, bad
   const cancel = () => { window.clearTimeout(timer.current); timer.current = 0; };
   useEffect(() => cancel, []);
 
-  // Proactive background stream resolution:
-  // As soon as this tile has a poster, start resolving the streaming link immediately.
-  useEffect(() => {
-    if (!media.poster || !media.id) return;
-    prefetchMediaDetails(media.id, media.mediaType);
-    prefetchStream({
-      id: media.id,
-      type: media.mediaType,
-      title: media.title,
-      language: media.language,
-      season: 1,
-      episode: 1
-    });
-  }, [media.id, media.mediaType, media.title, media.poster, media.language]);
-
   const handlePrefetch = (immediate = false) => {
     prefetchMediaDetails(media.id, media.mediaType);
     prefetchStream({
@@ -134,7 +119,6 @@ const PosterCardBase: React.FC<PosterCardProps> = ({ media, onSelect, width, bad
           sizes={width ? `${width}px` : '(max-width: 600px) 33vw, 180px'}
           alt={media.title}
           loading="lazy"
-          onLoad={() => handlePrefetch(true)}
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
         />
       )}

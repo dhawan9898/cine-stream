@@ -3,8 +3,8 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import type { StreamExtractor, ExtractedStream, ExtractorSubtitle } from './types.ts';
 import { discover, pickBest, type FoundStream } from './streamDiscovery.ts';
 
-// Fast per-request limit for sub-second provider resolution
-const DEFAULT_HTTP_TIMEOUT_MS = 1000;
+// Per-request limit; a provider's whole lookup is capped by the registry anyway.
+const DEFAULT_HTTP_TIMEOUT_MS = 5000;
 
 export abstract class BaseExtractor implements StreamExtractor {
   abstract id: string;
