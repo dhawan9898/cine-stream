@@ -1,7 +1,8 @@
 // extractorRegistry.ts - Central registry for real title-specific stream extractors
 import type { StreamExtractor, ExtractedStream } from './types.ts';
 import { sniffDirectStream } from '../webSniffer.ts';
-import { ProviderHealth, LastGoodStore } from 'streamkit/providers/health.ts';
+import { LastGoodStore } from 'streamkit/providers/health.ts';
+import { ProviderStats } from './providerStats.ts';
 import { recordTiming } from '../streamTimings.ts';
 import { VegaExtractor } from './vegaExtractor.ts';
 import { FlixeoExtractor } from './flixeoExtractor.ts';
@@ -14,10 +15,12 @@ const PROVIDER_TIMEOUT_MS = 6000;
 const SNIFF_TIMEOUT_MS = 12000;
 const RESOLVE_DEADLINE_MS = 20000;
 const EARLY_EXIT_GRACE_MS = 250;
-const HEALTH_KEY = 'cinestream_provider_health_v1';
+const HEALTH_KEY = 'cinestream_provider_stats_v2';
 const FAILS_BEFORE_COOLDOWN = 3;
 const COOLDOWN_MS = 10 * 60 * 1000;
 
+/** Head start (ms of expected time) given to the provider that suits the title. */
+const PRIMARY_BIAS_MS = 1500;
 const LAST_GOOD_KEY = 'cinestream_last_good_v1';
 const LAST_GOOD_MAX = 300;
 const LAST_GOOD_TIMEOUT_MS = 3500;
@@ -28,10 +31,12 @@ type Sniffer = (embed: ExtractedStream, signal?: AbortSignal) => Promise<Extract
 export class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
   private sniffer: Sniffer = (embed, signal) => sniffDirectStream(embed, SNIFF_TIMEOUT_MS, signal);
-  private health = new ProviderHealth({
+  // Learned speed and reliability per provider; also the circuit breaker (see providerStats.ts).
+  private stats = new ProviderStats({
     storageKey: HEALTH_KEY,
-    failsBeforeCooldown: FAILS_BEFORE_COOLDOWN,
-    cooldownMs: COOLDOWN_MS
+    failsToOpen: FAILS_BEFORE_COOLDOWN,
+    baseBackoffMs: COOLDOWN_MS / 20,
+    maxBackoffMs: COOLDOWN_MS
   });
   private lastGood = new LastGoodStore(LAST_GOOD_KEY, LAST_GOOD_MAX);
 
@@ -39,12 +44,16 @@ export class ExtractorRegistry {
     this.lastGood.remember(`${params.type}:${params.id}`, serverId);
   }
 
-  private recordResult(id: string, ok: boolean) {
-    this.health.record(id, ok);
+  // `ms` is the time from the request to a playable stream (successes only).
+  private recordResult(id: string, ok: boolean, ms?: number) {
+    // No network says nothing about the provider.
+    if (!ok && typeof navigator !== 'undefined' && navigator.onLine === false) return;
+    this.stats.record(id, ok, ms);
   }
 
-  private isCoolingDown(id: string): boolean {
-    return this.health.isCoolingDown(id);
+  /** What has been learned so far, for diagnostics. */
+  providerStats() {
+    return this.stats.snapshot();
   }
 
   setSniffer(fn: Sniffer) {
@@ -86,9 +95,9 @@ export class ExtractorRegistry {
     const primaryId = isRegional
       ? 'movierulz'
       : (type === 'movie' ? 'vega' : 'flixeo');
-    const primary = this.extractors.find(e => e.id === primaryId);
-    const rest = this.extractors.filter(e => e.id !== primaryId);
-    return primary ? [primary, ...rest] : this.extractors;
+    // Fastest and most reliable first, learned from real lookups. The title's natural
+    // provider gets a head start so it is still preferred while nothing is known.
+    return this.stats.rank(this.extractors, id => (id === primaryId ? PRIMARY_BIAS_MS : 0));
   }
 
   async resolveAllStreams(params: {
@@ -114,7 +123,8 @@ export class ExtractorRegistry {
     const excluded = new Set(params.exclude ?? []);
     const notExcluded = ordered.filter(e => !excluded.has(e.id));
     const usable = notExcluded.length > 0 ? notExcluded : ordered;
-    const healthy = usable.filter(e => !this.isCoolingDown(e.id));
+    // Providers whose breaker is open sit out (a half-open one gets a single probe) - unless that would leave none.
+    const healthy = usable.filter(e => this.stats.tryAcquire(e.id));
     const active = healthy.length > 0 ? healthy : usable;
     const goodId = this.lastGood.get(`${params.type}:${params.id}`);
 
@@ -133,6 +143,7 @@ export class ExtractorRegistry {
     const race = active.filter(e => !(e.id === goodId && !params.fresh && !params.preferredServerId && directOnly));
     const raceList = race.length > 0 ? race : active;
 
+    const lookupStart = Date.now();
     return new Promise<ExtractedStream[]>(resolve => {
       const found: ExtractedStream[] = [];
       const queue: ExtractedStream[] = [];
@@ -140,6 +151,11 @@ export class ExtractorRegistry {
       let pendingExtract = raceList.length;
       let sniffRunning = 0;
       let sniffStarted = 0;
+      // Hedged sniffing: the best embed starts at once; the next only after the first has had
+      // its usual time (or failed), so one WebView is not burned on a likely loser.
+      let lastSniffStart = 0;
+      let lastSniffServer: string | undefined;
+      let hedgeTimer: ReturnType<typeof setTimeout> | undefined;
       let done = false;
       let grace: ReturnType<typeof setTimeout> | undefined;
       let deadline: ReturnType<typeof setTimeout> | undefined;
@@ -152,6 +168,7 @@ export class ExtractorRegistry {
         abortController.abort();
         if (grace) clearTimeout(grace);
         if (deadline) clearTimeout(deadline);
+        if (hedgeTimer) clearTimeout(hedgeTimer);
         const sorted = [...found].sort((x, y) => {
           if (params.preferredServerId) {
             if (x.serverId === params.preferredServerId) return -1;
@@ -178,14 +195,23 @@ export class ExtractorRegistry {
 
       const pump = () => {
         while (!done && sniffRunning < SNIFF_CONCURRENCY && sniffStarted < MAX_SNIFF_ATTEMPTS && queue.length > 0) {
+          if (sniffRunning > 0) {
+            const wait = this.stats.hedgeDelayMs(lastSniffServer ?? '') - (Date.now() - lastSniffStart);
+            if (wait > 0) {
+              if (!hedgeTimer) hedgeTimer = setTimeout(() => { hedgeTimer = undefined; pump(); }, wait);
+              return;
+            }
+          }
           const embed = queue.shift()!;
           sniffRunning++;
           sniffStarted++;
           const sniffStart = Date.now();
+          lastSniffStart = sniffStart;
+          lastSniffServer = embed.serverId;
           this.sniffWithTimeout(embed, SNIFF_TIMEOUT_MS, abortController.signal).then(stream => {
             sniffRunning--;
             recordTiming({ phase: 'sniff', ms: Date.now() - sniffStart, serverId: embed.serverId, titleId: params.id, title: params.title, outcome: stream ? 'sniffed' : 'failed' });
-            this.recordResult(embed.serverId ?? 'unknown', Boolean(stream));
+            this.recordResult(embed.serverId ?? 'unknown', Boolean(stream), Date.now() - lookupStart);
             if (stream) {
               found.push({ ...stream, serverId: embed.serverId, serverName: embed.serverName });
               finishSoon();
@@ -199,8 +225,12 @@ export class ExtractorRegistry {
       const enqueue = (embed: ExtractedStream) => {
         if (queuedUrls.has(embed.url)) return;
         queuedUrls.add(embed.url);
-        if (embed.serverId && embed.serverId === goodId) queue.unshift(embed);
-        else queue.push(embed);
+        if (embed.serverId && embed.serverId === goodId) { queue.unshift(embed); return; }
+        // Best provider first (by learned speed and reliability); ties keep arrival order.
+        const score = this.stats.expectedMs(embed.serverId ?? '');
+        let at = queue.length;
+        while (at > 0 && this.stats.expectedMs(queue[at - 1].serverId ?? '') > score && queue[at - 1].serverId !== goodId) at--;
+        queue.splice(at, 0, embed);
       };
 
       deadline = setTimeout(finish, RESOLVE_DEADLINE_MS);
@@ -232,7 +262,7 @@ export class ExtractorRegistry {
                 serverName: stream.serverName || extractor.name
               };
               if (!tagged.isFallbackEmbed) {
-                this.recordResult(extractor.id, true);
+                this.recordResult(extractor.id, true, elapsed);
                 found.push(tagged);
                 finishSoon();
               } else {
@@ -274,13 +304,13 @@ export class ExtractorRegistry {
       });
       if (!stream || !stream.url) { this.recordResult(extractor.id, false); return null; }
       const tagged = { ...stream, serverId: stream.serverId || extractor.id, serverName: stream.serverName || extractor.name };
-      if (!tagged.isFallbackEmbed) { this.recordResult(extractor.id, true); return tagged; }
+      if (!tagged.isFallbackEmbed) { this.recordResult(extractor.id, true, Date.now() - startedAt); return tagged; }
       params.onEmbed?.(tagged);
       if (!canSniff) return null; // cannot sniff here: says nothing about the provider's health
       const sniffStart = Date.now();
       const sniffed = await this.sniffWithTimeout(tagged, LAST_GOOD_SNIFF_TIMEOUT_MS);
       recordTiming({ phase: 'sniff', ms: Date.now() - sniffStart, serverId: extractor.id, titleId: params.id, title: params.title, outcome: sniffed ? 'sniffed' : 'failed' });
-      this.recordResult(extractor.id, Boolean(sniffed));
+      this.recordResult(extractor.id, Boolean(sniffed), Date.now() - startedAt);
       return sniffed ? { ...sniffed, serverId: tagged.serverId, serverName: tagged.serverName } : null;
     } catch {
       return null;

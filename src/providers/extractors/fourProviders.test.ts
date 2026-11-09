@@ -154,3 +154,44 @@ test('every direct stream found is cached, so switching server needs no new look
     }
   } finally { offline(); }
 });
+
+test('a stale saved link that stopped answering fails over to another saved server, no new lookup', async () => {
+  const { getStreamRecord } = await import('../streamStore.ts');
+  const restore = stubExtractors(['vega', 'flixeo', 'cinehype', 'movierulz']);
+  const params = { id: 5151, type: 'movie' as const };
+  forgetStream(params);
+  let first: Awaited<ReturnType<typeof resolveStream>>;
+  try { first = await resolveStream(params, { fresh: true }); } finally { restore(); }
+
+  // Age the saved entry and make its link (only) answer 404.
+  const key = Array.from((await import('../streamStore.ts')).allStreamRecords()).find(r => r.value.url === first.url && !(r.params as { preferredServerId?: string })?.preferredServerId)!.key;
+  (getStreamRecord(key) as { checkedAt: number }).checkedAt = Date.now() - 3 * 3600 * 1000;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: string) => (String(url) === first.url ? { ok: false, status: 404 } : { ok: true, status: 206 })) as unknown as typeof fetch;
+  const offline = stubExtractors([]); // a new lookup would fail: only saved links can answer
+  try {
+    const second = await resolveStream(params);
+    assert.notEqual(second.url, first.url);
+    assert.ok(!second.isFallbackEmbed && second.url.includes('5151'));
+    // The title's own entry now points at the working server.
+    assert.equal((await resolveStream(params)).url, second.url);
+  } finally { offline(); globalThis.fetch = realFetch; }
+});
+
+test('a title every provider failed for is not prefetched again for a while', async () => {
+  const { prefetchStream } = await import('../streamResolver.ts');
+  const restore = stubExtractors([]);
+  const params = { id: 6262, type: 'movie' as const };
+  forgetStream(params);
+  let calls = 0;
+  const proto = [MovierulzExtractor, FlixeoExtractor, VegaExtractor, CineHypeExtractor];
+  const wrapped = proto.map(C => C.prototype.extract);
+  proto.forEach((C, i) => { C.prototype.extract = (async function (this: unknown, p: unknown) { calls++; return wrapped[i].call(this as never, p as never); }) as typeof C.prototype.extract; });
+  try {
+    await assert.rejects(resolveStream(params, { fresh: true }), /No working stream/);
+    const after = calls;
+    prefetchStream(params);
+    await new Promise(r => setTimeout(r, 50));
+    assert.equal(calls, after, 'no new provider calls for a title that just failed');
+  } finally { proto.forEach((C, i) => { C.prototype.extract = wrapped[i]; }); restore(); }
+});

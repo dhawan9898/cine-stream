@@ -2,13 +2,14 @@
 import { Capacitor } from '@capacitor/core';
 import type { MediaType } from './cineHypeCore.ts';
 import {
-  getLiveStream, getStreamRecord, markStreamDead, putStream, streamStoreReady, updateStreamValue, type StreamRecord
+  getLiveStream, getStreamRecord, markStreamChecked, markStreamDead, putStream, streamStoreReady, updateStreamValue, type StreamRecord
 } from './streamStore.ts';
 import { extractorRegistry } from './extractors/extractorRegistry.ts';
 import { fetchSubtitles } from './subtitleService.ts';
 import type { ExtractedStream, ExtractorSubtitle } from './extractors/types.ts';
 import { Priority, StreamScheduler } from './streamScheduler.ts';
 import { recordTiming } from './streamTimings.ts';
+import { checkLink } from './streamRevalidator.ts';
 
 export { Priority };
 
@@ -84,10 +85,12 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
   });
   try {
     const result = await resolveUncachedInner(params, hit);
+    negative.delete(keyOf(params));
     note(hit.cached ? 'cache' : 'ok', result.serverId);
     return result;
   } catch (err) {
     note('fail');
+    negative.set(keyOf(params), Date.now() + NEGATIVE_MS);
     throw err;
   }
 }
@@ -263,6 +266,48 @@ async function resolveUncachedInner(params: StreamParams, hit: { cached: boolean
   return result;
 }
 
+// Titles every provider failed for a moment ago: background prefetching leaves them alone for a
+// while instead of rerunning a full failing lookup. (A user's own Play always tries.)
+const NEGATIVE_MS = 60_000;
+const negative = new Map<string, number>();
+const isNegative = (key: string) => (negative.get(key) ?? 0) > Date.now();
+
+// A saved link that was last confirmed longer ago than this is checked before it reaches the player.
+const VALIDATE_AFTER_MS = 15 * 60 * 1000;
+// ...but the check never holds playback up for longer than this.
+const VALIDATE_CAP_MS = 600;
+
+/**
+ * Confirms a saved stream still answers. If not, it is flagged dead and the next best saved
+ * server for the same title is used - no new lookup. Resolves null when nothing saved is usable.
+ */
+async function validateSaved(params: StreamParams, key: string, record: StreamRecord): Promise<ResolvedStream | null> {
+  const verdict = await Promise.race([
+    checkLink(record),
+    new Promise<undefined>(r => setTimeout(() => r(undefined), VALIDATE_CAP_MS))
+  ]);
+  if (verdict !== false) {
+    markStreamChecked(key, verdict); // alive, or could not be judged: either way it was just looked at
+    return { ...(record.value as ResolvedStream) };
+  }
+  markStreamDead(key);
+  memoryCache.delete(key);
+  // Other servers' links saved by the same lookup, best first, skipping any known dead.
+  const servers = (record.value as ResolvedStream).availableServers ?? [];
+  for (const s of servers) {
+    if (s.serverId === (record.value as ResolvedStream).serverId) continue;
+    const altKey = keyOf({ ...params, preferredServerId: s.serverId });
+    const alt = getStreamRecord<ResolvedStream>(altKey);
+    if (!alt || alt.status === 'dead' || !alt.value.url) continue;
+    if ((await checkLink(alt)) === false) { markStreamDead(altKey); continue; }
+    markStreamChecked(altKey, true);
+    // The title's own entry now points at the working server, so the next Play is instant.
+    if (!params.preferredServerId) putStream(key, { ...alt.value }, [], paramsForStore(params));
+    return { ...alt.value };
+  }
+  return null;
+}
+
 export function resolveStream(params: StreamParams, options: { fresh?: boolean } = {}): Promise<ResolvedStream> {
   const key = keyOf(params);
 
@@ -272,6 +317,18 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean }
   if (!options.fresh) {
     const syncPersisted = getLiveStream<ResolvedStream>(key);
     if (syncPersisted && syncPersisted.url) {
+      const record = getStreamRecord<ResolvedStream>(key);
+      // Saved long ago and not confirmed since: make sure it still answers before playback starts.
+      if (!params.prefetch && record && Date.now() - record.checkedAt > VALIDATE_AFTER_MS) {
+        const startedAt = Date.now();
+        return validateSaved(params, key, record).then(valid => {
+          if (valid) {
+            recordTiming({ phase: 'lookup', ms: Date.now() - startedAt, outcome: 'cache', serverId: valid.serverId, titleId: params.id, title: params.title });
+            return valid;
+          }
+          return resolveStream(params, options); // dead and no saved alternative: look it up again
+        });
+      }
       if (!params.prefetch) recordTiming({ phase: 'lookup', ms: 0, outcome: 'cache', serverId: syncPersisted.serverId, titleId: params.id, title: params.title });
       return Promise.resolve({ ...syncPersisted });
     }
@@ -328,7 +385,7 @@ function isResolved(params: StreamParams): boolean {
  * promotes it. Never launches the web-view sniffer.
  */
 export function prefetchStream(params: StreamParams, options: { priority?: number } = {}): void {
-  if (isResolved(params)) return;
+  if (isResolved(params) || isNegative(keyOf(params))) return;
   const priority = options.priority ?? Priority.POSTER;
   if (priority <= Priority.PLAYBACK) {
     resolveStream({ ...params, prefetch: true }).catch(() => {});
