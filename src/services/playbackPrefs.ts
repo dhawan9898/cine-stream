@@ -26,3 +26,13 @@ export function pickAudio(stream: ExtractedStream, preferredLang: string): { url
     ? { url: audio.url, qualities: audio.qualities }
     : { url: stream.url, qualities: stream.qualities };
 }
+
+/** The rendition matching the "Default Quality" preference, when the stream offers it. */
+export function applyPreferredQuality(
+  picked: { url: string; qualities: ExtractedStream['qualities'] },
+  defaultQuality: string
+): { url: string; qualities: ExtractedStream['qualities'] } {
+  if (!defaultQuality || defaultQuality === 'Auto') return picked;
+  const match = picked.qualities?.find(q => q.quality === defaultQuality);
+  return match && match.url !== picked.url ? { ...picked, url: match.url } : picked;
+}

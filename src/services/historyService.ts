@@ -33,6 +33,8 @@ export interface UserPreferences {
   downloadQuality: '1080' | '720' | '480';
   // Prepare the stream while a title page is open, so Play starts almost at once.
   preloadStreams: boolean;
+  // 'Auto' or a rendition such as '720p' / '1080p', used when the stream offers it.
+  defaultQuality: string;
 }
 
 const HISTORY_KEY = 'cinestream_watch_history';
@@ -47,7 +49,8 @@ const DEFAULT_PREFS: UserPreferences = {
   subtitleLanguage: '',
   dataSaver: false,
   downloadQuality: '720',
-  preloadStreams: true
+  preloadStreams: true,
+  defaultQuality: 'Auto'
 };
 
 // In-Memory state caches to eliminate redundant JSON parsing on renders
@@ -149,8 +152,66 @@ export function saveWatchProgress(item: {
     const trimmed = history.slice(0, 30);
     cachedHistory = trimmed;
     localStorage.setItem(HISTORY_KEY, JSON.stringify(trimmed));
+    if (item.media.mediaType === 'tv' && item.positionMs !== undefined && item.durationMs !== undefined) {
+      recordEpisode(item.media.id, item.season ?? 1, item.episode ?? 1, item.positionMs, item.durationMs);
+    }
     notify(false);
   } catch {}
+}
+
+// Per-episode progress, kept for every episode watched (the history list above
+// holds only the latest episode per title), so the episode list can show what
+// has been seen and what is half-finished.
+const EPISODE_LOG_KEY = 'cinestream_episode_log';
+const EPISODE_LOG_MAX = 600;
+export interface EpisodeProgress { positionMs: number; durationMs: number }
+type EpisodeLog = Record<string, EpisodeProgress & { at: number }>;
+let cachedEpisodeLog: EpisodeLog | null = null;
+const episodeKey = (id: number, season: number, episode: number) => `${id}|${season}|${episode}`;
+
+function readEpisodeLog(): EpisodeLog {
+  if (cachedEpisodeLog) return cachedEpisodeLog;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(EPISODE_LOG_KEY) || '{}');
+    cachedEpisodeLog = parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    cachedEpisodeLog = {};
+  }
+  return cachedEpisodeLog!;
+}
+
+function recordEpisode(id: number, season: number, episode: number, positionMs: number, durationMs: number): void {
+  if (!(durationMs > 0)) return;
+  const log = { ...readEpisodeLog(), [episodeKey(id, season, episode)]: { positionMs, durationMs, at: Date.now() } };
+  const keys = Object.keys(log);
+  if (keys.length > EPISODE_LOG_MAX) {
+    keys.sort((a, b) => log[a].at - log[b].at).slice(0, keys.length - EPISODE_LOG_MAX).forEach(k => delete log[k]);
+  }
+  cachedEpisodeLog = log;
+  localStorage.setItem(EPISODE_LOG_KEY, JSON.stringify(log));
+}
+
+/** How far the viewer got in each episode of a title, keyed `season|episode`. */
+export function getEpisodeProgress(id: number): Record<string, EpisodeProgress> {
+  const out: Record<string, EpisodeProgress> = {};
+  const prefix = `${id}|`;
+  for (const [k, v] of Object.entries(readEpisodeLog())) {
+    if (k.startsWith(prefix)) out[k.slice(prefix.length)] = { positionMs: v.positionMs, durationMs: v.durationMs };
+  }
+  return out;
+}
+
+export function isEpisodeFinished(p: { positionMs?: number; durationMs?: number; progressPercent?: number }): boolean {
+  if (p.durationMs && p.durationMs > 0 && p.positionMs !== undefined) {
+    return p.durationMs - p.positionMs <= 30_000 || p.positionMs / p.durationMs >= 0.95;
+  }
+  return (p.progressPercent ?? 0) >= 95;
+}
+
+export function episodeWatchState(p: EpisodeProgress | undefined): 'finished' | 'partial' | 'unwatched' {
+  if (!p) return 'unwatched';
+  if (isEpisodeFinished(p)) return 'finished';
+  return p.positionMs >= 15_000 ? 'partial' : 'unwatched';
 }
 
 export function removeWatchHistory(id: number, type: MediaType): void {
@@ -165,7 +226,9 @@ export function removeWatchHistory(id: number, type: MediaType): void {
 export function clearWatchHistory(): void {
   try {
     cachedHistory = [];
+    cachedEpisodeLog = null;
     localStorage.removeItem(HISTORY_KEY);
+    localStorage.removeItem(EPISODE_LOG_KEY);
     notify();
   } catch {}
 }
@@ -228,6 +291,14 @@ export function saveUserPreferences(prefs: Partial<UserPreferences>): void {
     const updated = { ...current, ...prefs };
     cachedPrefs = updated;
     localStorage.setItem(PREFS_KEY, JSON.stringify(updated));
+    notify();
+  } catch {}
+}
+
+export function clearBookmarks(): void {
+  try {
+    cachedBookmarks = [];
+    localStorage.removeItem(BOOKMARKS_KEY);
     notify();
   } catch {}
 }

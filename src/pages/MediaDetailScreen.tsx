@@ -10,7 +10,7 @@ import {
   type MediaDetails,
   type MediaItem
 } from '../providers/cineHypeCore.ts';
-import { getWatchHistory, isBookmarked, subscribeLibraryChanges, toggleBookmark, type WatchHistoryItem } from '../services/historyService.ts';
+import { episodeWatchState, getEpisodeProgress, getWatchHistory, isBookmarked, isEpisodeFinished, subscribeLibraryChanges, toggleBookmark, type EpisodeProgress, type WatchHistoryItem } from '../services/historyService.ts';
 import { prefetchStream, resolveStream } from '../providers/streamResolver.ts';
 import { Capacitor } from '@capacitor/core';
 import { getUserPreferences } from '../services/historyService.ts';
@@ -58,9 +58,12 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
   // The one episode tile whose full description is open (accordion).
   const [expandedEp, setExpandedEp] = useState<number | null>(null);
 
+  const [progress, setProgress] = useState<Record<string, EpisodeProgress>>(() => getEpisodeProgress(media.id));
+
   useEffect(() => subscribeLibraryChanges(() => {
     setSaved(isBookmarked(media.id, media.mediaType));
     setHistory(findHistory(media));
+    setProgress(getEpisodeProgress(media.id));
   }), [media]);
 
   // Resume on the season the viewer was last in.
@@ -145,12 +148,27 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
     shown.voteAverage > 0 ? `★ ${shown.voteAverage}` : null
   ].filter(Boolean);
 
-  const playLabel = history
-    ? (isSeries && history.season ? `Resume S${history.season}:E${history.episode}` : 'Resume')
-    : isSeries ? 'Play S1:E1' : 'Play';
+  // A finished last-watched episode means "up next" is the following one,
+  // not a resume into its end credits.
+  const finished = !!history && isEpisodeFinished(history);
+  const upNext = isSeries && finished && history?.season === season
+    ? episodes.find(e => e.seasonNumber === season && e.episodeNumber === (history.episode ?? 1) + 1)
+    : undefined;
+
+  const playLabel = upNext
+    ? `Play S${upNext.seasonNumber}:E${upNext.episodeNumber}`
+    : history
+      ? (finished
+        ? (isSeries && history.season ? `Rewatch S${history.season}:E${history.episode}` : 'Rewatch')
+        : (isSeries && history.season ? `Resume S${history.season}:E${history.episode}` : 'Resume'))
+      : isSeries ? 'Play S1:E1' : 'Play';
 
   const handlePlay = () => {
     if (isSeries) {
+      if (upNext) {
+        onPlay(media, upNext.seasonNumber, upNext.episodeNumber, episodes);
+        return;
+      }
       const s = history?.season ?? 1;
       const e = history?.episode ?? 1;
       onPlay(media, s, e, s === season ? episodes : []);
@@ -348,7 +366,13 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
                   const current = history?.season === ep.seasonNumber && history.episode === ep.episodeNumber;
                   const expanded = expandedEp === ep.id;
                   const play = () => { hapticMedium(); onPlay(media, ep.seasonNumber, ep.episodeNumber, episodes); };
-                  const status = current ? 'Last watched' : ep.runtime ? `${ep.runtime} min` : null;
+                  const p = progress[`${ep.seasonNumber}|${ep.episodeNumber}`];
+                  const watchState = episodeWatchState(p);
+                  const pct = p ? Math.min(99, Math.round((p.positionMs / p.durationMs) * 100)) : 0;
+                  const status = watchState === 'finished' ? 'Watched'
+                    : watchState === 'partial' ? `${pct}% watched`
+                    : current ? 'Last watched'
+                    : ep.runtime ? `${ep.runtime} min` : null;
                   return (
                     <div
                       key={ep.id}
@@ -366,7 +390,7 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
                       }}
                       className="interactive glass-panel"
                       aria-label={`Episode ${ep.episodeNumber}, ${ep.name}`}
-                      style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden', display: 'flex', gap: '14px', padding: '12px', alignItems: expanded ? 'flex-start' : 'center' }}
+                      style={{ borderRadius: 'var(--radius-md)', overflow: 'hidden', display: 'flex', gap: '14px', padding: '12px', alignItems: expanded ? 'flex-start' : 'center', opacity: watchState === 'finished' && !current ? 0.7 : 1 }}
                     >
                       <div
                         role="button"
@@ -392,7 +416,7 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
                           {ep.episodeNumber}. {ep.name}
                         </h3>
                         {status && (
-                          <p style={{ fontSize: '12px', color: current ? 'var(--accent-primary)' : 'var(--text-muted)', marginTop: '3px', fontWeight: 600 }}>{status}</p>
+                          <p style={{ fontSize: '12px', color: current || watchState === 'partial' ? 'var(--accent-primary)' : 'var(--text-muted)', marginTop: '3px', fontWeight: 600 }}>{status}</p>
                         )}
                         {(ep.overview || expanded) && (
                           <p style={{

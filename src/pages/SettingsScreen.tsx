@@ -1,7 +1,7 @@
 // SettingsScreen.tsx - Appearance, haptics, playback and data settings.
 import React, { useState } from 'react';
-import { SkipForward, Gauge, Trash2, Database, Vibrate, Droplets, Zap } from 'lucide-react';
-import { clearWatchHistory, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
+import { SkipForward, Gauge, Trash2, Database, Vibrate, Droplets, Zap, Bookmark } from 'lucide-react';
+import { clearWatchHistory, clearBookmarks, getBookmarks, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../services/persistentCache.ts';
 import { ConfirmModal } from 'streamkit/ui/ConfirmModal.tsx';
@@ -71,6 +71,8 @@ export const SettingsScreen: React.FC = () => {
   const [glassClear, setGlassClear] = useState(() => getGlassStyle() === 'clear');
   const [historyCount, setHistoryCount] = useState(() => getWatchHistory().length);
   const [confirming, setConfirming] = useState(false);
+  const [confirmingBookmarks, setConfirmingBookmarks] = useState(false);
+  const [bookmarkCount, setBookmarkCount] = useState(() => getBookmarks().length);
   const [cacheCleared, setCacheCleared] = useState(false);
 
   const update = (patch: Partial<typeof prefs>) => {
@@ -151,6 +153,21 @@ export const SettingsScreen: React.FC = () => {
                 trailing={<div className={`toggle-switch ${(prefs.preloadStreams ?? true) ? 'on' : ''}`}><div className="knob" /></div>}
               />
             </div>
+            <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '14px 16px' }}>
+              <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>Default Quality</h4>
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                {['480p', '720p', '1080p', 'Auto'].map(q => (
+                  <button
+                    key={q}
+                    onClick={() => { hapticSelection(); update({ defaultQuality: q }); }}
+                    className={`interactive glass-pill chip ${prefs.defaultQuality === q ? 'active' : ''}`}
+                    style={{ padding: '8px 18px', borderRadius: 'var(--radius-sm)', color: prefs.defaultQuality === q ? undefined : 'var(--text-secondary)', fontSize: '13px', fontWeight: 700 }}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
               <LangChips title="Preferred Audio" hint="Used when a title offers several languages" offLabel="Auto" value={prefs.audioLanguage} onChange={code => update({ audioLanguage: code })} />
             </div>
@@ -229,6 +246,16 @@ export const SettingsScreen: React.FC = () => {
                 trailing={<Trash2 size={18} color="var(--text-muted)" />}
               />
             </div>
+            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              <Row
+                icon={<Bookmark size={18} />}
+                title="Clear My List"
+                text={`${bookmarkCount} saved`}
+                onClick={() => setConfirmingBookmarks(true)}
+                danger
+                trailing={<Trash2 size={18} color="var(--text-muted)" />}
+              />
+            </div>
           </div>
         </section>
 
@@ -253,6 +280,16 @@ export const SettingsScreen: React.FC = () => {
         danger
         onConfirm={() => { clearWatchHistory(); setHistoryCount(0); setConfirming(false); }}
         onCancel={() => setConfirming(false)}
+      />
+      <ConfirmModal
+        open={confirmingBookmarks}
+        title="Clear My List"
+        message="Remove all saved titles? This cannot be undone."
+        confirmLabel="Clear"
+        cancelLabel="Cancel"
+        danger
+        onConfirm={() => { clearBookmarks(); setBookmarkCount(0); setConfirmingBookmarks(false); }}
+        onCancel={() => setConfirmingBookmarks(false)}
       />
 
     </div>

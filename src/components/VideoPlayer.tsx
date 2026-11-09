@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { getTVSeasonEpisodes, type MediaItem, type EpisodeItem } from '../providers/cineHypeCore.ts';
-import { subtitlesForPlayer, pickAudio } from '../services/playbackPrefs.ts';
+import { subtitlesForPlayer, pickAudio, applyPreferredQuality } from '../services/playbackPrefs.ts';
 import { resolveStream, forgetStream, prefetchUpcomingEpisodes, type ResolvedStream } from '../providers/streamResolver.ts';
 import { getResumePositionMs, getUserPreferences, saveWatchProgress } from '../services/historyService.ts';
 import { openNativeExoPlayer } from '../services/nativePlayer.ts';
@@ -312,7 +312,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         // On native Android, launch native Media3 Netflix ExoPlayer
         if (isNative && res && res.url && !res.isFallbackEmbed) {
           const prefs = getUserPreferences();
-          const audio = pickAudio(res, prefs.audioLanguage);
+          const audio = applyPreferredQuality(pickAudio(res, prefs.audioLanguage), prefs.defaultQuality);
           openNativeExoPlayer({
             url: audio.url,
             title: media.title,
