@@ -1,5 +1,4 @@
 // extractorRegistry.ts - Central registry for real title-specific stream extractors
-import { Capacitor } from '@capacitor/core';
 import type { StreamExtractor, ExtractedStream } from './types.ts';
 import { sniffDirectStream } from '../webSniffer.ts';
 import { ProviderHealth, LastGoodStore } from 'streamkit/providers/health.ts';
@@ -73,7 +72,7 @@ export class ExtractorRegistry {
       Boolean(language && ['te', 'hi', 'ta', 'ml', 'kn', 'pa', 'bn'].includes(language.toLowerCase())) ||
       Boolean(languageMode && ['hindi', 'telugu', 'tamil', 'multi'].includes(languageMode.toLowerCase()));
     const hasRegionalUnicode = /[\u0C00-\u0C7F\u0900-\u097F\u0B80-\u0BFF\u0D00-\u0D7F\u0C80-\u0CFF]/.test(title || '');
-    const hasRegionalKeywords = /\b(thella|tella|kaagitham|kagitam|kaagidham|bachelor|least|most|pushpa|devara|kalki|salaar|saripodhaa|kanguva|goat|game|boomer|hanuman|tillu|guntur|bramayugam|avesham|lucky|baskhar|amaran|movierulz|telugu|hindi|tamil|malayalam|kannada)\b/i.test(titleLower);
+    const hasRegionalKeywords = /\b(thella|tella|kaagitham|kagitam|kaagidham|pushpa|devara|kalki|salaar|saripodhaa|kanguva|hanuman|tillu|guntur|bramayugam|avesham|baskhar|amaran|movierulz|telugu|hindi|tamil|malayalam|kannada)\b/i.test(titleLower);
     return hasRegionalLang || hasRegionalUnicode || hasRegionalKeywords;
   }
 
@@ -104,7 +103,8 @@ export class ExtractorRegistry {
     preferredServerId?: string;
     exclude?: string[];
   }): Promise<ExtractedStream[]> {
-    const directOnly = params.directOnly ?? Capacitor.isNativePlatform();
+    // Embed/iframe pages are never returned: only direct streams (or sniffed ones) can be played.
+    const directOnly = true;
     const canSniff = directOnly && params.allowSniff !== false;
     const isRegional = this.isRegionalTitle(params.title, params.language);
     const ordered = this.getOrderedExtractors(params.type, params.preferredServerId, isRegional);
@@ -157,7 +157,7 @@ export class ExtractorRegistry {
           return Number(Boolean(x.isFallbackEmbed)) - Number(Boolean(y.isFallbackEmbed));
         });
         this.rememberGood(params, sorted.find(x => !x.isFallbackEmbed)?.serverId);
-        resolve(directOnly ? sorted.filter(x => !x.isFallbackEmbed) : sorted);
+        resolve(sorted.filter(x => !x.isFallbackEmbed));
       };
 
       const maybeFinish = () => {
@@ -226,8 +226,9 @@ export class ExtractorRegistry {
                 finishSoon();
               } else if (canSniff) {
                 enqueue(tagged);
-              } else if (!directOnly) {
-                found.push(tagged);
+              } else {
+                // An embed page cannot be played and cannot be sniffed here: a failure for this lookup.
+                this.recordResult(extractor.id, false);
               }
             } else {
               this.recordResult(extractor.id, false);
@@ -257,7 +258,7 @@ export class ExtractorRegistry {
       if (!stream || !stream.url) { this.recordResult(extractor.id, false); return null; }
       const tagged = { ...stream, serverId: stream.serverId || extractor.id, serverName: stream.serverName || extractor.name };
       if (!tagged.isFallbackEmbed) { this.recordResult(extractor.id, true); return tagged; }
-      if (!canSniff) return directOnly ? null : tagged;
+      if (!canSniff) { this.recordResult(extractor.id, false); return null; }
       const sniffed = await this.sniffWithTimeout(tagged, LAST_GOOD_SNIFF_TIMEOUT_MS);
       this.recordResult(extractor.id, Boolean(sniffed));
       return sniffed ? { ...sniffed, serverId: tagged.serverId, serverName: tagged.serverName } : null;
@@ -294,7 +295,7 @@ export class ExtractorRegistry {
     preferredServerId?: string;
     directOnly?: boolean;
   }, precomputed?: ExtractedStream[]): Promise<ExtractedStream | null> {
-    const all = precomputed ?? await this.resolveAllStreams(params);
+    const all = (precomputed ?? await this.resolveAllStreams(params)).filter(s => !s.isFallbackEmbed);
     if (all.length === 0) return null;
 
     if (params.preferredServerId) {

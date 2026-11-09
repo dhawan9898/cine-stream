@@ -52,13 +52,15 @@ export class VegaExtractor extends BaseExtractor {
       return null;
     });
 
-    try {
-      const results = await Promise.all(attempts);
-      const directStream = results.find(r => r && r.url);
-      if (directStream) return directStream;
-    } catch {
-      // Continue to fallback embed
-    }
+    // First mirror that yields a direct stream wins; slower mirrors are not waited for.
+    const direct = await new Promise<ExtractedStream | null>(resolve => {
+      let left = attempts.length;
+      attempts.forEach(a => a.then(r => {
+        if (r && r.url) resolve(r);
+        else if (--left === 0) resolve(null);
+      }, () => { if (--left === 0) resolve(null); }));
+    });
+    if (direct) return direct;
 
     // High reliability fallback embed URL
     const primaryEmbedUrl = `${this.mainUrl}${embedPath}`;

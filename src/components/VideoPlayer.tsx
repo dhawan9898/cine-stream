@@ -1,6 +1,6 @@
-// VideoPlayer.tsx - Background stream resolution engine with dual ExoPlayer/WebPlayer and iframe embed handling
+// VideoPlayer.tsx - Background stream resolution engine with dual ExoPlayer/WebPlayer (direct streams only, never iframes)
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { getTVSeasonEpisodes, type MediaItem, type EpisodeItem } from '../providers/cineHypeCore.ts';
 import { subtitlesForPlayer, pickAudio } from '../services/playbackPrefs.ts';
@@ -46,7 +46,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState<number>(0);
-  const [langMode, setLangMode] = useState<string>('sub');
+  const [langMode] = useState<string>('sub');
   const [selectedServerId, setSelectedServerId] = useState<string | undefined>(undefined);
   const [reportCopied, setReportCopied] = useState(false);
   const sourceRef = useRef<ResolvedStream | null>(null);
@@ -64,8 +64,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // what they need to know about the current title (season, language, server) fresh.
   const latestRef = useRef({ contentKey, media, season, episode, langMode: 'sub', selectedServerId: undefined as string | undefined });
   useEffect(() => { latestRef.current = { contentKey, media, season, episode, langMode, selectedServerId }; });
-  const [frameReady, setFrameReady] = useState<boolean>(false);
-  const [reloadKey, setReloadKey] = useState<number>(0);
   const [fetchedEpisodes, setFetchedEpisodes] = useState<EpisodeItem[]>([]);
 
   // Holds the resume position requested by ExoPlayerActivity when an HTTP error triggers a fresh reload
@@ -83,19 +81,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       mode: langMode
     }).catch(() => {});
   }, [media.title, isSeries, season, episode, langMode]);
-
-  // Trap and block ad popups / window.open calls when viewing embed streams
-  useEffect(() => {
-    if (!source?.url || isDirectVideoUrl(source.url)) return;
-    const originalOpen = window.open;
-    window.open = function (...args) {
-      console.info('[AdBlock] Intercepted and blocked popup window.open:', args[0]);
-      return null;
-    };
-    return () => {
-      window.open = originalOpen;
-    };
-  }, [source?.url]);
 
   // Ensure episode list is available even when playback starts directly from Home or Library
   useEffect(() => {
@@ -246,7 +231,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           referer: nextRes.headers?.Referer || nextRes.headers?.referer || '',
           headers: nextRes.headers,
           subtitles: subtitlesForPlayer(nextRes.subtitles, prefs.subtitleLanguage),
-          isFallback: nextRes.isFallbackEmbed ?? false,
+          isFallback: false,
           autoPlayNext: prefs.autoplayNext
         }).catch(() => {});
       })
@@ -325,7 +310,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
 
         // On native Android, launch native Media3 Netflix ExoPlayer
-        if (isNative && res && res.url) {
+        if (isNative && res && res.url && !res.isFallbackEmbed) {
           const prefs = getUserPreferences();
           const audio = pickAudio(res, prefs.audioLanguage);
           openNativeExoPlayer({
@@ -347,7 +332,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             })),
             episodes: isSeries ? episodes.map(e => ({ id: String(e.id), number: String(e.episodeNumber) })) : undefined,
             startPositionMs: startPositionMs > 0 ? startPositionMs : undefined,
-            isFallback: res.isFallbackEmbed ?? false,
+            isFallback: false,
             autoPlayNext: prefs.autoplayNext && hasNextEpisode
           });
           if (hasNextEpisode) {
@@ -421,14 +406,30 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <button
             className="interactive btn-primary"
             onClick={() => {
-              if (source?.serverId) markServerFailed(source.serverId);
-              setSelectedServerId(undefined);
+              setError(null);
+              setLoading(true);
               setAttempt(n => n + 1);
             }}
             style={{ padding: '10px 24px' }}
           >
-            Retry Next Server
+            Retry
           </button>
+          {source?.serverId && (
+            <button
+              className="interactive btn-secondary"
+              onClick={() => {
+                // Skip the server that just failed and look the title up on the others.
+                markServerFailed(source.serverId);
+                setSelectedServerId(undefined);
+                setError(null);
+                setLoading(true);
+                setAttempt(n => n + 1);
+              }}
+              style={{ padding: '10px 24px', background: 'rgba(255,255,255,0.2)' }}
+            >
+              Try Next Server
+            </button>
+          )}
           <button
             className="interactive btn-secondary"
             onClick={() => {
@@ -457,7 +458,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }
 
   // Direct HLS / MP4 Media Stream Mode for Web
-  if (isDirectVideoUrl(source.url) && webSource) {
+  if (webSource) {
     return (
       <WebPlayer
         streamSource={webSource}
@@ -481,98 +482,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     );
   }
 
-  // Embed Iframe Mode (Web Fallback)
-  return (
-    <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000', zIndex: 9999, display: 'flex', flexDirection: 'column' }}>
-      {/* Top Controls Overlay */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 50,
-          padding: 'calc(12px + var(--safe-top)) 20px 16px 20px',
-          background: 'linear-gradient(180deg, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.5) 70%, transparent 100%)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          pointerEvents: 'auto'
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button onClick={onBack} className="interactive nf-icon-btn" aria-label="Back">
-            <ArrowLeft size={24} color="#fff" />
-          </button>
-          <div>
-            <div style={{ fontSize: '16px', fontWeight: 800, color: '#fff' }}>{media.title}</div>
-            {isSeries && (
-              <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>
-                S{season}:E{episode}{currentEpisodeData?.name ? ` “${currentEpisodeData.name}”` : ''}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <select
-            value={langMode}
-            onChange={e => setLangMode(e.target.value)}
-            className="interactive"
-            style={{
-              padding: '6px 12px',
-              borderRadius: '20px',
-              color: '#fff',
-              background: 'rgba(0,0,0,0.65)',
-              border: '1px solid rgba(255,255,255,0.25)',
-              fontSize: '12px',
-              fontWeight: 700,
-              outline: 'none',
-              cursor: 'pointer'
-            }}
-          >
-            <option value="sub">Sub / Orig</option>
-            <option value="multi">Multi-Audio</option>
-            <option value="dub">Dubbed</option>
-            <option value="hindi">Hindi Dub</option>
-            <option value="telugu">Telugu Dub</option>
-            <option value="tamil">Tamil Dub</option>
-          </select>
-          <button
-            onClick={() => {
-              if (source?.serverId) {
-                markServerFailed(source.serverId);
-              }
-              setSelectedServerId(undefined);
-              setAttempt(n => n + 1);
-            }}
-            className="interactive nf-icon-btn"
-            title="Switch Server"
-          >
-            <RefreshCw size={20} color="#fff" />
-          </button>
-        </div>
-      </div>
-
-      {/* Frame Container */}
-      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-        <iframe
-          key={`${source.url}-${reloadKey}`}
-          src={source.url}
-          title={`${media.title} Stream`}
-          style={{ width: '100%', height: '100%', border: 'none', background: '#000000' }}
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-          allowFullScreen
-          referrerPolicy="origin"
-          onLoad={() => setFrameReady(true)}
-        />
-
-        {!frameReady && (
-          <div style={{ position: 'absolute', inset: 0, background: '#000', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '12px', zIndex: 10 }}>
-            <Loader2 size={44} color="var(--accent-primary)" className="animate-spin" />
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  // Only direct streams are ever played. Anything else is an error, never an iframe.
+  return null;
 };

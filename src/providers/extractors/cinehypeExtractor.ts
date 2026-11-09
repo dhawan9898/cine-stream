@@ -7,12 +7,6 @@ export class CineHypeExtractor extends BaseExtractor {
   name = 'CineHype Server';
   mainUrl = 'https://vidfast.vc';
 
-  private mirrors = [
-    'https://vidfast.vc',
-    'https://vidsrc.pm',
-    'https://vidsrc.to'
-  ];
-
   async extract(params: {
     id: number;
     type: 'movie' | 'tv';

@@ -37,7 +37,7 @@ export interface ResolvedStream extends ExtractedStream {
 
 const memoryCache = new Map<string, { at: number; prefetch: boolean; promise: Promise<ResolvedStream> }>();
 const REUSE_MS = 30 * 60 * 1000; // 30 minutes in-memory
-const CACHE_VERSION = 'v10';
+const CACHE_VERSION = 'v11';
 // How long a ready stream waits for the (optional) external subtitle lookup.
 const SUBTITLE_GRACE_MS = 300;
 const keyOf = (p: StreamParams) => `${CACHE_VERSION}|${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.language ?? ''}|${p.title ?? ''}|${p.preferredServerId ?? ''}`;
@@ -52,19 +52,11 @@ export function forgetStream(params: StreamParams): void {
   writePersisted(`stream_${key}`, {}, 1);
 }
 
-function getTitleFallbackUrl(params: StreamParams): string {
-  const { id, type, season = 1, episode = 1 } = params;
-  if (type === 'tv') {
-    return `https://vidsrc.to/embed/tv/${id}/${season}/${episode}`;
-  }
-  return `https://vidsrc.to/embed/movie/${id}`;
-}
-
 async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
   const cacheKey = `stream_${keyOf(params)}`;
   // A retry after a failure must not hand back the same cached (dead) link.
   const persisted = params.fresh ? null : (readPersisted<ResolvedStream>(cacheKey) ?? await readPersistedAsync<ResolvedStream>(cacheKey));
-  if (persisted && persisted.url) {
+  if (persisted && persisted.url && !persisted.isFallbackEmbed) {
     return persisted;
   }
 
@@ -105,7 +97,7 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
       serverMap.set(ext.id, {
         serverId: ext.id,
         serverName: ext.name,
-        isFallbackEmbed: true
+        isFallbackEmbed: false
       });
     }
   }
@@ -124,8 +116,14 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
     const preferredExtractor = registered.find(e => e.id === params.preferredServerId);
     if (preferredExtractor) {
       try {
-        const direct = await preferredExtractor.extract(params);
-        if (direct && direct.url) {
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 6000);
+        const direct = await Promise.race([
+          preferredExtractor.extract({ ...params, signal: ctl.signal }),
+          new Promise<null>(r => setTimeout(() => r(null), 6000))
+        ]).finally(() => clearTimeout(timer));
+        // An embed page is never playable: only a direct stream is accepted.
+        if (direct && direct.url && !direct.isFallbackEmbed) {
           selectedStream = {
             ...direct,
             serverId: direct.serverId || preferredExtractor.id,
@@ -157,23 +155,8 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
       availableServers
     };
   } else {
-    // Exact TMDB title fallback URL (clean multi-server embed)
-    const fallbackUrl = getTitleFallbackUrl(params);
-    const chosenServerName = availableServers.find(s => s.serverId === params.preferredServerId)?.serverName || 'MultiEmbed Server';
-    result = {
-      url: fallbackUrl,
-      format: 'hls',
-      isFallbackEmbed: true,
-      serverId: params.preferredServerId || 'multiembed',
-      serverName: chosenServerName,
-      id: params.id,
-      type: params.type,
-      season: params.season,
-      episode: params.episode,
-      title: params.title,
-      language: params.language,
-      availableServers: availableServers.length > 0 ? availableServers : [{ serverId: 'multiembed', serverName: 'MultiEmbed Server', isFallbackEmbed: true }]
-    };
+    // Never hand an embed/iframe page to the player.
+    throw new Error('No working stream was found for this title right now. It may not be available yet - try again in a moment or switch server.');
   }
 
   // Subtitles the stream itself carries stay first; external ones are added
@@ -192,7 +175,7 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
   addExternal(result, early ?? []);
 
   // Persist resolved stream (1 hour for direct - signed links expire, 30 mins for fallback embed)
-  const ttlMs = result.isFallbackEmbed ? 30 * 60 * 1000 : 60 * 60 * 1000;
+  const ttlMs = 60 * 60 * 1000;
   writePersisted(cacheKey, result, ttlMs);
   if (early === null) {
     subtitlesPromise.then(late => {

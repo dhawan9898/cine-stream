@@ -70,83 +70,69 @@ test('each extractor returns valid stream metadata for movies and TV', async () 
   assert.ok(cTv && cTv.url.includes('1399'), 'CineHype TV URL valid');
 });
 
-test('resolveAllStreams provides stream data from all 4 providers on web', async () => {
-  const reg = new ExtractorRegistry(true);
-  const streams = await reg.resolveAllStreams({
-    id: 550,
-    type: 'movie',
-    directOnly: false,
-    fresh: true
+// Stub every extractor: `direct` ids return a playable m3u8, the rest return only an embed page.
+function stubExtractors(direct: string[]) {
+  const proto = [MovierulzExtractor, FlixeoExtractor, VegaExtractor, CineHypeExtractor];
+  const originals = proto.map(C => C.prototype.extract);
+  proto.forEach(C => {
+    C.prototype.extract = async function (this: { id: string; name: string }, p: { id: number }) {
+      return direct.includes(this.id)
+        ? { url: `https://cdn.test/${this.id}/${p.id}/index.m3u8`, format: 'hls' as const, serverId: this.id, serverName: this.name }
+        : { url: `https://embed.test/${this.id}/${p.id}`, format: 'hls' as const, isFallbackEmbed: true, serverId: this.id, serverName: this.name };
+    } as typeof C.prototype.extract;
   });
+  return () => proto.forEach((C, i) => { C.prototype.extract = originals[i]; });
+}
 
-  const ids = streams.map(s => s.serverId);
-  assert.ok(ids.includes('movierulz'), 'movierulz stream data resolved');
-  assert.ok(ids.includes('flixeo'), 'flixeo stream data resolved');
-  assert.ok(ids.includes('vega'), 'vega stream data resolved');
-  assert.ok(ids.includes('cinehype'), 'cinehype stream data resolved');
+test('resolveAllStreams returns direct streams only, never embed pages', async () => {
+  const restore = stubExtractors(['vega', 'flixeo']);
+  try {
+    const reg = new ExtractorRegistry(true);
+    const streams = await reg.resolveAllStreams({ id: 550, type: 'movie', directOnly: false, fresh: true });
+    assert.deepEqual(streams.map(s => s.serverId).sort(), ['flixeo', 'vega']);
+    assert.ok(streams.every(s => !s.isFallbackEmbed && s.url.endsWith('.m3u8')));
+  } finally { restore(); }
 });
 
-test('resolveBestStream correctly honors user preferredServerId for each of the 4 providers', async () => {
-  const reg = new ExtractorRegistry(true);
-  const all = await reg.resolveAllStreams({ id: 550, type: 'movie', directOnly: false, fresh: true });
-
-  for (const targetId of ['movierulz', 'flixeo', 'vega', 'cinehype']) {
-    const best = await reg.resolveBestStream({
-      id: 550,
-      type: 'movie',
-      preferredServerId: targetId
-    }, all);
-    assert.equal(best?.serverId, targetId, `Switching to ${targetId} returns ${targetId} stream`);
-  }
+test('resolveBestStream honors preferredServerId among direct streams and ignores embeds', async () => {
+  const restore = stubExtractors(['movierulz', 'flixeo', 'vega', 'cinehype']);
+  try {
+    const reg = new ExtractorRegistry(true);
+    const all = await reg.resolveAllStreams({ id: 550, type: 'movie', fresh: true });
+    for (const targetId of ['movierulz', 'flixeo', 'vega', 'cinehype']) {
+      const best = await reg.resolveBestStream({ id: 550, type: 'movie', preferredServerId: targetId }, all);
+      assert.equal(best?.serverId, targetId);
+    }
+    const embedOnly = [{ url: 'https://embed.test/x', format: 'hls' as const, isFallbackEmbed: true, serverId: 'vega' }];
+    assert.equal(await reg.resolveBestStream({ id: 1, type: 'movie' }, embedOnly), null);
+  } finally { restore(); }
 });
 
-test('streamResolver exposes all 4 servers in availableServers and allows switching', async () => {
-  const params = { id: 680, type: 'movie' as const };
-  forgetStream(params);
+test('streamResolver exposes all servers, switches server, and fails over', async () => {
+  const restore = stubExtractors(['movierulz', 'flixeo', 'vega', 'cinehype']);
+  try {
+    const params = { id: 680, type: 'movie' as const };
+    forgetStream(params);
+    const res = await resolveStream(params, { fresh: true });
+    assert.ok(res.url.endsWith('.m3u8') && !res.isFallbackEmbed);
+    assert.deepEqual(res.availableServers?.map(s => s.serverId).sort(), ['cinehype', 'flixeo', 'movierulz', 'vega']);
 
-  const res = await resolveStream(params, { fresh: true });
-  assert.ok(res.url, 'Stream URL returned');
-  assert.ok(res.availableServers, 'availableServers list provided');
-  assert.equal(res.availableServers?.length, 4, 'All 4 servers exposed in availableServers');
+    for (const id of ['vega', 'cinehype', 'flixeo', 'movierulz']) {
+      const r = await resolveStream({ ...params, preferredServerId: id }, { fresh: true });
+      assert.equal(r.serverId, id);
+      assert.ok(r.url.includes('680'));
+    }
 
-  const serverIds = res.availableServers?.map(s => s.serverId);
-  assert.deepEqual(serverIds?.sort(), ['cinehype', 'flixeo', 'movierulz', 'vega'].sort());
-
-  // Test selecting vega specifically
-  const vegaRes = await resolveStream({ ...params, preferredServerId: 'vega' }, { fresh: true });
-  assert.equal(vegaRes.serverId, 'vega');
-  assert.ok(vegaRes.url.includes('680'), 'Vega stream URL resolves for movie 680');
-
-  // Test selecting cinehype specifically
-  const cinehypeRes = await resolveStream({ ...params, preferredServerId: 'cinehype' }, { fresh: true });
-  assert.equal(cinehypeRes.serverId, 'cinehype');
-  assert.ok(cinehypeRes.url.includes('680'), 'CineHype stream URL resolves for movie 680');
-
-  // Test selecting flixeo specifically
-  const flixeoRes = await resolveStream({ ...params, preferredServerId: 'flixeo' }, { fresh: true });
-  assert.equal(flixeoRes.serverId, 'flixeo');
-  assert.ok(flixeoRes.url.includes('680'), 'Flixeo stream URL resolves for movie 680');
-
-  // Test selecting movierulz specifically
-  const movierulzRes = await resolveStream({ ...params, preferredServerId: 'movierulz' }, { fresh: true });
-  assert.equal(movierulzRes.serverId, 'movierulz');
-  assert.ok(movierulzRes.url.includes('680'), 'Movierulz stream URL resolves for movie 680');
+    const failover = await resolveStream({ ...params, exclude: [res.serverId!] }, { fresh: true });
+    assert.notEqual(failover.serverId, res.serverId);
+  } finally { restore(); }
 });
 
-test('application automatically selects the best server without manual input', async () => {
-  const params = { id: 27205, type: 'movie' as const };
-  forgetStream(params);
-
-  // Default call with no preferredServerId specified
-  const autoRes = await resolveStream(params, { fresh: true });
-  assert.ok(autoRes.url, 'Stream URL returned automatically');
-  assert.ok(autoRes.serverId, 'Server selected automatically');
-  assert.ok(['movierulz', 'flixeo', 'vega', 'cinehype'].includes(autoRes.serverId!), 'Server is one of the 4 providers');
-
-  // Test automatic failover when primary server is excluded
-  const failoverRes = await resolveStream({ ...params, exclude: [autoRes.serverId!] }, { fresh: true });
-  assert.ok(failoverRes.url, 'Stream URL returned on automatic failover');
-  assert.notEqual(failoverRes.serverId, autoRes.serverId, 'Automatically failed over to a different server');
+test('streamResolver rejects instead of returning an embed/iframe page', async () => {
+  const restore = stubExtractors([]);
+  try {
+    const params = { id: 27205, type: 'movie' as const };
+    forgetStream(params);
+    await assert.rejects(resolveStream(params, { fresh: true }), /No working stream/);
+  } finally { restore(); }
 });
-
-
