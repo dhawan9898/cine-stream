@@ -12,14 +12,23 @@ export class FlixeoExtractor extends BaseExtractor {
     type: 'movie' | 'tv';
     season?: number;
     episode?: number;
+    signal?: AbortSignal;
   }): Promise<ExtractedStream | null> {
-    const { id, type, season = 1, episode = 1 } = params;
+    const { id, type, season = 1, episode = 1, signal } = params;
+    if (signal?.aborted) return null;
+
     const embedUrl = type === 'tv'
       ? `${this.mainUrl}/tv/${id}/${season}/${episode}`
       : `${this.mainUrl}/movie/${id}`;
 
     try {
-      const extracted = await this.resolveFromPage(embedUrl, { referer: `${this.mainUrl}/` });
+      const extracted = await this.resolveFromPage(embedUrl, {
+        referer: `${this.mainUrl}/`,
+        maxDepth: 1,
+        maxPages: 2,
+        signal,
+        timeoutMs: 2500
+      });
       if (extracted && extracted.url) {
         return {
           ...extracted,

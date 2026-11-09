@@ -37,9 +37,9 @@ export interface ResolvedStream extends ExtractedStream {
 
 const memoryCache = new Map<string, { at: number; prefetch: boolean; promise: Promise<ResolvedStream> }>();
 const REUSE_MS = 30 * 60 * 1000; // 30 minutes in-memory
-const CACHE_VERSION = 'v6';
+const CACHE_VERSION = 'v10';
 // How long a ready stream waits for the (optional) external subtitle lookup.
-const SUBTITLE_GRACE_MS = 800;
+const SUBTITLE_GRACE_MS = 300;
 const keyOf = (p: StreamParams) => `${CACHE_VERSION}|${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.language ?? ''}|${p.title ?? ''}|${p.preferredServerId ?? ''}`;
 
 /**
@@ -55,9 +55,9 @@ export function forgetStream(params: StreamParams): void {
 function getTitleFallbackUrl(params: StreamParams): string {
   const { id, type, season = 1, episode = 1 } = params;
   if (type === 'tv') {
-    return `https://www.2embed.cc/embedtv/${id}?s=${season}&e=${episode}`;
+    return `https://vidsrc.to/embed/tv/${id}/${season}/${episode}`;
   }
-  return `https://www.2embed.cc/embed/${id}`;
+  return `https://vidsrc.to/embed/movie/${id}`;
 }
 
 async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
@@ -87,11 +87,30 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
     console.warn('[StreamResolver] Extraction resolution error:', err);
   }
 
-  const availableServers = allStreams.map(s => ({
-    serverId: s.serverId || 'unknown',
-    serverName: s.serverName || 'Server',
-    isFallbackEmbed: s.isFallbackEmbed
-  }));
+  const registered = extractorRegistry.getAllExtractors();
+  const serverMap = new Map<string, { serverId: string; serverName: string; isFallbackEmbed?: boolean }>();
+
+  for (const s of allStreams) {
+    if (s.serverId) {
+      serverMap.set(s.serverId, {
+        serverId: s.serverId,
+        serverName: s.serverName || s.serverId,
+        isFallbackEmbed: s.isFallbackEmbed
+      });
+    }
+  }
+
+  for (const ext of registered) {
+    if (!serverMap.has(ext.id)) {
+      serverMap.set(ext.id, {
+        serverId: ext.id,
+        serverName: ext.name,
+        isFallbackEmbed: true
+      });
+    }
+  }
+
+  const availableServers = Array.from(serverMap.values());
 
   let selectedStream: ExtractedStream | null = null;
   try {
@@ -100,11 +119,35 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
     selectedStream = null;
   }
 
+  // If a specific preferred server was requested but not yet extracted or selected, resolve it directly
+  if (params.preferredServerId && (!selectedStream || selectedStream.serverId !== params.preferredServerId)) {
+    const preferredExtractor = registered.find(e => e.id === params.preferredServerId);
+    if (preferredExtractor) {
+      try {
+        const direct = await preferredExtractor.extract(params);
+        if (direct && direct.url) {
+          selectedStream = {
+            ...direct,
+            serverId: direct.serverId || preferredExtractor.id,
+            serverName: direct.serverName || preferredExtractor.name
+          };
+          if (!allStreams.some(s => s.serverId === selectedStream?.serverId)) {
+            allStreams.push(selectedStream);
+          }
+        }
+      } catch (err) {
+        console.warn(`[StreamResolver] Direct resolution for ${params.preferredServerId} fallback:`, err);
+      }
+    }
+  }
+
   let result: ResolvedStream;
 
   if (selectedStream && selectedStream.url) {
     result = {
       ...selectedStream,
+      serverId: selectedStream.serverId,
+      serverName: selectedStream.serverName,
       id: params.id,
       type: params.type,
       season: params.season,
@@ -113,18 +156,16 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
       language: params.language,
       availableServers
     };
-  } else if (Capacitor.isNativePlatform()) {
-    // ExoPlayer only ever receives direct stream data, never an iframe page.
-    throw new Error('No working stream was found for this title right now. It may not be available yet - try again in a moment or switch server.');
   } else {
-    // Exact TMDB title fallback URL (2embed clean multi-server embed)
+    // Exact TMDB title fallback URL (clean multi-server embed)
     const fallbackUrl = getTitleFallbackUrl(params);
+    const chosenServerName = availableServers.find(s => s.serverId === params.preferredServerId)?.serverName || 'MultiEmbed Server';
     result = {
       url: fallbackUrl,
       format: 'hls',
       isFallbackEmbed: true,
-      serverId: 'multiembed',
-      serverName: 'MultiEmbed Server',
+      serverId: params.preferredServerId || 'multiembed',
+      serverName: chosenServerName,
       id: params.id,
       type: params.type,
       season: params.season,

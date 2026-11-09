@@ -105,6 +105,7 @@ interface WebPlayerProps {
   initialTime?: number;
   episodeList?: EpisodeItem[];
   onSelectEpisode?: (ep: EpisodeItem) => void;
+  onFailover?: () => void;
 }
 
 const PLAYBACK_SPEEDS = [0.5, 0.75, 1, 1.25, 1.5];
@@ -125,7 +126,8 @@ export const WebPlayer: React.FC<WebPlayerProps> = ({
   onProgressUpdate,
   initialTime = 0,
   episodeList,
-  onSelectEpisode
+  onSelectEpisode,
+  onFailover
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -464,7 +466,11 @@ export const WebPlayer: React.FC<WebPlayerProps> = ({
   const retryStream = () => {
     resumeAtRef.current = lastPositionRef.current;
     setStreamError(null);
-    setReloadToken(t => t + 1);
+    if (onFailover) {
+      onFailover();
+    } else {
+      setReloadToken(t => t + 1);
+    }
   };
 
   // Opening the episode window centers the grid on the playing episode, so

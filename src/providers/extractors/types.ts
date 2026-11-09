@@ -47,5 +47,6 @@ export interface StreamExtractor {
     episode?: number;
     title?: string;
     language?: string;
+    signal?: AbortSignal;
   }): Promise<ExtractedStream | null>;
 }

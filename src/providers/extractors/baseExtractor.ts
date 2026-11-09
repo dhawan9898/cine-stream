@@ -3,8 +3,8 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import type { StreamExtractor, ExtractedStream, ExtractorSubtitle } from './types.ts';
 import { discover, pickBest, type FoundStream } from './streamDiscovery.ts';
 
-// Per-request limit. A provider's whole lookup is capped by the registry anyway.
-const HTTP_TIMEOUT_MS = 5000;
+// Fast per-request limit for sub-second provider resolution
+const DEFAULT_HTTP_TIMEOUT_MS = 3500;
 
 export abstract class BaseExtractor implements StreamExtractor {
   abstract id: string;
@@ -14,7 +14,16 @@ export abstract class BaseExtractor implements StreamExtractor {
   protected defaultUserAgent =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-  protected async httpGet(url: string, headers: Record<string, string> = {}): Promise<string> {
+  protected async httpGet(
+    url: string,
+    headers: Record<string, string> = {},
+    options: { signal?: AbortSignal; timeoutMs?: number } = {}
+  ): Promise<string> {
+    if (options.signal?.aborted) {
+      throw new Error('Request aborted');
+    }
+
+    const timeoutMs = options.timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
     const mergedHeaders = {
       'User-Agent': this.defaultUserAgent,
       'Accept-Language': 'en-US,en;q=0.9',
@@ -22,14 +31,11 @@ export abstract class BaseExtractor implements StreamExtractor {
     };
 
     if (Capacitor.isNativePlatform()) {
-      // Native networking is not subject to CORS, so a failure here is final:
-      // retrying the same request through the WebView's fetch() could only
-      // fail again (CORS) and doubled the time a dead provider cost.
       const response = await CapacitorHttp.get({
         url,
         headers: mergedHeaders,
-        connectTimeout: HTTP_TIMEOUT_MS,
-        readTimeout: HTTP_TIMEOUT_MS
+        connectTimeout: timeoutMs,
+        readTimeout: timeoutMs
       });
       if (response.status >= 200 && response.status < 300) {
         return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
@@ -37,9 +43,15 @@ export abstract class BaseExtractor implements StreamExtractor {
       throw new Error(`HTTP ${response.status}`);
     }
 
-    // Web: standard fetch
+    // Web: fetch with AbortSignal combined with timeout
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), HTTP_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    const onExternalAbort = () => controller.abort();
+    if (options.signal) {
+      options.signal.addEventListener('abort', onExternalAbort);
+    }
+
     try {
       const res = await fetch(url, {
         headers: mergedHeaders,
@@ -48,29 +60,33 @@ export abstract class BaseExtractor implements StreamExtractor {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return await res.text();
     } finally {
-      clearTimeout(timeout);
+      clearTimeout(timer);
+      if (options.signal) {
+        options.signal.removeEventListener('abort', onExternalAbort);
+      }
     }
   }
 
   protected async resolveFromPage(
     startUrl: string,
-    opts: { referer?: string; maxDepth?: number; maxPages?: number } = {}
+    opts: { referer?: string; maxDepth?: number; maxPages?: number; signal?: AbortSignal; timeoutMs?: number } = {}
   ): Promise<ExtractedStream | null> {
+    if (opts.signal?.aborted) return null;
     const maxDepth = opts.maxDepth ?? 2;
-    const maxPages = opts.maxPages ?? 5;
+    const maxPages = opts.maxPages ?? 4;
     const visited = new Set<string>();
     const subtitles = new Map<string, ExtractorSubtitle>();
     let queue: Array<{ url: string; referer: string }> = [{ url: startUrl, referer: opts.referer ?? this.mainUrl + '/' }];
     const found: Array<FoundStream & { pageUrl: string }> = [];
 
     for (let depth = 0; depth <= maxDepth && queue.length > 0 && visited.size < maxPages; depth++) {
+      if (opts.signal?.aborted) break;
       const next: Array<{ url: string; referer: string }> = [];
-      // The pages of one level are independent: fetch them together.
       const batch = queue.filter(page => !visited.has(page.url)).slice(0, maxPages - visited.size);
       batch.forEach(page => visited.add(page.url));
       const bodies = await Promise.all(batch.map(async page => {
         try {
-          return { page, body: await this.httpGet(page.url, { Referer: page.referer, Accept: '*/*' }) };
+          return { page, body: await this.httpGet(page.url, { Referer: page.referer, Accept: '*/*' }, { signal: opts.signal, timeoutMs: opts.timeoutMs }) };
         } catch {
           return null;
         }
@@ -111,5 +127,7 @@ export abstract class BaseExtractor implements StreamExtractor {
     season?: number;
     episode?: number;
     title?: string;
+    language?: string;
+    signal?: AbortSignal;
   }): Promise<ExtractedStream | null>;
 }

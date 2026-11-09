@@ -16,7 +16,7 @@ export class VidSrcExtractor extends BaseExtractor {
   ];
 
   private getEmbedUrl(domain: string, type: 'movie' | 'tv', id: number, season: number, episode: number): string {
-    if (domain.includes('vidsrc.sh') || domain.includes('vidsrc.me') || domain.includes('vidsrc.xyz')) {
+    if (domain.includes('vidsrc.sh') || domain.includes('vidsrc.me')) {
       return type === 'tv'
         ? `${domain}/embed/tv?tmdb=${id}&season=${season}&episode=${episode}`
         : `${domain}/embed/movie?tmdb=${id}`;

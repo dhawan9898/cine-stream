@@ -84,6 +84,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     }).catch(() => {});
   }, [media.title, isSeries, season, episode, langMode]);
 
+  // Trap and block ad popups / window.open calls when viewing embed streams
+  useEffect(() => {
+    if (!source?.url || isDirectVideoUrl(source.url)) return;
+    const originalOpen = window.open;
+    window.open = function (...args) {
+      console.info('[AdBlock] Intercepted and blocked popup window.open:', args[0]);
+      return null;
+    };
+    return () => {
+      window.open = originalOpen;
+    };
+  }, [source?.url]);
+
   // Ensure episode list is available even when playback starts directly from Home or Library
   useEffect(() => {
     if (!isSeries) return;
@@ -405,8 +418,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <h3 style={{ fontSize: '20px', fontWeight: 800 }}>Couldn't start playback</h3>
         <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)', textAlign: 'center', maxWidth: '400px' }}>{error}</p>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="interactive btn-primary" onClick={() => setAttempt(n => n + 1)} style={{ padding: '10px 24px' }}>
-            Try Again
+          <button
+            className="interactive btn-primary"
+            onClick={() => {
+              if (source?.serverId) markServerFailed(source.serverId);
+              setSelectedServerId(undefined);
+              setAttempt(n => n + 1);
+            }}
+            style={{ padding: '10px 24px' }}
+          >
+            Retry Next Server
           </button>
           <button
             className="interactive btn-secondary"
@@ -418,20 +439,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           >
             {reportCopied ? 'Copied' : 'Copy Details'}
           </button>
-          {source?.serverId && (
-            <button
-              className="interactive btn-secondary"
-              onClick={() => {
-                // Skip the server that just failed and look the title up on the others.
-                markServerFailed(source.serverId);
-                setSelectedServerId(undefined);
-                setAttempt(n => n + 1);
-              }}
-              style={{ padding: '10px 24px', background: 'rgba(255,255,255,0.2)' }}
-            >
-              Try Next Server
-            </button>
-          )}
         </div>
       </div>
     );
@@ -466,6 +473,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           if (target) onSelectEpisode?.(target);
         }}
         onProgressUpdate={(time, dur) => saveProgress(time * 1000, dur * 1000)}
+        onFailover={() => {
+          if (source?.serverId) markServerFailed(source.serverId);
+          setAttempt(n => n + 1);
+        }}
       />
     );
   }
@@ -504,33 +515,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {source?.availableServers && source.availableServers.length > 0 && (
-            <select
-              value={source.serverId || selectedServerId || source.availableServers[0]?.serverId}
-              onChange={e => {
-                setSelectedServerId(e.target.value);
-                setAttempt(n => n + 1);
-              }}
-              className="interactive"
-              style={{
-                padding: '6px 12px',
-                borderRadius: '20px',
-                color: '#fff',
-                background: 'rgba(0,0,0,0.65)',
-                border: '1px solid rgba(255,255,255,0.25)',
-                fontSize: '12px',
-                fontWeight: 700,
-                outline: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              {source.availableServers.map(srv => (
-                <option key={srv.serverId} value={srv.serverId}>
-                  {srv.serverName}
-                </option>
-              ))}
-            </select>
-          )}
           <select
             value={langMode}
             onChange={e => setLangMode(e.target.value)}
@@ -554,7 +538,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <option value="telugu">Telugu Dub</option>
             <option value="tamil">Tamil Dub</option>
           </select>
-          <button onClick={() => setReloadKey(k => k + 1)} className="interactive nf-icon-btn" title="Reload Stream">
+          <button
+            onClick={() => {
+              if (source?.serverId) {
+                markServerFailed(source.serverId);
+              }
+              setSelectedServerId(undefined);
+              setAttempt(n => n + 1);
+            }}
+            className="interactive nf-icon-btn"
+            title="Switch Server"
+          >
             <RefreshCw size={20} color="#fff" />
           </button>
         </div>
@@ -569,6 +563,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           style={{ width: '100%', height: '100%', border: 'none', background: '#000000' }}
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
           allowFullScreen
+          referrerPolicy="origin"
           onLoad={() => setFrameReady(true)}
         />
 
