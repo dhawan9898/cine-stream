@@ -223,8 +223,44 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean }
   return entry.promise.then(s => ({ ...s }));
 }
 
-export function prefetchStream(params: StreamParams): void {
-  resolveStream({ ...params, prefetch: true }).catch(() => {});
+const PREFETCH_CONCURRENCY = 4;
+const prefetchQueue: StreamParams[] = [];
+const prefetchQueuedKeys = new Set<string>();
+let prefetchActive = 0;
+
+function pumpPrefetchQueue() {
+  while (prefetchActive < PREFETCH_CONCURRENCY && prefetchQueue.length > 0) {
+    const params = prefetchQueue.shift()!;
+    prefetchActive++;
+    resolveStream({ ...params, prefetch: true })
+      .catch(() => {})
+      .finally(() => {
+        prefetchActive--;
+        setTimeout(pumpPrefetchQueue, 10);
+      });
+  }
+}
+
+export function prefetchStream(params: StreamParams, options: { immediate?: boolean } = {}): void {
+  const key = keyOf(params);
+  const cacheKey = `stream_${key}`;
+
+  // If already persisted or currently in flight, skip re-queueing
+  if (readPersisted(cacheKey) || memoryCache.has(key)) {
+    return;
+  }
+
+  if (options.immediate) {
+    resolveStream({ ...params, prefetch: true }).catch(() => {});
+    return;
+  }
+
+  if (prefetchQueuedKeys.has(key)) return;
+  prefetchQueuedKeys.add(key);
+
+  // Unshift so most newly visible/rendered posters get resolved first
+  prefetchQueue.unshift(params);
+  setTimeout(pumpPrefetchQueue, 0);
 }
 
 export async function resolveAllAvailableStreams(params: StreamParams): Promise<ResolvedStream[]> {
@@ -248,45 +284,17 @@ export async function resolveAllAvailableStreams(params: StreamParams): Promise<
   }));
 }
 
-// Warms the stream cache for titles on screen (e.g. the first home rail) so
-// the first tap plays quickly. Runs a couple at a time, only when idle, and
-// never uses the web-view sniffer.
-const WARM_CONCURRENCY = 2;
-const warmQueue: StreamParams[] = [];
-const warmSeen = new Set<string>();
-let warmActive = 0;
-
-const whenIdle = (fn: () => void) => {
-  const w = globalThis as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => void };
-  if (w.requestIdleCallback) w.requestIdleCallback(fn, { timeout: 3000 });
-  else setTimeout(fn, 400);
-};
-
-function pumpWarmQueue() {
-  while (warmActive < WARM_CONCURRENCY && warmQueue.length > 0) {
-    const params = warmQueue.shift()!;
-    warmActive++;
-    resolveStream({ ...params, prefetch: true })
-      .catch(() => {})
-      .finally(() => { warmActive--; whenIdle(pumpWarmQueue); });
-  }
-}
-
+// Warms the stream cache for titles on screen so first tap plays instantly
 export function warmStreams(items: Array<{ id: number; mediaType: MediaType; title: string; language?: string; season?: number; episode?: number }>, limit = 8): void {
   for (const m of items.slice(0, limit)) {
-    const params: StreamParams = {
+    prefetchStream({
       id: m.id,
       type: m.mediaType,
       title: m.title,
       language: m.language,
       ...(m.mediaType === 'tv' ? { season: m.season ?? 1, episode: m.episode ?? 1 } : {})
-    };
-    const key = keyOf(params);
-    if (warmSeen.has(key)) continue;
-    warmSeen.add(key);
-    warmQueue.push(params);
+    });
   }
-  whenIdle(pumpWarmQueue);
 }
 
 // While an episode plays, resolve the next few so they start instantly. Uses

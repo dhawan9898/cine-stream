@@ -524,7 +524,22 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
                   >
                     <X size={14} />
                   </button>
-                  <FadeImage src={item.backdrop || item.poster} alt={item.title} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <FadeImage
+                    src={item.backdrop || item.poster}
+                    alt={item.title}
+                    loading="lazy"
+                    onLoad={() => {
+                      prefetchStream({
+                        id: item.id,
+                        type: item.type,
+                        title: item.title,
+                        language: item.language,
+                        season: item.season,
+                        episode: item.type === 'tv' && item.episode ? (item.progressPercent >= 92 ? item.episode + 1 : item.episode) : undefined
+                      }, { immediate: true });
+                    }}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
                   <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 40%, rgba(0,0,0,0.85) 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'rgba(0,0,0,0.65)', border: '1px solid rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <Play size={16} fill="#fff" color="#fff" style={{ marginLeft: '2px' }} />

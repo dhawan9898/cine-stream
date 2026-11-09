@@ -32,8 +32,8 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({ items, onPlay, onOpe
   useEffect(() => subscribeLibraryChanges(() => setSaved(new Set(getBookmarks().map(key)))), []);
 
   useEffect(() => {
-    titles.slice(0, 3).forEach(m => {
-      prefetchStream({ id: m.id, type: m.mediaType, title: m.title, language: m.language });
+    titles.forEach((m, idx) => {
+      prefetchStream({ id: m.id, type: m.mediaType, title: m.title, language: m.language }, { immediate: idx === 0 });
     });
   }, [titles]);
 
