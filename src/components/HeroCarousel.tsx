@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { HeroCarousel as SharedHeroCarousel, type HeroSlide } from 'streamkit/ui/HeroCarousel.tsx';
 import { MOVIE_GENRES, TV_GENRES, type MediaItem } from '../providers/cineHypeCore.ts';
 import { getBookmarks, subscribeLibraryChanges, toggleBookmark } from '../services/historyService.ts';
-import { prefetchStream } from '../providers/streamResolver.ts';
+import { Priority, prefetchStream } from '../providers/streamResolver.ts';
 
 const MAX_SLIDES = 8;
 
@@ -33,7 +33,7 @@ export const HeroCarousel: React.FC<HeroCarouselProps> = ({ items, onPlay, onOpe
 
   useEffect(() => {
     titles.forEach((m, idx) => {
-      prefetchStream({ id: m.id, type: m.mediaType, title: m.title, language: m.language }, { immediate: idx === 0 });
+      prefetchStream({ id: m.id, type: m.mediaType, title: m.title, language: m.language }, { priority: idx === 0 ? Priority.FOCUS : Priority.RAIL });
     });
   }, [titles]);
 

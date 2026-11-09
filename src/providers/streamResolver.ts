@@ -5,6 +5,9 @@ import { readPersisted, readPersistedAsync, writePersisted } from '../services/p
 import { extractorRegistry } from './extractors/extractorRegistry.ts';
 import { fetchSubtitles } from './subtitleService.ts';
 import type { ExtractedStream, ExtractorSubtitle } from './extractors/types.ts';
+import { Priority, StreamScheduler } from './streamScheduler.ts';
+
+export { Priority };
 
 export interface StreamParams {
   id: number;
@@ -174,9 +177,25 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
   ]);
   addExternal(result, early ?? []);
 
-  // Persist resolved stream (1 hour for direct - signed links expire, 30 mins for fallback embed)
+  // Persist resolved stream (signed links expire, so only for an hour)
   const ttlMs = 60 * 60 * 1000;
   writePersisted(cacheKey, result, ttlMs);
+
+  // Every other direct stream the lookup found is saved too, under its own server,
+  // so switching server later (or a failover) starts from the cache.
+  for (const other of allStreams) {
+    if (!other.serverId || other.isFallbackEmbed || !other.url) continue;
+    const otherParams: StreamParams = { ...params, preferredServerId: other.serverId, prefetch: undefined, fresh: undefined, exclude: undefined };
+    const otherKey = `stream_${keyOf(otherParams)}`;
+    if (otherKey === cacheKey) continue;
+    const copy: ResolvedStream = {
+      ...other,
+      id: params.id, type: params.type, season: params.season, episode: params.episode,
+      title: params.title, language: params.language, availableServers,
+      subtitles: result.subtitles ? [...result.subtitles] : other.subtitles
+    };
+    writePersisted(otherKey, copy, ttlMs);
+  }
   if (early === null) {
     subtitlesPromise.then(late => {
       if (late.length === 0) return;
@@ -192,6 +211,9 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
 export function resolveStream(params: StreamParams, options: { fresh?: boolean } = {}): Promise<ResolvedStream> {
   const key = keyOf(params);
   const cacheKey = `stream_${key}`;
+
+  // The user asked for this very lookup: it must not also wait in the background queue.
+  if (!params.prefetch) scheduler.cancel(key);
 
   if (!options.fresh) {
     const syncPersisted = readPersisted<ResolvedStream>(cacheKey);
@@ -219,48 +241,34 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean }
   entry.promise.catch(() => {
     if (memoryCache.get(key) === entry) memoryCache.delete(key);
   });
+  // A lookup the user is waiting on: background prefetching yields to it.
+  if (!params.prefetch) scheduler.trackUrgent(entry.promise);
 
   return entry.promise.then(s => ({ ...s }));
 }
 
-const PREFETCH_CONCURRENCY = 2;
-const prefetchQueue: StreamParams[] = [];
-const prefetchQueuedKeys = new Set<string>();
-let prefetchActive = 0;
+// Background lookups wait here, most important first (see streamScheduler.ts).
+const scheduler = new StreamScheduler<StreamParams>(params => resolveStream({ ...params, prefetch: true }), { concurrency: 2 });
 
-function pumpPrefetchQueue() {
-  while (prefetchActive < PREFETCH_CONCURRENCY && prefetchQueue.length > 0) {
-    const params = prefetchQueue.shift()!;
-    prefetchActive++;
-    resolveStream({ ...params, prefetch: true })
-      .catch(() => {})
-      .finally(() => {
-        prefetchActive--;
-        setTimeout(pumpPrefetchQueue, 10);
-      });
-  }
+/** True when a usable stream for these params is already saved or being resolved. */
+function isResolved(params: StreamParams): boolean {
+  const key = keyOf(params);
+  return Boolean(readPersisted<ResolvedStream>(`stream_${key}`)?.url) || memoryCache.has(key);
 }
 
-export function prefetchStream(params: StreamParams, options: { immediate?: boolean } = {}): void {
-  const key = keyOf(params);
-  const cacheKey = `stream_${key}`;
-
-  // If already persisted or currently in flight, skip re-queueing
-  if (readPersisted(cacheKey) || memoryCache.has(key)) {
-    return;
-  }
-
-  if (options.immediate) {
+/**
+ * Resolves a stream in the background, in priority order. Lower `priority` runs
+ * first (see Priority); asking again for a queued title with a better priority
+ * promotes it. Never launches the web-view sniffer.
+ */
+export function prefetchStream(params: StreamParams, options: { priority?: number } = {}): void {
+  if (isResolved(params)) return;
+  const priority = options.priority ?? Priority.POSTER;
+  if (priority <= Priority.PLAYBACK) {
     resolveStream({ ...params, prefetch: true }).catch(() => {});
     return;
   }
-
-  if (prefetchQueuedKeys.has(key)) return;
-  prefetchQueuedKeys.add(key);
-
-  // Unshift so most newly visible/rendered posters get resolved first
-  prefetchQueue.unshift(params);
-  setTimeout(pumpPrefetchQueue, 0);
+  scheduler.enqueue(keyOf(params), params, priority);
 }
 
 export async function resolveAllAvailableStreams(params: StreamParams): Promise<ResolvedStream[]> {
@@ -285,16 +293,20 @@ export async function resolveAllAvailableStreams(params: StreamParams): Promise<
 }
 
 // Warms the stream cache for titles on screen so first tap plays instantly
-export function warmStreams(items: Array<{ id: number; mediaType: MediaType; title: string; language?: string; season?: number; episode?: number }>, limit = 8): void {
-  for (const m of items.slice(0, limit)) {
+export function warmStreams(
+  items: Array<{ id: number; mediaType: MediaType; title: string; language?: string; season?: number; episode?: number }>,
+  limit = 8,
+  priority: number = Priority.RAIL
+): void {
+  items.slice(0, limit).forEach(m => {
     prefetchStream({
       id: m.id,
       type: m.mediaType,
       title: m.title,
       language: m.language,
       ...(m.mediaType === 'tv' ? { season: m.season ?? 1, episode: m.episode ?? 1 } : {})
-    });
-  }
+    }, { priority });
+  });
 }
 
 // While an episode plays, resolve the next few so they start instantly. Uses
@@ -306,9 +318,6 @@ export function prefetchUpcomingEpisodes(
   count = 2
 ): void {
   const upcoming = knownEpisodes.filter(n => n > currentEpisode).sort((a, b) => a - b).slice(0, count);
-  // One after another, so they never compete with the stream being watched.
-  upcoming.reduce<Promise<unknown>>(
-    (chain, n) => chain.then(() => resolveStream({ ...base, episode: n, prefetch: true }).catch(() => {})),
-    Promise.resolve()
-  );
+  // Next episode first (FIFO among equal priority), ahead of every poster prefetch.
+  upcoming.forEach(n => prefetchStream({ ...base, episode: n }, { priority: Priority.NEXT_EPISODE }));
 }

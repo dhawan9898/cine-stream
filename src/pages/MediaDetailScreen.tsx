@@ -11,7 +11,7 @@ import {
   type MediaItem
 } from '../providers/cineHypeCore.ts';
 import { episodeWatchState, getEpisodeProgress, getWatchHistory, isBookmarked, isEpisodeFinished, subscribeLibraryChanges, toggleBookmark, type EpisodeProgress, type WatchHistoryItem } from '../services/historyService.ts';
-import { prefetchStream, resolveStream } from '../providers/streamResolver.ts';
+import { Priority, prefetchStream, resolveStream } from '../providers/streamResolver.ts';
 import { Capacitor } from '@capacitor/core';
 import { getUserPreferences } from '../services/historyService.ts';
 import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
@@ -81,7 +81,7 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
       episode: history?.episode ?? 1,
       title: media.title,
       language: media.language
-    });
+    }, { priority: Priority.DETAIL });
   }, [media.id, media.mediaType, media.title, media.language, season, history?.season, history?.episode]);
 
   // "Faster start": once the viewer has stayed on this page for a moment, do the

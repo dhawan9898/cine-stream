@@ -4,7 +4,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Play, ChevronRight, ChevronDown, Search as SearchIcon, X, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { clearPersistedCache } from '../services/persistentCache.ts';
-import { prefetchStream, warmStreams } from '../providers/streamResolver.ts';
+import { Priority, prefetchStream, warmStreams } from '../providers/streamResolver.ts';
 import { getTrending, getRecommendations, type MediaItem } from '../providers/cineHypeCore.ts';
 import { getWatchHistory, getBookmarks, removeWatchHistory, subscribeLibraryChanges, type WatchHistoryItem } from '../services/historyService.ts';
 import {
@@ -276,7 +276,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
       // A finished episode means the next one is what you'll press.
       season: h.season,
       episode: h.type === 'tv' && h.episode ? (h.progressPercent >= 92 ? h.episode + 1 : h.episode) : undefined
-    })), 3);
+    })), 3, Priority.FOCUS);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tasteKey]);
 
@@ -288,7 +288,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
         if (!cancelled) {
           setTrending(items);
           setTrendingError(false);
-          items.slice(0, 3).forEach(m => prefetchStream({ id: m.id, type: m.mediaType, title: m.title }));
+          items.slice(0, 3).forEach(m => prefetchStream({ id: m.id, type: m.mediaType, title: m.title }, { priority: Priority.FOCUS }));
           warmStreams(items, 6);
         }
       })
@@ -536,7 +536,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
                         language: item.language,
                         season: item.season,
                         episode: item.type === 'tv' && item.episode ? (item.progressPercent >= 92 ? item.episode + 1 : item.episode) : undefined
-                      }, { immediate: true });
+                      }, { priority: Priority.FOCUS });
                     }}
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />

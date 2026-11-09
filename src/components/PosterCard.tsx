@@ -4,7 +4,7 @@
 import React, { memo, useEffect, useRef } from 'react';
 import type { MediaItem } from '../providers/cineHypeCore.ts';
 import { prefetchMediaDetails, posterSrcSet } from '../providers/cineHypeCore.ts';
-import { prefetchStream } from '../providers/streamResolver.ts';
+import { Priority, prefetchStream } from '../providers/streamResolver.ts';
 import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { hapticMedium } from '../services/hapticsService.ts';
 import { openPreview } from '../services/previewService.ts';
@@ -41,7 +41,7 @@ const PosterCardBase: React.FC<PosterCardProps> = ({ media, onSelect, width, bad
   const cancel = () => { window.clearTimeout(timer.current); timer.current = 0; };
   useEffect(() => cancel, []);
 
-  const handlePrefetch = (immediate = false) => {
+  const handlePrefetch = () => {
     prefetchMediaDetails(media.id, media.mediaType);
     prefetchStream({
       id: media.id,
@@ -50,7 +50,7 @@ const PosterCardBase: React.FC<PosterCardProps> = ({ media, onSelect, width, bad
       language: media.language,
       season: 1,
       episode: 1
-    }, { immediate });
+    }, { priority: Priority.FOCUS });
   };
 
   return (
@@ -77,8 +77,8 @@ const PosterCardBase: React.FC<PosterCardProps> = ({ media, onSelect, width, bad
     onPointerCancel={cancel}
     onPointerLeave={cancel}
     onContextMenu={e => e.preventDefault()}
-    onMouseEnter={() => handlePrefetch(true)}
-    onFocus={() => handlePrefetch(true)}
+    onMouseEnter={handlePrefetch}
+    onFocus={handlePrefetch}
     onKeyDown={(e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();

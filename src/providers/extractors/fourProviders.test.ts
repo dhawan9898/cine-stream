@@ -136,3 +136,21 @@ test('streamResolver rejects instead of returning an embed/iframe page', async (
     await assert.rejects(resolveStream(params, { fresh: true }), /No working stream/);
   } finally { restore(); }
 });
+
+test('every direct stream found is cached, so switching server needs no new lookup', async () => {
+  const restore = stubExtractors(['movierulz', 'flixeo', 'vega', 'cinehype']);
+  const params = { id: 4242, type: 'movie' as const };
+  forgetStream(params);
+  try {
+    await resolveStream(params, { fresh: true });
+  } finally { restore(); }
+  // Providers now return nothing playable: only the cache can answer.
+  const offline = stubExtractors([]);
+  try {
+    for (const id of ['vega', 'cinehype', 'flixeo', 'movierulz']) {
+      const r = await resolveStream({ ...params, preferredServerId: id }).catch(e => { throw new Error(id + ': ' + e.message); });
+      assert.equal(r.serverId, id);
+      assert.ok(!r.isFallbackEmbed && r.url.includes('4242'));
+    }
+  } finally { offline(); }
+});
