@@ -220,7 +220,7 @@ async function resolveUncachedInner(params: StreamParams, hit: { cached: boolean
       };
     } else {
     // Never hand an embed/iframe page to the player.
-    throw new Error('No working stream was found for this title right now. It may not be available yet - try again in a moment or switch server.');
+    throw new Error('No working stream was found for this title right now. It may not be available yet - try again in a moment.');
     }
   }
 

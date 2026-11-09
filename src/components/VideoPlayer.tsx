@@ -106,7 +106,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return fetchedEpisodes.filter(e => e.seasonNumber === season);
   }, [isSeries, episodeList, fetchedEpisodes, season]);
 
-  const currentEpisodeData = episodes.find(e => e.episodeNumber === episode);
   const hasNextEpisode = isSeries && episodes.some(e => e.episodeNumber === episode + 1);
 
   const initialPositionMs = useMemo(

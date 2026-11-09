@@ -888,8 +888,19 @@ public class ExoPlayerActivity extends AppCompatActivity {
         playerView.setPlayer(null);
         bufferingSpinner.setVisibility(View.GONE);
         textErrorMessage.setText(message);
-        btnRetry.setText("Go Back");
-        btnRetry.setOnClickListener(v -> finish());
+        // Retry asks the app for this same title again (the failed link is forgotten and another
+        // server is tried); the back arrow at the top still leaves the player.
+        btnRetry.setText("Retry");
+        btnRetry.setOnClickListener(v -> {
+            final String number = episodeNumber;
+            final String mode = currentMode;
+            final String title = animeTitle;
+            final long resumeAt = Math.max(0L, lastKnownPositionMs);
+            showLoadingState();
+            if (!ExoPlayerPlugin.notifyReloadRequested(title, number, mode, resumeAt)) {
+                finish(); // the app is not listening any more: nothing to retry with
+            }
+        });
         errorOverlay.setVisibility(View.VISIBLE);
         setControlsVisible(true);
     }

@@ -162,7 +162,7 @@ export class ExtractorRegistry {
     if (!params.fresh && !params.preferredServerId && directOnly) {
       const good = goodId ? active.find(e => e.id === goodId) : undefined;
       if (good) {
-        const viaGood = await this.tryProvider(good, params, canSniff, directOnly);
+        const viaGood = await this.tryProvider(good, params, canSniff);
         if (viaGood) {
           this.rememberGood(params, good.id);
           return [viaGood];
@@ -318,8 +318,7 @@ export class ExtractorRegistry {
   private async tryProvider(
     extractor: StreamExtractor,
     params: Parameters<StreamExtractor['extract']>[0] & { onEmbed?: (embed: ExtractedStream) => void; sniffBackground?: boolean },
-    canSniff: boolean,
-    directOnly: boolean
+    canSniff: boolean
   ): Promise<ExtractedStream | null> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const startedAt = Date.now();
