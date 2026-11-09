@@ -281,6 +281,7 @@ export const SettingsScreen: React.FC = () => {
                 {s.sniff.count > 0 && (
                   <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
                     Embed to stream: median {(s.sniff.median / 1000).toFixed(2)}s ({s.sniffed} ok, {s.sniffFailed} failed)
+                    <br />WebView ready {(s.webview.median / 1000).toFixed(2)}s ({s.pooled} reused, {s.cold} new), page load {(s.page.median / 1000).toFixed(2)}s, stream request {(s.stream.median / 1000).toFixed(2)}s
                   </div>
                 )}
               </div>

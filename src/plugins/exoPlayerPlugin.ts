@@ -86,12 +86,18 @@ export interface ExoPlayerPluginInterface {
 
   // Loads an embed page in a hidden WebView and returns the first real
   // media request (.m3u8/.mpd/.mp4) it makes. found=false if none appears.
-  sniffStream(options: { url: string; referer?: string; timeoutMs?: number }): Promise<{
+  sniffStream(options: { url: string; referer?: string; timeoutMs?: number; id?: string }): Promise<{
     found: boolean;
+    cancelled?: boolean;
     url?: string;
     referer?: string;
     headers?: Record<string, string>;
+    // Where the time went; -1 when a phase never happened.
+    timing?: { pooled: boolean; acquireMs: number; pageMs: number; streamMs: number; totalMs: number };
   }>;
+
+  // Stops a sniff started with the same id and frees its WebView (another server already won).
+  cancelSniff(options: { id: string }): Promise<void>;
 
   // Shows a playback error inside the open player.
   fail(options: { message: string }): Promise<void>;

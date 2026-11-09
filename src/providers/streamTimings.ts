@@ -5,12 +5,15 @@
 //            (outcome: direct | embed | none | timeout)
 //   sniff    turning an embed page into a direct stream (native only)
 //            (outcome: sniffed | failed)
+//   webview  getting a hidden WebView for the sniff (outcome: pooled | cold)
+//   page     that WebView loading the embed page (outcome: ok | none)
+//   stream   from loading the page to its first stream request
 //   lookup   the whole resolve for a title, from request to a stream the player
 //            can use (outcome: ok | fail | cache)
 // The last events are kept (and saved) so Settings can show a breakdown.
 
-export type TimingPhase = 'extract' | 'sniff' | 'lookup';
-export type TimingOutcome = 'direct' | 'embed' | 'none' | 'timeout' | 'sniffed' | 'failed' | 'ok' | 'fail' | 'cache';
+export type TimingPhase = 'extract' | 'sniff' | 'webview' | 'page' | 'stream' | 'lookup';
+export type TimingOutcome = 'direct' | 'embed' | 'none' | 'timeout' | 'sniffed' | 'failed' | 'ok' | 'fail' | 'cache' | 'pooled' | 'cold';
 
 export interface TimingEvent {
   at: number;
@@ -84,6 +87,12 @@ export interface ServerSummary {
   sniff: PhaseStats;
   sniffed: number;
   sniffFailed: number;
+  /** The sniff, split up: getting a WebView, loading the embed page, finding the stream request. */
+  webview: PhaseStats;
+  pooled: number;
+  cold: number;
+  page: PhaseStats;
+  stream: PhaseStats;
 }
 
 export interface TimingSummary {
@@ -109,7 +118,12 @@ export function summarize(list: TimingEvent[] = getTimings()): TimingSummary {
       outcomes,
       sniff: statsOf(sniff.map(e => e.ms)),
       sniffed: sniff.filter(e => e.outcome === 'sniffed').length,
-      sniffFailed: sniff.filter(e => e.outcome === 'failed').length
+      sniffFailed: sniff.filter(e => e.outcome === 'failed').length,
+      webview: statsOf(mine.filter(e => e.phase === 'webview').map(e => e.ms)),
+      pooled: mine.filter(e => e.phase === 'webview' && e.outcome === 'pooled').length,
+      cold: mine.filter(e => e.phase === 'webview' && e.outcome === 'cold').length,
+      page: statsOf(mine.filter(e => e.phase === 'page' && e.outcome === 'ok').map(e => e.ms)),
+      stream: statsOf(mine.filter(e => e.phase === 'stream').map(e => e.ms))
     };
   });
   const lookups = list.filter(e => e.phase === 'lookup');
@@ -143,6 +157,7 @@ export function formatTimingReport(summary: TimingSummary = summarize()): string
     lines.push(`  ${s.serverId}: median ${sec(s.extract.median)}, p90 ${sec(s.extract.p90)}, max ${sec(s.extract.max)} (${s.extract.count}x; ${o})`);
     if (s.sniff.count > 0) {
       lines.push(`    embed -> stream: median ${sec(s.sniff.median)}, p90 ${sec(s.sniff.p90)} (${s.sniffed} ok, ${s.sniffFailed} failed)`);
+      lines.push(`      WebView ready ${sec(s.webview.median)} (${s.pooled} reused, ${s.cold} new) + page load ${sec(s.page.median)} + stream request ${sec(s.stream.median)} after page load`);
     }
   }
   const l = summary.lookups;

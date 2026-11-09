@@ -163,8 +163,259 @@ public class ExoPlayerPlugin extends Plugin {
         return lower.contains(".m3u8") || lower.split("\\?")[0].endsWith(".mpd");
     }
 
-    // Loads an embed page in a hidden WebView and reports the first real media
-    // request it makes, so ExoPlayer is only ever given a direct stream URL.
+    // ---- Hidden-WebView stream sniffer -------------------------------------------------
+    //
+    // Loads an embed page in a hidden WebView and reports the first real media request it
+    // makes, so ExoPlayer is only ever given a direct stream URL.
+    //
+    // WebViews are pooled: building one and starting its JavaScript engine is a real cost,
+    // paid once instead of on every lookup. One is built shortly after the app starts, up to
+    // SNIFF_POOL_MAX stay alive between lookups, and idle ones are released after a while.
+    // A lookup can also be cancelled (another provider already won), which frees its WebView
+    // for the next job at once. The timings of each phase go back to JS.
+
+    private static final int SNIFF_POOL_MAX = 2;
+    private static final long SNIFF_IDLE_RELEASE_MS = 3 * 60 * 1000;
+    private static final String SNIFF_UA = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
+    private static final String AUTOPLAY_JS = "(function(){try{document.querySelectorAll('video').forEach(function(v){v.muted=true;var p=v.play();if(p&&p.catch)p.catch(function(){});});"
+            + "['.jw-icon-display','.vjs-big-play-button','.plyr__control--overlaid','.play-button','#play','[aria-label=Play]','button.play'].forEach(function(s){var e=document.querySelector(s);if(e)e.click();});}catch(e){}})();";
+
+    private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    // Main thread only.
+    private static final java.util.ArrayDeque<SniffView> idleSniffers = new java.util.ArrayDeque<>();
+    private static final Map<String, SniffJob> sniffJobs = new java.util.concurrent.ConcurrentHashMap<>();
+    private static long sniffLastUsed = 0;
+
+    private static final class SniffView {
+        final WebView web;
+        SniffJob job; // main thread only
+        SniffView(WebView web) { this.web = web; }
+    }
+
+    @Override
+    public void load() {
+        // Have one WebView ready before the first lookup, without competing with app start-up.
+        MAIN.postDelayed(() -> {
+            try {
+                if (idleSniffers.isEmpty()) idleSniffers.add(newSniffView());
+                scheduleSniffTrim();
+            } catch (Exception ignored) {}
+        }, 1500);
+    }
+
+    // Main thread only.
+    private SniffView newSniffView() {
+        WebView web = new WebView(getContext());
+        WebSettings ws = web.getSettings();
+        ws.setJavaScriptEnabled(true);
+        ws.setDomStorageEnabled(true);
+        ws.setMediaPlaybackRequiresUserGesture(false);
+        // Only the page's scripts and API calls matter for finding the stream: no
+        // pictures, so the embed page is ready sooner and uses less data.
+        ws.setLoadsImagesAutomatically(false);
+        ws.setBlockNetworkImage(true);
+        ws.setSupportMultipleWindows(false);
+        ws.setJavaScriptCanOpenWindowsAutomatically(false);
+        ws.setUserAgentString(SNIFF_UA);
+        final SniffView sv = new SniffView(web);
+        web.setWebViewClient(new WebViewClient() {
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                SniffJob job = sv.job;
+                if (job != null && request != null && request.getUrl() != null) {
+                    WebResourceResponse answer = job.intercept(request);
+                    if (answer != null) return answer;
+                }
+                return super.shouldInterceptRequest(view, request);
+            }
+
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
+                SniffJob job = sv.job;
+                return job != null && job.blocksNavigation(request);
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                SniffJob job = sv.job;
+                if (job != null && url != null && !"about:blank".equals(url)) job.pageFinished(view);
+            }
+        });
+        return sv;
+    }
+
+    // Main thread only. Returns a ready WebView and whether it came from the pool.
+    private SniffView acquireSniffView(boolean[] pooled) {
+        SniffView sv = idleSniffers.poll();
+        pooled[0] = sv != null;
+        return sv != null ? sv : newSniffView();
+    }
+
+    // Main thread only. Wipes the page and keeps the WebView for the next job.
+    private void releaseSniffView(SniffView sv) {
+        if (sv == null) return;
+        sniffLastUsed = System.currentTimeMillis();
+        sv.job = null;
+        try {
+            sv.web.stopLoading();
+            sv.web.loadUrl("about:blank");
+            sv.web.clearHistory();
+        } catch (Exception e) {
+            destroySniffer(sv.web);
+            return;
+        }
+        if (idleSniffers.size() < SNIFF_POOL_MAX) {
+            idleSniffers.add(sv);
+            scheduleSniffTrim();
+        } else {
+            destroySniffer(sv.web);
+        }
+    }
+
+    // Lets go of the idle WebViews after a quiet spell (memory).
+    private void scheduleSniffTrim() {
+        MAIN.postDelayed(() -> {
+            if (System.currentTimeMillis() - sniffLastUsed < SNIFF_IDLE_RELEASE_MS && sniffLastUsed != 0) return;
+            SniffView sv;
+            while ((sv = idleSniffers.poll()) != null) destroySniffer(sv.web);
+        }, SNIFF_IDLE_RELEASE_MS + 1000);
+    }
+
+    private final class SniffJob {
+        final String id;
+        final String pageUrl;
+        final String referer;
+        final int timeoutMs;
+        final PluginCall call;
+        final AtomicBoolean done = new AtomicBoolean(false);
+        final long requestedAt = System.currentTimeMillis();
+        SniffView sv;
+        boolean pooled;
+        long loadStartedAt;
+        long pageFinishedAt;
+        long mediaAt;
+        String mp4Candidate;
+        Map<String, String> mp4Headers;
+        final Runnable onTimeout = () -> { if (!done.get()) finishWithBestGuess(); };
+
+        SniffJob(String id, String pageUrl, String referer, int timeoutMs, PluginCall call) {
+            this.id = id;
+            this.pageUrl = pageUrl;
+            this.referer = referer;
+            this.timeoutMs = timeoutMs;
+            this.call = call;
+        }
+
+        void start() {
+            getActivity().runOnUiThread(() -> {
+                try {
+                    boolean[] pooledFlag = new boolean[1];
+                    sv = acquireSniffView(pooledFlag);
+                    pooled = pooledFlag[0];
+                    if (done.get()) { releaseSniffView(sv); return; } // cancelled while waiting
+                    sv.job = this;
+                    Map<String, String> headers = new HashMap<>();
+                    if (!referer.isEmpty()) headers.put("Referer", referer);
+                    loadStartedAt = System.currentTimeMillis();
+                    sv.web.loadUrl(pageUrl, headers);
+                    MAIN.postDelayed(onTimeout, timeoutMs);
+                } catch (Exception e) {
+                    finishWithBestGuess();
+                }
+            });
+        }
+
+        // Called on the WebView's network thread for every request the page makes.
+        WebResourceResponse intercept(WebResourceRequest request) {
+            if (done.get()) return null;
+            String req = request.getUrl().toString();
+            // Ad networks and page furniture (fonts, stylesheets, images) are answered empty
+            // without touching the network: they slow the embed down and never carry the stream.
+            if (ExoPlayerActivity.isAdRequest(req) || isPageFurniture(req)) {
+                return new WebResourceResponse("text/plain", "UTF-8", new java.io.ByteArrayInputStream(new byte[0]));
+            }
+            if (isMediaUrl(req) && !req.equalsIgnoreCase(pageUrl)) {
+                if (isManifestUrl(req)) {
+                    succeed(req, request.getRequestHeaders());
+                } else if (mp4Candidate == null) {
+                    mp4Candidate = req;
+                    mp4Headers = request.getRequestHeaders();
+                    MAIN.postDelayed(() -> { if (!done.get()) finishWithBestGuess(); }, 4000);
+                }
+            }
+            return null;
+        }
+
+        boolean blocksNavigation(WebResourceRequest request) {
+            // Keep the top frame on the embed; block ad redirects. A plain server redirect
+            // within the same site (a provider that moved host, e.g. http -> https, www ->
+            // bare) is part of loading the embed, not a hijack.
+            if (request == null || !request.isForMainFrame() || request.getUrl() == null) return false;
+            String target = request.getUrl().toString();
+            if (target.equalsIgnoreCase(pageUrl)) return false;
+            return !(request.isRedirect() && sameSite(target, pageUrl));
+        }
+
+        void pageFinished(WebView view) {
+            if (pageFinishedAt == 0) pageFinishedAt = System.currentTimeMillis();
+            // Start playback as early as the page allows: many players only ask for the
+            // stream once they play, and again later once their own scripts have settled.
+            for (int delay : new int[]{150, 1000, 2500, 5000, 8000}) {
+                MAIN.postDelayed(() -> { if (!done.get() && sv != null && sv.job == this) view.evaluateJavascript(AUTOPLAY_JS, null); }, delay);
+            }
+        }
+
+        void finishWithBestGuess() {
+            if (mp4Candidate != null) { succeed(mp4Candidate, mp4Headers); return; }
+            complete(false, null, null, false);
+        }
+
+        void succeed(String media, Map<String, String> reqHeaders) {
+            if (mediaAt == 0) mediaAt = System.currentTimeMillis();
+            complete(true, media, reqHeaders, false);
+        }
+
+        void cancel() {
+            if (done.get()) return;
+            MAIN.post(() -> complete(false, null, null, true));
+        }
+
+        private void complete(boolean found, String media, Map<String, String> reqHeaders, boolean cancelled) {
+            if (!done.compareAndSet(false, true)) return;
+            MAIN.post(() -> {
+                MAIN.removeCallbacks(onTimeout);
+                sniffJobs.remove(id);
+                releaseSniffView(sv);
+                JSObject ret = new JSObject();
+                ret.put("found", found);
+                ret.put("cancelled", cancelled);
+                if (found) {
+                    ret.put("url", media);
+                    String ref = reqHeaders != null ? reqHeaders.get("Referer") : null;
+                    ret.put("referer", ref != null ? ref : referer);
+                    JSObject h = new JSObject();
+                    if (reqHeaders != null) {
+                        for (String k : new String[]{"Referer", "Origin", "User-Agent"}) {
+                            String v = reqHeaders.get(k);
+                            if (v != null) h.put(k, v);
+                        }
+                    }
+                    ret.put("headers", h);
+                }
+                // Where the time went: getting a WebView, the page loading, the stream request.
+                JSObject timing = new JSObject();
+                long now = System.currentTimeMillis();
+                timing.put("pooled", pooled);
+                timing.put("acquireMs", loadStartedAt > 0 ? loadStartedAt - requestedAt : now - requestedAt);
+                timing.put("pageMs", pageFinishedAt > 0 && loadStartedAt > 0 ? pageFinishedAt - loadStartedAt : -1);
+                timing.put("streamMs", mediaAt > 0 && loadStartedAt > 0 ? mediaAt - loadStartedAt : -1);
+                timing.put("totalMs", now - requestedAt);
+                ret.put("timing", timing);
+                call.resolve(ret);
+            });
+        }
+    }
+
     @PluginMethod
     public void sniffStream(PluginCall call) {
         final String pageUrl = call.getString("url");
@@ -174,109 +425,19 @@ public class ExoPlayerPlugin extends Plugin {
             call.reject("Must provide a url");
             return;
         }
-        final Handler main = new Handler(Looper.getMainLooper());
-        final AtomicBoolean done = new AtomicBoolean(false);
-        final WebView[] holder = new WebView[1];
-        final String[] mp4Candidate = new String[1];
-        final Map<String, String>[] mp4Headers = new Map[1];
+        final String id = call.getString("id", java.util.UUID.randomUUID().toString());
+        SniffJob job = new SniffJob(id, pageUrl, referer, timeoutMs, call);
+        sniffJobs.put(id, job);
+        job.start();
+    }
 
-        final Runnable[] finish = new Runnable[1];
-        final java.util.function.BiConsumer<String, Map<String, String>> succeed = (media, reqHeaders) -> {
-            if (!done.compareAndSet(false, true)) return;
-            main.post(() -> {
-                destroySniffer(holder[0]);
-                JSObject ret = new JSObject();
-                ret.put("found", true);
-                ret.put("url", media);
-                String ref = reqHeaders != null ? reqHeaders.get("Referer") : null;
-                ret.put("referer", ref != null ? ref : referer);
-                JSObject h = new JSObject();
-                if (reqHeaders != null) {
-                    for (String k : new String[]{"Referer", "Origin", "User-Agent"}) {
-                        String v = reqHeaders.get(k);
-                        if (v != null) h.put(k, v);
-                    }
-                }
-                ret.put("headers", h);
-                call.resolve(ret);
-            });
-        };
-        finish[0] = () -> {
-            if (mp4Candidate[0] != null) { succeed.accept(mp4Candidate[0], mp4Headers[0]); return; }
-            if (!done.compareAndSet(false, true)) return;
-            destroySniffer(holder[0]);
-            JSObject ret = new JSObject();
-            ret.put("found", false);
-            call.resolve(ret);
-        };
-
-        getActivity().runOnUiThread(() -> {
-            try {
-                WebView web = new WebView(getContext());
-                holder[0] = web;
-                WebSettings ws = web.getSettings();
-                ws.setJavaScriptEnabled(true);
-                ws.setDomStorageEnabled(true);
-                ws.setMediaPlaybackRequiresUserGesture(false);
-                // Only the page's scripts and API calls matter for finding the stream: no
-                // pictures, so the embed page is ready sooner and uses less data.
-                ws.setLoadsImagesAutomatically(false);
-                ws.setBlockNetworkImage(true);
-                ws.setSupportMultipleWindows(false);
-                ws.setJavaScriptCanOpenWindowsAutomatically(false);
-                ws.setUserAgentString("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
-                final String autoplay = "(function(){try{document.querySelectorAll('video').forEach(function(v){v.muted=true;var p=v.play();if(p&&p.catch)p.catch(function(){});});"
-                        + "['.jw-icon-display','.vjs-big-play-button','.plyr__control--overlaid','.play-button','#play','[aria-label=Play]','button.play'].forEach(function(s){var e=document.querySelector(s);if(e)e.click();});}catch(e){}})();";
-                web.setWebViewClient(new WebViewClient() {
-                    @Override
-                    public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                        if (!done.get() && request != null && request.getUrl() != null) {
-                            String req = request.getUrl().toString();
-                            // Ad networks and page furniture (fonts, stylesheets, images) are
-                            // answered empty without touching the network: they slow the embed
-                            // down and never carry the stream.
-                            if (ExoPlayerActivity.isAdRequest(req) || isPageFurniture(req)) {
-                                return new WebResourceResponse("text/plain", "UTF-8", new java.io.ByteArrayInputStream(new byte[0]));
-                            }
-                            if (isMediaUrl(req) && !req.equalsIgnoreCase(pageUrl)) {
-                                if (isManifestUrl(req)) {
-                                    succeed.accept(req, request.getRequestHeaders());
-                                } else if (mp4Candidate[0] == null) {
-                                    mp4Candidate[0] = req;
-                                    mp4Headers[0] = request.getRequestHeaders();
-                                    main.postDelayed(() -> { if (!done.get()) finish[0].run(); }, 4000);
-                                }
-                            }
-                        }
-                        return super.shouldInterceptRequest(view, request);
-                    }
-
-                    @Override
-                    public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                        // Keep the top frame on the embed; block ad redirects. A plain server
-                        // redirect within the same site (a provider that moved host, e.g.
-                        // http -> https, www -> bare) is part of loading the embed, not a hijack.
-                        if (request == null || !request.isForMainFrame() || request.getUrl() == null) return false;
-                        String target = request.getUrl().toString();
-                        if (target.equalsIgnoreCase(pageUrl)) return false;
-                        return !(request.isRedirect() && sameSite(target, pageUrl));
-                    }
-
-                    @Override
-                    public void onPageFinished(WebView view, String url) {
-                        for (int delay : new int[]{500, 2000, 4000, 7000}) {
-                            main.postDelayed(() -> { if (!done.get()) view.evaluateJavascript(autoplay, null); }, delay);
-                        }
-                    }
-                });
-                Map<String, String> headers = new HashMap<>();
-                if (!referer.isEmpty()) headers.put("Referer", referer);
-                web.loadUrl(pageUrl, headers);
-                main.postDelayed(() -> { if (!done.get()) finish[0].run(); }, timeoutMs);
-            } catch (Exception e) {
-                finish[0].run();
-            }
-        });
+    // Another provider already gave a stream: stop this lookup and free its WebView.
+    @PluginMethod
+    public void cancelSniff(PluginCall call) {
+        String id = call.getString("id");
+        SniffJob job = id != null ? sniffJobs.get(id) : null;
+        if (job != null) job.cancel();
+        call.resolve();
     }
 
     private static boolean isPageFurniture(String url) {

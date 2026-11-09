@@ -37,3 +37,17 @@ test('summary splits time to embed from time to stream, per provider', () => {
   assert.equal(s.background.ok, 1);
   assert.match(formatTimingReport(s), /vega: median 0\.80s.*embed:2/);
 });
+
+test('summary splits a sniff into WebView ready, page load and stream request', () => {
+  recordTiming({ phase: 'webview', ms: 420, serverId: 'vega', outcome: 'cold' });
+  recordTiming({ phase: 'webview', ms: 5, serverId: 'vega', outcome: 'pooled' });
+  recordTiming({ phase: 'page', ms: 900, serverId: 'vega', outcome: 'ok' });
+  recordTiming({ phase: 'page', ms: 15000, serverId: 'vega', outcome: 'none' }); // never finished: not counted as a load time
+  recordTiming({ phase: 'stream', ms: 1800, serverId: 'vega', outcome: 'ok' });
+  const v = summarize().servers.find(s => s.serverId === 'vega')!;
+  assert.equal(v.pooled, 1);
+  assert.equal(v.cold, 1);
+  assert.equal(v.page.count, 1);
+  assert.equal(v.page.median, 900);
+  assert.equal(v.stream.median, 1800);
+});

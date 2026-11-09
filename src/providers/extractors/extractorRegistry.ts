@@ -23,11 +23,11 @@ const LAST_GOOD_MAX = 300;
 const LAST_GOOD_TIMEOUT_MS = 3500;
 const LAST_GOOD_SNIFF_TIMEOUT_MS = 8000;
 
-type Sniffer = (embed: ExtractedStream) => Promise<ExtractedStream | null>;
+type Sniffer = (embed: ExtractedStream, signal?: AbortSignal) => Promise<ExtractedStream | null>;
 
 export class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
-  private sniffer: Sniffer = embed => sniffDirectStream(embed, SNIFF_TIMEOUT_MS);
+  private sniffer: Sniffer = (embed, signal) => sniffDirectStream(embed, SNIFF_TIMEOUT_MS, signal);
   private health = new ProviderHealth({
     storageKey: HEALTH_KEY,
     failsBeforeCooldown: FAILS_BEFORE_COOLDOWN,
@@ -182,7 +182,7 @@ export class ExtractorRegistry {
           sniffRunning++;
           sniffStarted++;
           const sniffStart = Date.now();
-          this.sniffWithTimeout(embed, SNIFF_TIMEOUT_MS).then(stream => {
+          this.sniffWithTimeout(embed, SNIFF_TIMEOUT_MS, abortController.signal).then(stream => {
             sniffRunning--;
             recordTiming({ phase: 'sniff', ms: Date.now() - sniffStart, serverId: embed.serverId, titleId: params.id, title: params.title, outcome: stream ? 'sniffed' : 'failed' });
             this.recordResult(embed.serverId ?? 'unknown', Boolean(stream));
@@ -294,11 +294,11 @@ export class ExtractorRegistry {
     return this.sniffWithTimeout(embed, ms);
   }
 
-  private async sniffWithTimeout(embed: ExtractedStream, ms: number): Promise<ExtractedStream | null> {
+  private async sniffWithTimeout(embed: ExtractedStream, ms: number, signal?: AbortSignal): Promise<ExtractedStream | null> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const stream = await Promise.race([
-        (async () => this.sniffer(embed))(),
+        (async () => this.sniffer(embed, signal))(),
         new Promise<null>(r => { timer = setTimeout(() => r(null), ms); })
       ]);
       return stream && stream.url ? stream : null;
