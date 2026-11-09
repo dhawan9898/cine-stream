@@ -253,7 +253,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setLoading(true);
     setError(null);
     setReportCopied(false);
-    setFrameReady(false);
 
     const startPositionMs = reloadResumeMsRef.current ?? initialPositionMs;
     reloadResumeMsRef.current = null;
