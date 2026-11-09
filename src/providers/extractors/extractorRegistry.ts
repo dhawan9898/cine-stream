@@ -2,6 +2,7 @@
 import type { StreamExtractor, ExtractedStream } from './types.ts';
 import { sniffDirectStream } from '../webSniffer.ts';
 import { ProviderHealth, LastGoodStore } from 'streamkit/providers/health.ts';
+import { recordTiming } from '../streamTimings.ts';
 import { VegaExtractor } from './vegaExtractor.ts';
 import { FlixeoExtractor } from './flixeoExtractor.ts';
 import { CineHypeExtractor } from './cinehypeExtractor.ts';
@@ -180,8 +181,10 @@ export class ExtractorRegistry {
           const embed = queue.shift()!;
           sniffRunning++;
           sniffStarted++;
+          const sniffStart = Date.now();
           this.sniffWithTimeout(embed, SNIFF_TIMEOUT_MS).then(stream => {
             sniffRunning--;
+            recordTiming({ phase: 'sniff', ms: Date.now() - sniffStart, serverId: embed.serverId, titleId: params.id, title: params.title, outcome: stream ? 'sniffed' : 'failed' });
             this.recordResult(embed.serverId ?? 'unknown', Boolean(stream));
             if (stream) {
               found.push({ ...stream, serverId: embed.serverId, serverName: embed.serverName });
@@ -208,11 +211,17 @@ export class ExtractorRegistry {
         let timer: ReturnType<typeof setTimeout> | undefined;
         const timeout = new Promise<null>(r => { timer = setTimeout(() => r(null), PROVIDER_TIMEOUT_MS); });
 
+        const startedAt = Date.now();
         const attempt = (async () => extractor.extract({ ...params, signal: abortController.signal }))();
         Promise.race([attempt, timeout])
           .catch(() => null)
           .then(stream => {
             if (timer) clearTimeout(timer);
+            const elapsed = Date.now() - startedAt;
+            recordTiming({
+              phase: 'extract', ms: elapsed, serverId: extractor.id, titleId: params.id, title: params.title,
+              outcome: !stream || !stream.url ? (elapsed >= PROVIDER_TIMEOUT_MS - 50 ? 'timeout' : 'none') : stream.isFallbackEmbed ? 'embed' : 'direct'
+            });
             if (done) return;
 
             // Stream health check: verify valid URL and stream presence
@@ -252,17 +261,25 @@ export class ExtractorRegistry {
     directOnly: boolean
   ): Promise<ExtractedStream | null> {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const startedAt = Date.now();
     try {
       const stream = await Promise.race([
         (async () => extractor.extract(params))(),
         new Promise<null>(r => { timer = setTimeout(() => r(null), LAST_GOOD_TIMEOUT_MS); })
       ]);
+      const elapsed = Date.now() - startedAt;
+      recordTiming({
+        phase: 'extract', ms: elapsed, serverId: extractor.id, titleId: params.id, title: params.title,
+        outcome: !stream || !stream.url ? (elapsed >= LAST_GOOD_TIMEOUT_MS - 50 ? 'timeout' : 'none') : stream.isFallbackEmbed ? 'embed' : 'direct'
+      });
       if (!stream || !stream.url) { this.recordResult(extractor.id, false); return null; }
       const tagged = { ...stream, serverId: stream.serverId || extractor.id, serverName: stream.serverName || extractor.name };
       if (!tagged.isFallbackEmbed) { this.recordResult(extractor.id, true); return tagged; }
       params.onEmbed?.(tagged);
       if (!canSniff) return null; // cannot sniff here: says nothing about the provider's health
+      const sniffStart = Date.now();
       const sniffed = await this.sniffWithTimeout(tagged, LAST_GOOD_SNIFF_TIMEOUT_MS);
+      recordTiming({ phase: 'sniff', ms: Date.now() - sniffStart, serverId: extractor.id, titleId: params.id, title: params.title, outcome: sniffed ? 'sniffed' : 'failed' });
       this.recordResult(extractor.id, Boolean(sniffed));
       return sniffed ? { ...sniffed, serverId: tagged.serverId, serverName: tagged.serverName } : null;
     } catch {

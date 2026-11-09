@@ -27,6 +27,10 @@ export interface StreamRecord<T extends { url: string } = ExtractedStream> {
   status: LinkStatus;
 }
 
+/** Most links kept. Past it the least useful ones go: dead links first, then the longest unchecked. */
+export const MAX_STREAM_RECORDS = 10_000;
+/** Evicted in batches, so the sort runs once per batch rather than on every save. */
+const EVICT_BATCH = 200;
 const DB_NAME = 'cinestream-streams';
 const STORE = 'streams';
 
@@ -57,6 +61,29 @@ function openDb(): Promise<IDBDatabase | null> {
   return dbPromise;
 }
 
+async function removeFromDb(keys: string[]): Promise<void> {
+  const db = await openDb();
+  if (!db || keys.length === 0) return;
+  try {
+    const store = db.transaction(STORE, 'readwrite').objectStore(STORE);
+    keys.forEach(k => store.delete(k));
+  } catch { /* storage unavailable */ }
+}
+
+/** Drops the least useful records once over the cap: dead first, then the stalest. */
+export function enforceStreamCap(max = MAX_STREAM_RECORDS, batch = EVICT_BATCH): number {
+  if (records.size <= max) return 0;
+  const target = Math.max(0, max - batch);
+  const order = Array.from(records.values()).sort((a, b) => {
+    const dead = Number(b.status === 'dead') - Number(a.status === 'dead');
+    return dead !== 0 ? dead : a.checkedAt - b.checkedAt;
+  });
+  const drop = order.slice(0, records.size - target).map(r => r.key);
+  drop.forEach(k => records.delete(k));
+  void removeFromDb(drop);
+  return drop.length;
+}
+
 async function persist(record: StreamRecord<{ url: string }>): Promise<void> {
   const db = await openDb();
   if (!db) return;
@@ -74,6 +101,7 @@ async function hydrate(): Promise<void> {
           // Anything saved while loading (a lookup that finished first) is newer.
           if (r && typeof r.key === 'string' && !records.has(r.key)) records.set(r.key, r);
         }
+        enforceStreamCap();
         resolve();
       };
       req.onerror = () => resolve();
@@ -113,6 +141,7 @@ export function putStream<T extends { url: string }>(key: string, value: T, embe
   };
   records.set(key, record);
   void persist(record);
+  enforceStreamCap();
 }
 
 /** Replaces a record's stream (e.g. late subtitles) without touching its check state. */

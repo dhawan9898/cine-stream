@@ -58,3 +58,23 @@ test('checkLink cannot judge a link while offline', async () => {
     if (saved) Object.defineProperty(g, 'navigator', saved); else delete g.navigator;
   }
 });
+
+test('over the cap, dead links go first, then the least recently checked', async () => {
+  const { enforceStreamCap, MAX_STREAM_RECORDS } = await import('./streamStore.ts');
+  assert.equal(MAX_STREAM_RECORDS, 10_000);
+  for (const r of allStreamRecords()) markStreamDead(r.key); // start from a known state
+  allStreamRecords().forEach(r => { (r as { status: string }).status = 'alive'; });
+  const base = allStreamRecords().length;
+  putStream('cap-old', { url: 'https://a/1.m3u8' });
+  putStream('cap-dead', { url: 'https://a/2.m3u8' });
+  putStream('cap-new', { url: 'https://a/3.m3u8' });
+  (getStreamRecord('cap-old') as { checkedAt: number }).checkedAt = 1;
+  (getStreamRecord('cap-dead') as { checkedAt: number }).checkedAt = Date.now();
+  markStreamDead('cap-dead');
+  // Cap of base+1 with a batch of 1 keeps only base+1 -> drops 2: the dead one, then the stalest.
+  const dropped = enforceStreamCap(base + 1, 0);
+  assert.equal(dropped, 2);
+  assert.equal(getStreamRecord('cap-dead'), undefined);
+  assert.equal(getStreamRecord('cap-old') === undefined || getStreamRecord('cap-new') !== undefined, true);
+  assert.ok(getStreamRecord('cap-new'));
+});

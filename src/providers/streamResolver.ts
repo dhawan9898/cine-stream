@@ -8,6 +8,7 @@ import { extractorRegistry } from './extractors/extractorRegistry.ts';
 import { fetchSubtitles } from './subtitleService.ts';
 import type { ExtractedStream, ExtractorSubtitle } from './extractors/types.ts';
 import { Priority, StreamScheduler } from './streamScheduler.ts';
+import { recordTiming } from './streamTimings.ts';
 
 export { Priority };
 
@@ -74,12 +75,30 @@ async function reviveFromEmbeds(params: StreamParams, embeds: ExtractedStream[],
   return null;
 }
 
+// Times the whole lookup, from request to a stream the player can use.
 async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
+  const startedAt = Date.now();
+  const hit = { cached: false };
+  const note = (outcome: 'ok' | 'fail' | 'cache', serverId?: string) => recordTiming({
+    phase: 'lookup', ms: Date.now() - startedAt, outcome, serverId, titleId: params.id, title: params.title, background: Boolean(params.prefetch)
+  });
+  try {
+    const result = await resolveUncachedInner(params, hit);
+    note(hit.cached ? 'cache' : 'ok', result.serverId);
+    return result;
+  } catch (err) {
+    note('fail');
+    throw err;
+  }
+}
+
+async function resolveUncachedInner(params: StreamParams, hit: { cached: boolean }): Promise<ResolvedStream> {
   const cacheKey = keyOf(params);
   await streamStoreReady;
   // A retry after a failure must not hand back the same cached (dead) link.
   const persisted = params.fresh ? null : getLiveStream<ResolvedStream>(cacheKey);
   if (persisted && persisted.url && !persisted.isFallbackEmbed) {
+    hit.cached = true;
     return persisted;
   }
   const savedEmbeds = getStreamRecord(cacheKey)?.embeds ?? [];
@@ -253,6 +272,7 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean }
   if (!options.fresh) {
     const syncPersisted = getLiveStream<ResolvedStream>(key);
     if (syncPersisted && syncPersisted.url) {
+      if (!params.prefetch) recordTiming({ phase: 'lookup', ms: 0, outcome: 'cache', serverId: syncPersisted.serverId, titleId: params.id, title: params.title });
       return Promise.resolve({ ...syncPersisted });
     }
 

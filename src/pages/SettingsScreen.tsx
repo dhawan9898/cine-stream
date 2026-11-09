@@ -5,6 +5,7 @@ import { clearWatchHistory, clearBookmarks, getBookmarks, getUserPreferences, sa
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../services/persistentCache.ts';
 import { streamStoreSize } from '../providers/streamStore.ts';
+import { clearTimings, formatTimingReport, summarize } from '../providers/streamTimings.ts';
 import { ConfirmModal } from 'streamkit/ui/ConfirmModal.tsx';
 import { getGlassStyle, setGlassStyle } from '../services/glassService.ts';
 import { getHapticSettings, saveHapticSettings, hapticLight, hapticMedium, hapticSelection, hapticToggle, type HapticIntensity } from '../services/hapticsService.ts';
@@ -75,6 +76,8 @@ export const SettingsScreen: React.FC = () => {
   const [confirmingBookmarks, setConfirmingBookmarks] = useState(false);
   const [bookmarkCount, setBookmarkCount] = useState(() => getBookmarks().length);
   const [cacheCleared, setCacheCleared] = useState(false);
+  const [timings, setTimings] = useState(() => summarize());
+  const [reportCopied, setReportCopied] = useState(false);
 
   const update = (patch: Partial<typeof prefs>) => {
     saveUserPreferences(patch);
@@ -256,6 +259,46 @@ export const SettingsScreen: React.FC = () => {
                 danger
                 trailing={<Trash2 size={18} color="var(--text-muted)" />}
               />
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <SectionLabel>Stream Speed</SectionLabel>
+          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', padding: '16px' }}>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px', lineHeight: 1.4 }}>
+              Time for each server to give an embed page or stream, and to turn an embed page into a playable stream.
+            </p>
+            {timings.servers.length === 0 ? (
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Play or browse a few titles to collect timings.</p>
+            ) : timings.servers.map(s => (
+              <div key={s.serverId} style={{ marginBottom: '10px' }}>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>{s.serverId}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  Answer: median {(s.extract.median / 1000).toFixed(2)}s, slowest 1 in 10 {(s.extract.p90 / 1000).toFixed(2)}s
+                  {' '}({Object.entries(s.outcomes).map(([k, v]) => `${v} ${k}`).join(', ')})
+                </div>
+                {s.sniff.count > 0 && (
+                  <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    Embed to stream: median {(s.sniff.median / 1000).toFixed(2)}s ({s.sniffed} ok, {s.sniffFailed} failed)
+                  </div>
+                )}
+              </div>
+            ))}
+            <div style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: 600, marginTop: '4px' }}>
+              Whole lookup: median {(timings.lookups.stats.median / 1000).toFixed(2)}s
+              {' '}({timings.lookups.ok} ok, {timings.lookups.fail} failed, {timings.lookups.cache} instant from saved links)
+            </div>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+              <button className="interactive seg-pill" style={{ flex: 1 }} onClick={() => setTimings(summarize())}>Refresh</button>
+              <button
+                className="interactive seg-pill"
+                style={{ flex: 1 }}
+                onClick={() => { navigator.clipboard?.writeText(formatTimingReport(timings)).then(() => setReportCopied(true)).catch(() => {}); }}
+              >
+                {reportCopied ? 'Copied' : 'Copy Report'}
+              </button>
+              <button className="interactive seg-pill" style={{ flex: 1 }} onClick={() => { clearTimings(); setTimings(summarize()); setReportCopied(false); }}>Reset</button>
             </div>
           </div>
         </section>
