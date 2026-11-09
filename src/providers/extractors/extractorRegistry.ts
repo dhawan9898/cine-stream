@@ -102,6 +102,8 @@ export class ExtractorRegistry {
     fresh?: boolean;
     preferredServerId?: string;
     exclude?: string[];
+    // Told about every embed page a provider returned (they are never played, only sniffed or saved).
+    onEmbed?: (embed: ExtractedStream) => void;
   }): Promise<ExtractedStream[]> {
     // Embed/iframe pages are never returned: only direct streams (or sniffed ones) can be played.
     const directOnly = true;
@@ -224,8 +226,9 @@ export class ExtractorRegistry {
                 this.recordResult(extractor.id, true);
                 found.push(tagged);
                 finishSoon();
-              } else if (canSniff) {
-                enqueue(tagged);
+              } else {
+                params.onEmbed?.(tagged);
+                if (canSniff) enqueue(tagged);
               }
               // else: an embed page that cannot be sniffed here (a background prefetch, or the web).
               // It says nothing about the provider's health, so it is neither a success nor a failure.
@@ -244,7 +247,7 @@ export class ExtractorRegistry {
 
   private async tryProvider(
     extractor: StreamExtractor,
-    params: Parameters<StreamExtractor['extract']>[0],
+    params: Parameters<StreamExtractor['extract']>[0] & { onEmbed?: (embed: ExtractedStream) => void },
     canSniff: boolean,
     directOnly: boolean
   ): Promise<ExtractedStream | null> {
@@ -257,6 +260,7 @@ export class ExtractorRegistry {
       if (!stream || !stream.url) { this.recordResult(extractor.id, false); return null; }
       const tagged = { ...stream, serverId: stream.serverId || extractor.id, serverName: stream.serverName || extractor.name };
       if (!tagged.isFallbackEmbed) { this.recordResult(extractor.id, true); return tagged; }
+      params.onEmbed?.(tagged);
       if (!canSniff) return null; // cannot sniff here: says nothing about the provider's health
       const sniffed = await this.sniffWithTimeout(tagged, LAST_GOOD_SNIFF_TIMEOUT_MS);
       this.recordResult(extractor.id, Boolean(sniffed));
@@ -266,6 +270,11 @@ export class ExtractorRegistry {
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  /** Turns a saved embed page into a direct stream with the native sniffer, or null. */
+  sniffEmbed(embed: ExtractedStream, ms = SNIFF_TIMEOUT_MS): Promise<ExtractedStream | null> {
+    return this.sniffWithTimeout(embed, ms);
   }
 
   private async sniffWithTimeout(embed: ExtractedStream, ms: number): Promise<ExtractedStream | null> {

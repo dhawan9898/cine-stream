@@ -1,7 +1,9 @@
 // streamResolver.ts - Background multi-source stream resolution engine for exact TMDB titles
 import { Capacitor } from '@capacitor/core';
 import type { MediaType } from './cineHypeCore.ts';
-import { readPersisted, readPersistedAsync, writePersisted } from '../services/persistentCache.ts';
+import {
+  getLiveStream, getStreamRecord, markStreamDead, putStream, streamStoreReady, updateStreamValue, type StreamRecord
+} from './streamStore.ts';
 import { extractorRegistry } from './extractors/extractorRegistry.ts';
 import { fetchSubtitles } from './subtitleService.ts';
 import type { ExtractedStream, ExtractorSubtitle } from './extractors/types.ts';
@@ -46,22 +48,42 @@ const SUBTITLE_GRACE_MS = 300;
 const keyOf = (p: StreamParams) => `${CACHE_VERSION}|${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.language ?? ''}|${p.title ?? ''}|${p.preferredServerId ?? ''}`;
 
 /**
- * Drops the saved stream for a title/episode (memory and disk). Called when it
+ * Flags the saved stream for a title/episode as dead (memory and disk). Called when it
  * failed to play, so neither a retry nor the next visit is handed the same dead link.
  */
 export function forgetStream(params: StreamParams): void {
   const key = keyOf(params);
   memoryCache.delete(key);
-  writePersisted(`stream_${key}`, {}, 1);
+  // Kept (flagged dead) rather than deleted: the next lookup replaces it.
+  markStreamDead(key);
+}
+
+// The part of the params a later lookup needs (no flags), kept with the saved stream.
+function paramsForStore(p: StreamParams): Record<string, unknown> {
+  const { prefetch: _prefetch, fresh: _fresh, exclude: _exclude, ...rest } = p;
+  return rest;
+}
+
+// Tries saved embed pages with the sniffer, a couple at most. Native only; a no-op elsewhere.
+async function reviveFromEmbeds(params: StreamParams, embeds: ExtractedStream[], backgroundOnly?: boolean): Promise<ExtractedStream | null> {
+  if (backgroundOnly || !Capacitor.isNativePlatform()) return null;
+  for (const embed of embeds.slice(0, 2)) {
+    const stream = await extractorRegistry.sniffEmbed(embed).catch(() => null);
+    if (stream && stream.url) return { ...stream, serverId: embed.serverId, serverName: embed.serverName };
+  }
+  return null;
 }
 
 async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
-  const cacheKey = `stream_${keyOf(params)}`;
+  const cacheKey = keyOf(params);
+  await streamStoreReady;
   // A retry after a failure must not hand back the same cached (dead) link.
-  const persisted = params.fresh ? null : (readPersisted<ResolvedStream>(cacheKey) ?? await readPersistedAsync<ResolvedStream>(cacheKey));
+  const persisted = params.fresh ? null : getLiveStream<ResolvedStream>(cacheKey);
   if (persisted && persisted.url && !persisted.isFallbackEmbed) {
     return persisted;
   }
+  const savedEmbeds = getStreamRecord(cacheKey)?.embeds ?? [];
+  const foundEmbeds: ExtractedStream[] = [];
 
   const subtitlesPromise = fetchSubtitles(params);
   let allStreams: ExtractedStream[] = [];
@@ -76,7 +98,8 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
       allowSniff: !params.prefetch,
       fresh: params.fresh,
       preferredServerId: params.preferredServerId,
-      exclude: params.exclude
+      exclude: params.exclude,
+      onEmbed: embed => { if (!foundEmbeds.some(e => e.url === embed.url)) foundEmbeds.push(embed); }
     });
   } catch (err) {
     console.warn('[StreamResolver] Extraction resolution error:', err);
@@ -158,8 +181,20 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
       availableServers
     };
   } else {
+    // Embed pages saved by earlier lookups can still be turned into a direct stream
+    // by the native sniffer (a hidden web view; the embed itself is never played).
+    const revived = await reviveFromEmbeds(params, [...foundEmbeds, ...savedEmbeds], params.prefetch);
+    if (revived) {
+      allStreams.push(revived);
+      result = {
+        ...revived,
+        id: params.id, type: params.type, season: params.season, episode: params.episode,
+        title: params.title, language: params.language, availableServers
+      };
+    } else {
     // Never hand an embed/iframe page to the player.
     throw new Error('No working stream was found for this title right now. It may not be available yet - try again in a moment or switch server.');
+    }
   }
 
   // Subtitles the stream itself carries stay first; external ones are added
@@ -177,16 +212,17 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
   ]);
   addExternal(result, early ?? []);
 
-  // Persist resolved stream (signed links expire, so only for an hour)
-  const ttlMs = 60 * 60 * 1000;
-  writePersisted(cacheKey, result, ttlMs);
+  // Saved permanently: it is only replaced by a newer lookup, or flagged dead when it stops
+  // working (see streamStore / streamRevalidator). Embed pages found on the way are kept too.
+  const uniqueEmbeds = [...foundEmbeds, ...savedEmbeds].filter((e, i, a) => a.findIndex(x => x.url === e.url) === i);
+  putStream(cacheKey, result, uniqueEmbeds, paramsForStore(params));
 
   // Every other direct stream the lookup found is saved too, under its own server,
   // so switching server later (or a failover) starts from the cache.
   for (const other of allStreams) {
     if (!other.serverId || other.isFallbackEmbed || !other.url) continue;
     const otherParams: StreamParams = { ...params, preferredServerId: other.serverId, prefetch: undefined, fresh: undefined, exclude: undefined };
-    const otherKey = `stream_${keyOf(otherParams)}`;
+    const otherKey = keyOf(otherParams);
     if (otherKey === cacheKey) continue;
     const copy: ResolvedStream = {
       ...other,
@@ -194,14 +230,14 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
       title: params.title, language: params.language, availableServers,
       subtitles: result.subtitles ? [...result.subtitles] : other.subtitles
     };
-    writePersisted(otherKey, copy, ttlMs);
+    putStream(otherKey, copy, [], paramsForStore(otherParams));
   }
   if (early === null) {
     subtitlesPromise.then(late => {
       if (late.length === 0) return;
       const withSubs: ResolvedStream = { ...result, subtitles: [...(result.subtitles ?? [])] };
       addExternal(withSubs, late);
-      writePersisted(cacheKey, withSubs, ttlMs);
+      updateStreamValue(cacheKey, withSubs);
     }).catch(() => {});
   }
 
@@ -210,13 +246,12 @@ async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
 
 export function resolveStream(params: StreamParams, options: { fresh?: boolean } = {}): Promise<ResolvedStream> {
   const key = keyOf(params);
-  const cacheKey = `stream_${key}`;
 
   // The user asked for this very lookup: it must not also wait in the background queue.
   if (!params.prefetch) scheduler.cancel(key);
 
   if (!options.fresh) {
-    const syncPersisted = readPersisted<ResolvedStream>(cacheKey);
+    const syncPersisted = getLiveStream<ResolvedStream>(key);
     if (syncPersisted && syncPersisted.url) {
       return Promise.resolve({ ...syncPersisted });
     }
@@ -250,10 +285,21 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean }
 // Background lookups wait here, most important first (see streamScheduler.ts).
 const scheduler = new StreamScheduler<StreamParams>(params => resolveStream({ ...params, prefetch: true }), { concurrency: 2 });
 
+/**
+ * Looks a saved stream up again in the background (lowest priority), e.g. after the
+ * idle check found its link dead. The new result replaces the old record.
+ */
+export function refreshSavedStream(record: StreamRecord): void {
+  const params = record.params as StreamParams | undefined;
+  if (!params || typeof params.id !== 'number') return;
+  memoryCache.delete(record.key);
+  scheduler.enqueue(record.key, { ...params, fresh: true }, Priority.IDLE);
+}
+
 /** True when a usable stream for these params is already saved or being resolved. */
 function isResolved(params: StreamParams): boolean {
   const key = keyOf(params);
-  return Boolean(readPersisted<ResolvedStream>(`stream_${key}`)?.url) || memoryCache.has(key);
+  return Boolean(getLiveStream<ResolvedStream>(key)?.url) || memoryCache.has(key);
 }
 
 /**

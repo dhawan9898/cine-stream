@@ -49,7 +49,7 @@ export class StreamScheduler<P> {
     this.run = run;
     this.opts = {
       concurrency: 2,
-      maxQueued: 40,
+      maxQueued: 100,
       staleAfterMs: 45_000,
       staleFromPriority: Priority.RAIL,
       urgentPriority: Priority.NEXT_EPISODE,

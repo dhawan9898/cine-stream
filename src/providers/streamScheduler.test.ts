@@ -93,3 +93,10 @@ test('stale low-priority jobs are dropped, queue is capped', async () => {
   finish(); await tick(20);
   assert.deepEqual(ran, ['new']);
 });
+
+test('the queue holds up to 100 jobs by default', async () => {
+  const s = new StreamScheduler<string>(async () => undefined, { concurrency: 1 });
+  s.trackUrgent(new Promise<void>(() => undefined)); // keep everything queued
+  for (let i = 0; i < 150; i++) s.enqueue(`k${i}`, `k${i}`, Priority.POSTER);
+  assert.equal(s.queued, 100);
+});

@@ -4,6 +4,7 @@ import { SkipForward, Gauge, Trash2, Database, Vibrate, Droplets, Zap, Bookmark 
 import { clearWatchHistory, clearBookmarks, getBookmarks, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../services/persistentCache.ts';
+import { streamStoreSize } from '../providers/streamStore.ts';
 import { ConfirmModal } from 'streamkit/ui/ConfirmModal.tsx';
 import { getGlassStyle, setGlassStyle } from '../services/glassService.ts';
 import { getHapticSettings, saveHapticSettings, hapticLight, hapticMedium, hapticSelection, hapticToggle, type HapticIntensity } from '../services/hapticsService.ts';
@@ -232,7 +233,7 @@ export const SettingsScreen: React.FC = () => {
             <Row
               icon={<Database size={18} />}
               title="Clear Cache"
-              text={cacheCleared ? 'Cache cleared' : 'Frees stored lists and artwork data'}
+              text={cacheCleared ? 'Cache cleared' : `Frees stored lists and artwork data. ${streamStoreSize()} saved stream links are kept; they are removed only by clearing the app's data in Android App info.`}
               onClick={() => { clearPersistedCache(); setCacheCleared(true); }}
               trailing={<Trash2 size={18} color="var(--text-muted)" />}
             />
