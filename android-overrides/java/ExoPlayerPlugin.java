@@ -185,6 +185,10 @@ public class ExoPlayerPlugin extends Plugin {
     private static final java.util.ArrayDeque<SniffView> idleSniffers = new java.util.ArrayDeque<>();
     private static final Map<String, SniffJob> sniffJobs = new java.util.concurrent.ConcurrentHashMap<>();
     private static long sniffLastUsed = 0;
+    // Main thread only. Background (speculative) sniffs run one at a time and only while no
+    // foreground sniff does; a foreground sniff cancels any background one and takes its WebView.
+    private static int foregroundSniffs = 0;
+    private static int backgroundSniffs = 0;
 
     private static final class SniffView {
         final WebView web;
@@ -281,12 +285,20 @@ public class ExoPlayerPlugin extends Plugin {
         }, SNIFF_IDLE_RELEASE_MS + 1000);
     }
 
+    // Runs now when already on the main thread (so a cancelled job's WebView is back in the
+    // pool before the job that cancelled it asks for one), otherwise posts.
+    private static void runOnMain(Runnable r) {
+        if (Looper.myLooper() == Looper.getMainLooper()) r.run(); else MAIN.post(r);
+    }
+
     private final class SniffJob {
         final String id;
         final String pageUrl;
         final String referer;
         final int timeoutMs;
+        final boolean background;
         final PluginCall call;
+        boolean counted;
         final AtomicBoolean done = new AtomicBoolean(false);
         final long requestedAt = System.currentTimeMillis();
         SniffView sv;
@@ -298,17 +310,29 @@ public class ExoPlayerPlugin extends Plugin {
         Map<String, String> mp4Headers;
         final Runnable onTimeout = () -> { if (!done.get()) finishWithBestGuess(); };
 
-        SniffJob(String id, String pageUrl, String referer, int timeoutMs, PluginCall call) {
+        SniffJob(String id, String pageUrl, String referer, int timeoutMs, boolean background, PluginCall call) {
             this.id = id;
             this.pageUrl = pageUrl;
             this.referer = referer;
             this.timeoutMs = timeoutMs;
+            this.background = background;
             this.call = call;
         }
 
         void start() {
             getActivity().runOnUiThread(() -> {
                 try {
+                    if (background) {
+                        // Only when nothing else wants a WebView, and one is already warm.
+                        if (foregroundSniffs > 0 || backgroundSniffs > 0 || idleSniffers.isEmpty()) { rejectBusy(); return; }
+                        backgroundSniffs++;
+                    } else {
+                        foregroundSniffs++;
+                        for (SniffJob other : new java.util.ArrayList<>(sniffJobs.values())) {
+                            if (other.background) other.cancel();
+                        }
+                    }
+                    counted = true;
                     boolean[] pooledFlag = new boolean[1];
                     sv = acquireSniffView(pooledFlag);
                     pooled = pooledFlag[0];
@@ -377,14 +401,27 @@ public class ExoPlayerPlugin extends Plugin {
 
         void cancel() {
             if (done.get()) return;
-            MAIN.post(() -> complete(false, null, null, true));
+            runOnMain(() -> complete(false, null, null, true));
+        }
+
+        private void rejectBusy() {
+            if (!done.compareAndSet(false, true)) return;
+            sniffJobs.remove(id);
+            JSObject ret = new JSObject();
+            ret.put("found", false);
+            ret.put("busy", true);
+            call.resolve(ret);
         }
 
         private void complete(boolean found, String media, Map<String, String> reqHeaders, boolean cancelled) {
             if (!done.compareAndSet(false, true)) return;
-            MAIN.post(() -> {
+            runOnMain(() -> {
                 MAIN.removeCallbacks(onTimeout);
                 sniffJobs.remove(id);
+                if (counted) {
+                    counted = false;
+                    if (background) backgroundSniffs--; else foregroundSniffs--;
+                }
                 releaseSniffView(sv);
                 JSObject ret = new JSObject();
                 ret.put("found", found);
@@ -426,7 +463,8 @@ public class ExoPlayerPlugin extends Plugin {
             return;
         }
         final String id = call.getString("id", java.util.UUID.randomUUID().toString());
-        SniffJob job = new SniffJob(id, pageUrl, referer, timeoutMs, call);
+        final boolean background = Boolean.TRUE.equals(call.getBoolean("background", false));
+        SniffJob job = new SniffJob(id, pageUrl, referer, timeoutMs, background, call);
         sniffJobs.put(id, job);
         job.start();
     }

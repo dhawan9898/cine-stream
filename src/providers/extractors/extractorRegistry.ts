@@ -4,6 +4,8 @@ import { sniffDirectStream } from '../webSniffer.ts';
 import { LastGoodStore } from 'streamkit/providers/health.ts';
 import { ProviderStats } from './providerStats.ts';
 import { recordTiming } from '../streamTimings.ts';
+import { getProviderOverride, isProviderEnabled, subscribeProviderConfig, type ProviderConfig } from '../providerConfig.ts';
+import { ApiExtractor } from './apiExtractor.ts';
 import { VegaExtractor } from './vegaExtractor.ts';
 import { FlixeoExtractor } from './flixeoExtractor.ts';
 import { CineHypeExtractor } from './cinehypeExtractor.ts';
@@ -26,11 +28,11 @@ const LAST_GOOD_MAX = 300;
 const LAST_GOOD_TIMEOUT_MS = 3500;
 const LAST_GOOD_SNIFF_TIMEOUT_MS = 8000;
 
-type Sniffer = (embed: ExtractedStream, signal?: AbortSignal) => Promise<ExtractedStream | null>;
+type Sniffer = (embed: ExtractedStream, signal?: AbortSignal, background?: boolean) => Promise<ExtractedStream | null>;
 
 export class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
-  private sniffer: Sniffer = (embed, signal) => sniffDirectStream(embed, SNIFF_TIMEOUT_MS, signal);
+  private sniffer: Sniffer = (embed, signal, background) => sniffDirectStream(embed, SNIFF_TIMEOUT_MS, signal, background);
   // Learned speed and reliability per provider; also the circuit breaker (see providerStats.ts).
   private stats = new ProviderStats({
     storageKey: HEALTH_KEY,
@@ -66,6 +68,28 @@ export class ExtractorRegistry {
     this.register(new FlixeoExtractor());
     this.register(new VegaExtractor());
     this.register(new CineHypeExtractor());
+    // Remote config: kill switch, new hosts, API providers (see providerConfig.ts).
+    subscribeProviderConfig(cfg => this.applyConfig(cfg));
+  }
+
+  private configured = new Set<string>();
+
+  private applyConfig(cfg: ProviderConfig) {
+    // Hosts and mirrors of the built-in providers.
+    for (const e of this.extractors) {
+      const o = cfg.providers[e.id];
+      (e as { applyConfig?: (o: { mainUrl?: string; mirrors?: string[] }) => void }).applyConfig?.(o ?? {});
+    }
+    // Providers that exist only in the config: add new ones, drop ones that were removed.
+    const wanted = new Set(cfg.apiProviders.map(a => a.id).filter(id => !this.extractors.some(e => e.id === id && !this.configured.has(id))));
+    this.extractors = this.extractors.filter(e => !this.configured.has(e.id) || wanted.has(e.id));
+    this.configured = new Set([...this.configured].filter(id => wanted.has(id)));
+    for (const spec of cfg.apiProviders) {
+      if (!wanted.has(spec.id)) continue;
+      this.extractors = this.extractors.filter(e => e.id !== spec.id);
+      this.extractors.push(new ApiExtractor(spec));
+      this.configured.add(spec.id);
+    }
   }
 
   register(extractor: StreamExtractor) {
@@ -73,7 +97,7 @@ export class ExtractorRegistry {
   }
 
   getAllExtractors(): StreamExtractor[] {
-    return [...this.extractors];
+    return this.extractors.filter(e => isProviderEnabled(e.id));
   }
 
   private isRegionalTitle(title?: string, language?: string, languageMode?: string): boolean {
@@ -88,16 +112,20 @@ export class ExtractorRegistry {
 
   private getOrderedExtractors(type: 'movie' | 'tv', preferredServerId?: string, isRegional = false): StreamExtractor[] {
     if (preferredServerId) {
-      const preferred = this.extractors.find(e => e.id === preferredServerId);
-      const rest = this.extractors.filter(e => e.id !== preferredServerId);
-      return preferred ? [preferred, ...rest] : this.extractors;
+      const enabled = this.extractors.filter(e => isProviderEnabled(e.id));
+      const preferred = enabled.find(e => e.id === preferredServerId);
+      const rest = enabled.filter(e => e.id !== preferredServerId);
+      return preferred ? [preferred, ...rest] : enabled;
     }
     const primaryId = isRegional
       ? 'movierulz'
       : (type === 'movie' ? 'vega' : 'flixeo');
     // Fastest and most reliable first, learned from real lookups. The title's natural
     // provider gets a head start so it is still preferred while nothing is known.
-    return this.stats.rank(this.extractors, id => (id === primaryId ? PRIMARY_BIAS_MS : 0));
+    return this.stats.rank(
+      this.extractors.filter(e => isProviderEnabled(e.id)),
+      id => (id === primaryId ? PRIMARY_BIAS_MS : 0) + (getProviderOverride(id)?.bias ?? 0)
+    );
   }
 
   async resolveAllStreams(params: {
@@ -114,6 +142,8 @@ export class ExtractorRegistry {
     exclude?: string[];
     // Told about every embed page a provider returned (they are never played, only sniffed or saved).
     onEmbed?: (embed: ExtractedStream) => void;
+    // The lookup is speculative (nobody is waiting): sniffs yield to anything the user does.
+    sniffBackground?: boolean;
   }): Promise<ExtractedStream[]> {
     // Embed/iframe pages are never returned: only direct streams (or sniffed ones) can be played.
     const directOnly = true;
@@ -208,10 +238,11 @@ export class ExtractorRegistry {
           const sniffStart = Date.now();
           lastSniffStart = sniffStart;
           lastSniffServer = embed.serverId;
-          this.sniffWithTimeout(embed, SNIFF_TIMEOUT_MS, abortController.signal).then(stream => {
+          this.sniffWithTimeout(embed, SNIFF_TIMEOUT_MS, abortController.signal, params.sniffBackground).then(stream => {
             sniffRunning--;
             recordTiming({ phase: 'sniff', ms: Date.now() - sniffStart, serverId: embed.serverId, titleId: params.id, title: params.title, outcome: stream ? 'sniffed' : 'failed' });
-            this.recordResult(embed.serverId ?? 'unknown', Boolean(stream), Date.now() - lookupStart);
+            // A speculative sniff that was refused or cut short says nothing about the provider.
+            if (stream || !params.sniffBackground) this.recordResult(embed.serverId ?? 'unknown', Boolean(stream), Date.now() - lookupStart);
             if (stream) {
               found.push({ ...stream, serverId: embed.serverId, serverName: embed.serverName });
               finishSoon();
@@ -286,7 +317,7 @@ export class ExtractorRegistry {
 
   private async tryProvider(
     extractor: StreamExtractor,
-    params: Parameters<StreamExtractor['extract']>[0] & { onEmbed?: (embed: ExtractedStream) => void },
+    params: Parameters<StreamExtractor['extract']>[0] & { onEmbed?: (embed: ExtractedStream) => void; sniffBackground?: boolean },
     canSniff: boolean,
     directOnly: boolean
   ): Promise<ExtractedStream | null> {
@@ -308,9 +339,9 @@ export class ExtractorRegistry {
       params.onEmbed?.(tagged);
       if (!canSniff) return null; // cannot sniff here: says nothing about the provider's health
       const sniffStart = Date.now();
-      const sniffed = await this.sniffWithTimeout(tagged, LAST_GOOD_SNIFF_TIMEOUT_MS);
+      const sniffed = await this.sniffWithTimeout(tagged, LAST_GOOD_SNIFF_TIMEOUT_MS, undefined, params.sniffBackground);
       recordTiming({ phase: 'sniff', ms: Date.now() - sniffStart, serverId: extractor.id, titleId: params.id, title: params.title, outcome: sniffed ? 'sniffed' : 'failed' });
-      this.recordResult(extractor.id, Boolean(sniffed), Date.now() - startedAt);
+      if (sniffed || !params.sniffBackground) this.recordResult(extractor.id, Boolean(sniffed), Date.now() - startedAt);
       return sniffed ? { ...sniffed, serverId: tagged.serverId, serverName: tagged.serverName } : null;
     } catch {
       return null;
@@ -324,11 +355,11 @@ export class ExtractorRegistry {
     return this.sniffWithTimeout(embed, ms);
   }
 
-  private async sniffWithTimeout(embed: ExtractedStream, ms: number, signal?: AbortSignal): Promise<ExtractedStream | null> {
+  private async sniffWithTimeout(embed: ExtractedStream, ms: number, signal?: AbortSignal, background?: boolean): Promise<ExtractedStream | null> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const stream = await Promise.race([
-        (async () => this.sniffer(embed, signal))(),
+        (async () => this.sniffer(embed, signal, background))(),
         new Promise<null>(r => { timer = setTimeout(() => r(null), ms); })
       ]);
       return stream && stream.url ? stream : null;

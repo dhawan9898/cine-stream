@@ -11,6 +11,11 @@ export abstract class BaseExtractor implements StreamExtractor {
   abstract name: string;
   abstract mainUrl: string;
 
+  /** Applies a provider override from the remote config (a new host, mirror list). */
+  applyConfig(override: { mainUrl?: string; mirrors?: string[] }): void {
+    if (override.mainUrl) this.mainUrl = override.mainUrl;
+  }
+
   protected defaultUserAgent =
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/124.0.0.0 Safari/537.36';
 

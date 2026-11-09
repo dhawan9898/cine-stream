@@ -30,6 +30,10 @@ export function setStreamPlaying(active: boolean): void {
   if (!active) lastActivity = Date.now();
 }
 
+export function isStreamPlaying(): boolean {
+  return playing;
+}
+
 /**
  * Whether a link still answers. `true`/`false` when it can be judged, `undefined`
  * when it cannot (offline, or a browser that hides the response from the page).

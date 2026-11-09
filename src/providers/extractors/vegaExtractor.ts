@@ -13,6 +13,14 @@ export class VegaExtractor extends BaseExtractor {
     'https://vidsrc.sh'
   ];
 
+  private defaultMirrors = [...this.mirrors];
+  private defaultMainUrl = this.mainUrl;
+
+  applyConfig(override: { mainUrl?: string; mirrors?: string[] }): void {
+    this.mainUrl = override.mainUrl ?? this.defaultMainUrl;
+    this.mirrors = override.mirrors && override.mirrors.length ? [...override.mirrors] : [...this.defaultMirrors];
+  }
+
   async extract(params: {
     id: number;
     type: 'movie' | 'tv';

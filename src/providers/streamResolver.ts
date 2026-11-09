@@ -10,6 +10,7 @@ import type { ExtractedStream, ExtractorSubtitle } from './extractors/types.ts';
 import { Priority, StreamScheduler } from './streamScheduler.ts';
 import { recordTiming } from './streamTimings.ts';
 import { checkLink } from './streamRevalidator.ts';
+import { speculationAllowed } from './speculation.ts';
 
 export { Priority };
 
@@ -22,8 +23,11 @@ export interface StreamParams {
   language?: string;
   title?: string;
   preferredServerId?: string;
-  // Background prefetch: never launch the web-view sniffer.
+  // Background prefetch: never launch the web-view sniffer, unless `speculative`.
   prefetch?: boolean;
+  // A likely-next title (Continue Watching, next episode, hero): the sniffer may run in the
+  // background, yielding to anything the user does (see speculation.ts).
+  speculative?: boolean;
   // Retry after a failure: skip remembered-provider shortcuts.
   fresh?: boolean;
   // Providers whose stream just failed to play: not used for this lookup, so a
@@ -42,7 +46,7 @@ export interface ResolvedStream extends ExtractedStream {
   availableServers?: Array<{ serverId: string; serverName: string; isFallbackEmbed?: boolean }>;
 }
 
-const memoryCache = new Map<string, { at: number; prefetch: boolean; promise: Promise<ResolvedStream> }>();
+const memoryCache = new Map<string, { at: number; prefetch: boolean; speculative?: boolean; promise: Promise<ResolvedStream> }>();
 const REUSE_MS = 30 * 60 * 1000; // 30 minutes in-memory
 const CACHE_VERSION = 'v11';
 // How long a ready stream waits for the (optional) external subtitle lookup.
@@ -117,7 +121,8 @@ async function resolveUncachedInner(params: StreamParams, hit: { cached: boolean
       episode: params.episode,
       title: params.title,
       language: params.language,
-      allowSniff: !params.prefetch,
+      allowSniff: !params.prefetch || Boolean(params.speculative),
+      sniffBackground: Boolean(params.prefetch),
       fresh: params.fresh,
       preferredServerId: params.preferredServerId,
       exclude: params.exclude,
@@ -334,7 +339,10 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean }
     }
 
     const existing = memoryCache.get(key);
-    if (existing && Date.now() - existing.at < REUSE_MS) {
+    // A speculative (background) sniff is never waited on: the user's own lookup starts at once and
+    // the native side hands it the WebView (the speculative one is cancelled).
+    const yieldToUser = Boolean(existing?.speculative) && !params.prefetch;
+    if (existing && !yieldToUser && Date.now() - existing.at < REUSE_MS) {
       // A background prefetch never uses the web-view sniffer, so if it came
       // up empty a real playback request must try again with the full pipeline.
       if (existing.prefetch && !params.prefetch) {
@@ -348,7 +356,7 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean }
     }
   }
 
-  const entry = { at: Date.now(), prefetch: Boolean(params.prefetch), promise: resolveUncached(options.fresh ? { ...params, fresh: true } : params) };
+  const entry = { at: Date.now(), prefetch: Boolean(params.prefetch), speculative: Boolean(params.speculative), promise: resolveUncached(options.fresh ? { ...params, fresh: true } : params) };
   memoryCache.set(key, entry);
   entry.promise.catch(() => {
     if (memoryCache.get(key) === entry) memoryCache.delete(key);
@@ -360,7 +368,11 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean }
 }
 
 // Background lookups wait here, most important first (see streamScheduler.ts).
-const scheduler = new StreamScheduler<StreamParams>(params => resolveStream({ ...params, prefetch: true }), { concurrency: 2 });
+const scheduler = new StreamScheduler<StreamParams>(
+  // Whether the sniffer may be used is decided when the job runs, not when it was queued.
+  params => resolveStream({ ...params, prefetch: true, speculative: Boolean(params.speculative) && speculationAllowed() }),
+  { concurrency: 2 }
+);
 
 /**
  * Looks a saved stream up again in the background (lowest priority), e.g. after the
@@ -391,7 +403,8 @@ export function prefetchStream(params: StreamParams, options: { priority?: numbe
     resolveStream({ ...params, prefetch: true }).catch(() => {});
     return;
   }
-  scheduler.enqueue(keyOf(params), params, priority);
+  // The most likely next plays are worth a background sniff, not only a plain lookup.
+  scheduler.enqueue(keyOf(params), { ...params, speculative: priority <= Priority.FOCUS }, priority);
 }
 
 export async function resolveAllAvailableStreams(params: StreamParams): Promise<ResolvedStream[]> {

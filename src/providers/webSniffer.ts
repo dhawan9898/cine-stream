@@ -10,7 +10,7 @@ import { recordTiming } from './streamTimings.ts';
 
 let nextId = 0;
 
-export async function sniffDirectStream(embed: ExtractedStream, timeoutMs = 15000, signal?: AbortSignal): Promise<ExtractedStream | null> {
+export async function sniffDirectStream(embed: ExtractedStream, timeoutMs = 15000, signal?: AbortSignal, background = false): Promise<ExtractedStream | null> {
   if (!Capacitor.isNativePlatform()) return null;
   if (signal?.aborted) return null;
   const id = `sniff-${Date.now().toString(36)}-${nextId++}`;
@@ -21,8 +21,10 @@ export async function sniffDirectStream(embed: ExtractedStream, timeoutMs = 1500
       id,
       url: embed.url,
       referer: new URL(embed.url).origin + '/',
-      timeoutMs
+      timeoutMs,
+      background
     });
+    if (res.busy) return null; // refused: says nothing about the embed
     const t = res.timing;
     if (t && !res.cancelled) {
       const base = { serverId: embed.serverId };
