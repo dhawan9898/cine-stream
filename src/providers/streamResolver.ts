@@ -33,6 +33,8 @@ export interface StreamParams {
   // Providers whose stream just failed to play: not used for this lookup, so a
   // retry goes to a different server instead of the same dead one.
   exclude?: string[];
+  // The next episode of what is playing: its background lookup may sniff while the player is open.
+  nextEpisode?: boolean;
 }
 
 export interface ResolvedStream extends ExtractedStream {
@@ -66,7 +68,7 @@ export function forgetStream(params: StreamParams): void {
 
 // The part of the params a later lookup needs (no flags), kept with the saved stream.
 function paramsForStore(p: StreamParams): Record<string, unknown> {
-  const { prefetch: _prefetch, fresh: _fresh, exclude: _exclude, ...rest } = p;
+  const { prefetch: _prefetch, fresh: _fresh, exclude: _exclude, nextEpisode: _next, ...rest } = p;
   return rest;
 }
 
@@ -370,7 +372,11 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean }
 // Background lookups wait here, most important first (see streamScheduler.ts).
 const scheduler = new StreamScheduler<StreamParams>(
   // Whether the sniffer may be used is decided when the job runs, not when it was queued.
-  params => resolveStream({ ...params, prefetch: true, speculative: Boolean(params.speculative) && speculationAllowed() }),
+  params => resolveStream({
+    ...params,
+    prefetch: true,
+    speculative: Boolean(params.speculative) && speculationAllowed({ nextEpisode: params.nextEpisode })
+  }),
   { concurrency: 2 }
 );
 
@@ -447,6 +453,12 @@ export function warmStreams(
 
 // While an episode plays, resolve the next few so they start instantly. Uses
 // exactly the params playback uses, so the cached result is a direct hit.
+// The next episode gets the full lookup (with the sniffer), started a little into playback so it
+// does not compete with the current episode's first seconds of buffering; the one after it gets the
+// plain lookup only.
+const NEXT_EPISODE_DELAY_MS = 15_000;
+let nextEpisodeTimer: ReturnType<typeof setTimeout> | undefined;
+
 export function prefetchUpcomingEpisodes(
   base: Omit<StreamParams, 'episode' | 'prefetch'>,
   currentEpisode: number,
@@ -454,6 +466,12 @@ export function prefetchUpcomingEpisodes(
   count = 2
 ): void {
   const upcoming = knownEpisodes.filter(n => n > currentEpisode).sort((a, b) => a - b).slice(0, count);
-  // Next episode first (FIFO among equal priority), ahead of every poster prefetch.
-  upcoming.forEach(n => prefetchStream({ ...base, episode: n }, { priority: Priority.NEXT_EPISODE }));
+  if (nextEpisodeTimer) clearTimeout(nextEpisodeTimer);
+  if (upcoming.length === 0) return;
+  nextEpisodeTimer = setTimeout(() => {
+    nextEpisodeTimer = undefined;
+    // Next episode first (FIFO among equal priority), ahead of every poster prefetch.
+    prefetchStream({ ...base, episode: upcoming[0], nextEpisode: true }, { priority: Priority.NEXT_EPISODE });
+    upcoming.slice(1).forEach(n => prefetchStream({ ...base, episode: n }, { priority: Priority.RAIL }));
+  }, NEXT_EPISODE_DELAY_MS);
 }

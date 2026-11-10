@@ -146,7 +146,7 @@ export const SettingsScreen: React.FC = () => {
               <Row
                 icon={<Gauge size={18} />}
                 title="Data Saver"
-                text="Limit video to 720p on mobile data"
+                text="Limit video to 720p on mobile data and skip preparing streams in advance"
                 onClick={() => update({ dataSaver: !prefs.dataSaver })}
                 trailing={<div className={`toggle-switch ${prefs.dataSaver ? 'on' : ''}`}><div className="knob" /></div>}
               />
@@ -155,7 +155,7 @@ export const SettingsScreen: React.FC = () => {
               <Row
                 icon={<Zap size={18} />}
                 title="Faster Start"
-                text="Prepares the stream while you read a title page, so Play starts almost at once. Uses a little extra data."
+                text="Prepares streams for the title page you open, Continue Watching and the next episode, so Play starts at once. Works on Wi-Fi and mobile data; uses a little extra data."
                 onClick={() => update({ preloadStreams: !(prefs.preloadStreams ?? true) })}
                 trailing={<div className={`toggle-switch ${(prefs.preloadStreams ?? true) ? 'on' : ''}`}><div className="knob" /></div>}
               />

@@ -96,7 +96,7 @@ test('a saved config is used at once; a newer download replaces it, an older one
   assert.equal(cfg.isProviderEnabled('vega'), true);
 });
 
-test('speculation only when harmless: native, visible, idle, unmetered, battery ok, Faster Start on', () => {
+test('speculation only when harmless: native, visible, idle, battery ok, Faster Start on - on Wi-Fi or mobile data', () => {
   const ok = { native: true, visible: true, playing: false, preloadStreams: true, dataSaver: false, metered: false, saveData: false, battery: { level: 0.8, charging: false } };
   assert.equal(decide(ok), true);
   assert.equal(decide({ ...ok, native: false }), false);
@@ -104,9 +104,18 @@ test('speculation only when harmless: native, visible, idle, unmetered, battery 
   assert.equal(decide({ ...ok, visible: false }), false);
   assert.equal(decide({ ...ok, preloadStreams: false }), false);
   assert.equal(decide({ ...ok, dataSaver: true }), false);
-  assert.equal(decide({ ...ok, metered: true }), false);
+  assert.equal(decide({ ...ok, metered: true }), true, 'mobile data is allowed');
   assert.equal(decide({ ...ok, saveData: true }), false);
   assert.equal(decide({ ...ok, battery: { level: 0.1, charging: false } }), false);
   assert.equal(decide({ ...ok, battery: { level: 0.1, charging: true } }), true);
   assert.equal(decide({ ...ok, battery: null }), true);
+});
+
+test('the next episode is prepared while the player is open, within the same limits', () => {
+  const playing = { native: true, visible: false, playing: true, preloadStreams: true, dataSaver: false, metered: true, saveData: false, battery: { level: 0.8, charging: false }, nextEpisode: true };
+  assert.equal(decide(playing), true);
+  assert.equal(decide({ ...playing, nextEpisode: false }), false, 'anything else waits until nothing plays');
+  assert.equal(decide({ ...playing, preloadStreams: false }), false);
+  assert.equal(decide({ ...playing, saveData: true }), false);
+  assert.equal(decide({ ...playing, battery: { level: 0.1, charging: false } }), false);
 });

@@ -1,6 +1,7 @@
 // VideoPlayer.tsx - Background stream resolution engine with dual ExoPlayer/WebPlayer (direct streams only, never iframes)
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
+import { StreamLoading } from './StreamLoading.tsx';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { getTVSeasonEpisodes, type MediaItem, type EpisodeItem } from '../providers/cineHypeCore.ts';
 import { subtitlesForPlayer, pickAudio, applyPreferredQuality } from '../services/playbackPrefs.ts';
@@ -443,14 +444,27 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     );
   }
 
-  // Seamless Loading & Native Player Container: Clean full-screen black view with minimal spinner, NO card box
-  if (loading || !source || isNative) {
+  // Looking the stream up: the title's backdrop with what is happening (see StreamLoading).
+  if (loading || !source) {
+    const epName = isSeries ? episodes.find(e => e.episodeNumber === episode)?.name : undefined;
     return (
-      <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000000', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <StreamLoading
+        key={`${season}:${episode}:${attempt}`}
+        title={media.title}
+        subtitle={isSeries ? [`S${season}`, `E${episode}`, epName].filter(Boolean).join(' · ') : undefined}
+        backdrop={media.backdrop || media.poster}
+        onBack={onBack}
+      />
+    );
+  }
+
+  // The native player is open on top: a plain black page underneath.
+  if (isNative) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, backgroundColor: '#000000', zIndex: 9999 }}>
         <button onClick={onBack} className="interactive nf-icon-btn" aria-label="Back" style={{ position: 'absolute', top: 'calc(16px + var(--safe-top))', left: '16px', zIndex: 10 }}>
           <ArrowLeft size={28} color="#fff" />
         </button>
-        <Loader2 size={44} color="var(--accent-primary)" className="animate-spin" />
       </div>
     );
   }

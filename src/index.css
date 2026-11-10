@@ -872,3 +872,17 @@ body {
 :root[data-glass="clear"] [data-modal-root="true"][aria-label="Categories"] {
   background-color: var(--clear-modal-scrim) !important;
 }
+
+/* Play -> player: the progress line under the title on the loading screen (StreamLoading). Only
+   transform is animated; it eases toward 90% and the player takes over when the stream is ready. */
+.stream-progress-fill {
+  position: absolute;
+  inset: 0;
+  background: var(--accent-primary);
+  transform-origin: left center;
+  transform: scaleX(0.04);
+  animation: stream-progress 9s cubic-bezier(0.3, 0.55, 0.35, 1) forwards;
+}
+@keyframes stream-progress {
+  to { transform: scaleX(0.9); }
+}
