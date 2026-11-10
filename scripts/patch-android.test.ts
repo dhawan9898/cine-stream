@@ -33,6 +33,8 @@ test('gradle gets version and media3 once; missing fields fail loudly', () => {
   assert.match(out, /versionCode 9/);
   assert.match(out, /versionName "2\.0\.9"/);
   assert.equal(out.match(/media3-exoplayer:/g)?.length, 1);
+  // The sniffer's every-frame Play nudge needs androidx.webkit in the app module.
+  assert.equal(out.match(/androidx\.webkit:webkit:\$androidxWebkitVersion/g)?.length, 1);
   assert.equal(patchGradle(out, '2.0.9', '9'), out);
   assert.throws(() => patchGradle('android {}', '1', '1'), /versionCode not found/);
 });

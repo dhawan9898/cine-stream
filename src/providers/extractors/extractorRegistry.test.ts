@@ -126,3 +126,62 @@ test('the remembered provider is sniffed alone when it only offers an embed', as
   assert.deepEqual(sniffed, ['a'], 'only the remembered provider is sniffed');
   assert.equal(b.calls, 0, 'the other providers are not even asked');
 });
+
+// ---- faster start: early sniffs and a head start instead of an exclusive turn ------------------
+
+test('an embed the provider can name is sniffed at once, not after its static attempt gives up', async () => {
+  const reg = new ExtractorRegistry(false);
+  const slowStatic = Object.assign(fake('named', () => delay(4000, embed('named'))), {
+    embedUrl: () => 'https://named/embed/1'
+  });
+  reg.register(slowStatic);
+  reg.setSniffer(async e => delay(100, direct(`https://cdn/${e.serverId}.m3u8`)));
+  const t0 = Date.now();
+  const out = await reg.resolveAllStreams(sniffParams);
+  assert.ok(Date.now() - t0 < 1500, `took ${Date.now() - t0}ms`);
+  assert.equal(out[0].url, 'https://cdn/named.m3u8');
+});
+
+test('a remembered provider that stopped working only holds the others back for its head start', async () => {
+  const reg = new ExtractorRegistry(false);
+  let aWorks = true;
+  const a = fake('a', () => (aWorks ? Promise.resolve(direct('https://a/x.m3u8')) : delay(5000, null)));
+  const b = fake('b', () => delay(50, direct('https://b/x.m3u8')));
+  reg.register(a); reg.register(b);
+  // Learn that 'a' works for this title (b is slower, so a wins).
+  const first = await reg.resolveAllStreams({ ...params, id: 7 });
+  assert.equal(first[0].serverId, 'a');
+  aWorks = false;
+  const t0 = Date.now();
+  const out = await reg.resolveAllStreams({ ...params, id: 7 });
+  const took = Date.now() - t0;
+  assert.equal(out[0].serverId, 'b');
+  assert.ok(took < 2500, `the others joined after the head start (took ${took}ms, used to wait for a's whole attempt)`);
+});
+
+test('when the remembered provider comes up empty, the others start at once', async () => {
+  const reg = new ExtractorRegistry(false);
+  let aWorks = true;
+  const a = fake('a', async () => (aWorks ? direct('https://a/x.m3u8') : null));
+  const b = fake('b', () => delay(50, direct('https://b/x.m3u8')));
+  reg.register(a); reg.register(b);
+  await reg.resolveAllStreams({ ...params, id: 8 });
+  aWorks = false;
+  const t0 = Date.now();
+  const out = await reg.resolveAllStreams({ ...params, id: 8 });
+  assert.equal(out[0].serverId, 'b');
+  assert.ok(Date.now() - t0 < 800, `took ${Date.now() - t0}ms`);
+});
+
+test('the best two embeds are sniffed side by side from the start', async () => {
+  const reg = new ExtractorRegistry(false);
+  const started: number[] = [];
+  const t0 = Date.now();
+  reg.register(Object.assign(fake('x', () => delay(3000, null)), { embedUrl: () => 'https://x/e' }));
+  reg.register(Object.assign(fake('y', () => delay(3000, null)), { embedUrl: () => 'https://y/e' }));
+  reg.setSniffer(async e => { started.push(Date.now() - t0); return e.serverId === 'y' ? delay(300, direct('https://cdn/y.m3u8')) : delay(2000, null); });
+  const out = await reg.resolveAllStreams({ ...sniffParams, id: 40, fresh: true });
+  assert.equal(out[0].serverId, 'y');
+  assert.equal(started.length, 2);
+  assert.ok(started.every(t => t < 100), `both sniffs started immediately: ${started}`);
+});

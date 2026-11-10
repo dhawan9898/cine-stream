@@ -174,11 +174,47 @@ public class ExoPlayerPlugin extends Plugin {
     // A lookup can also be cancelled (another provider already won), which frees its WebView
     // for the next job at once. The timings of each phase go back to JS.
 
-    private static final int SNIFF_POOL_MAX = 2;
+    // Three, so the best two providers can be sniffed side by side from the first moment and a
+    // third can be hedged; idle ones are released after a while either way.
+    private static final int SNIFF_POOL_MAX = 3;
     private static final long SNIFF_IDLE_RELEASE_MS = 3 * 60 * 1000;
     private static final String SNIFF_UA = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
     private static final String AUTOPLAY_JS = "(function(){try{document.querySelectorAll('video').forEach(function(v){v.muted=true;var p=v.play();if(p&&p.catch)p.catch(function(){});});"
             + "['.jw-icon-display','.vjs-big-play-button','.plyr__control--overlaid','.play-button','#play','[aria-label=Play]','button.play'].forEach(function(s){var e=document.querySelector(s);if(e)e.click();});}catch(e){}})();";
+
+    // Injected at document start into EVERY frame (androidx.webkit addDocumentStartJavaScript).
+    // Embed players sit two or three cross-origin iframes deep and wait for a tap on Play before
+    // they ask for the stream; a script run only in the top page after onPageFinished (which waits
+    // for every ad script) never reaches them. This one keeps nudging - mute and play videos,
+    // press visible Play controls - from the frame's first moment until a video is playing.
+    private static final String NUDGE_JS = "(function(){if(window.__csNudge)return;window.__csNudge=1;"
+            + "var sel=['.jw-icon-display','.vjs-big-play-button','.plyr__control--overlaid','.play-button','#play','[aria-label=Play]','button.play',"
+            + "'.play','.btn-play','.play-btn','#player-button','.vjs-play-control','[class*=play-button]','[class*=PlayButton]','[id*=play]','.jw-display-icon-container','#pl_but','.poster'];"
+            + "var n=0;function tick(){if(++n>60)return;try{var playing=false;document.querySelectorAll('video').forEach(function(v){if(!v.paused&&v.currentTime>0)playing=true;v.muted=true;"
+            + "if(v.paused){var p=v.play();if(p&&p.catch)p.catch(function(){});}});"
+            + "if(!playing){sel.forEach(function(s){var e=document.querySelector(s);if(e&&e.offsetParent!==null)e.click();});}}catch(e){}"
+            + "setTimeout(tick,n<10?150:400);}"
+            + "if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',tick);else tick();setTimeout(tick,50);})();";
+
+    // Ad loaders rotate throwaway domains faster than any host list, but their URL shapes do not:
+    // Monetag / Propeller style tags (/14/<32 hex>, /20, /3/<hex>?uidm=...), interstitial bundles
+    // and trackers. Answered empty, they no longer delay the player or cover it with an overlay.
+    private static final java.util.regex.Pattern[] AD_URL_SHAPES = {
+            java.util.regex.Pattern.compile("^https?://[^/]+/\\d{1,2}(/[0-9a-f]{32})?(\\?uidm=.*)?$", java.util.regex.Pattern.CASE_INSENSITIVE),
+            java.util.regex.Pattern.compile("^https?://[^/]+/\\d{1,2}/[0-9a-f]{32}\\?", java.util.regex.Pattern.CASE_INSENSITIVE),
+            java.util.regex.Pattern.compile("/(interstitial|popunder|clickunder)/", java.util.regex.Pattern.CASE_INSENSITIVE),
+            java.util.regex.Pattern.compile("(cloudpiko|show-sb\\.com|dtscout|dtscdn|tynt\\.com|crwdcntrl|onaudience|adsrvr|eyeota|mrktmtrcs|33across|cloudflareinsights|google-analytics|googletagmanager)", java.util.regex.Pattern.CASE_INSENSITIVE)
+    };
+    // Throwaway TLDs the ad loaders use; only for scripts and API calls, never for frames.
+    private static final java.util.regex.Pattern AD_TLD = java.util.regex.Pattern.compile("^https?://[^/]+\\.(cfd|cyou|fyi|sbs)(:\\d+)?/", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    static boolean isAdLike(String url, Map<String, String> headers) {
+        if (ExoPlayerActivity.isAdRequest(url)) return true;
+        for (java.util.regex.Pattern p : AD_URL_SHAPES) if (p.matcher(url).find()) return true;
+        String accept = headers != null ? headers.get("Accept") : null;
+        boolean frame = accept != null && accept.contains("text/html");
+        return !frame && AD_TLD.matcher(url).find();
+    }
 
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     // Main thread only.
@@ -192,6 +228,8 @@ public class ExoPlayerPlugin extends Plugin {
 
     private static final class SniffView {
         final WebView web;
+        // True when NUDGE_JS runs in every frame from document start.
+        boolean everyFrame;
         SniffJob job; // main thread only
         SniffView(WebView web) { this.web = web; }
     }
@@ -205,6 +243,12 @@ public class ExoPlayerPlugin extends Plugin {
                 scheduleSniffTrim();
             } catch (Exception ignored) {}
         }, 1500);
+        // A second one a little later: the first lookup sniffs two providers at once.
+        MAIN.postDelayed(() -> {
+            try {
+                if (idleSniffers.size() < 2 && sniffJobs.isEmpty()) idleSniffers.add(newSniffView());
+            } catch (Exception ignored) {}
+        }, 5000);
     }
 
     // Main thread only.
@@ -222,6 +266,14 @@ public class ExoPlayerPlugin extends Plugin {
         ws.setJavaScriptCanOpenWindowsAutomatically(false);
         ws.setUserAgentString(SNIFF_UA);
         final SniffView sv = new SniffView(web);
+        try {
+            if (androidx.webkit.WebViewFeature.isFeatureSupported(androidx.webkit.WebViewFeature.DOCUMENT_START_SCRIPT)) {
+                androidx.webkit.WebViewCompat.addDocumentStartJavaScript(web, NUDGE_JS, java.util.Collections.singleton("*"));
+                sv.everyFrame = true;
+            }
+        } catch (Throwable ignored) {
+            // Old WebView: the top-page script after onPageFinished below still runs.
+        }
         web.setWebViewClient(new WebViewClient() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
@@ -296,8 +348,11 @@ public class ExoPlayerPlugin extends Plugin {
         final String pageUrl;
         final String referer;
         final int timeoutMs;
-        final boolean background;
-        final PluginCall call;
+        // Not final: a background (speculative) sniff is promoted when Play asks for the same page.
+        boolean background;
+        // Everyone waiting for this sniff, by call id: the one who started it, and anyone who joined
+        // (Play while the same page was being sniffed in the background). Main thread only.
+        final Map<String, PluginCall> callers = new java.util.LinkedHashMap<>();
         boolean counted;
         final AtomicBoolean done = new AtomicBoolean(false);
         final long requestedAt = System.currentTimeMillis();
@@ -316,7 +371,7 @@ public class ExoPlayerPlugin extends Plugin {
             this.referer = referer;
             this.timeoutMs = timeoutMs;
             this.background = background;
-            this.call = call;
+            this.callers.put(id, call);
         }
 
         void start() {
@@ -328,8 +383,11 @@ public class ExoPlayerPlugin extends Plugin {
                         backgroundSniffs++;
                     } else {
                         foregroundSniffs++;
-                        for (SniffJob other : new java.util.ArrayList<>(sniffJobs.values())) {
-                            if (other.background) other.cancel();
+                        // Background sniffs only give way when their WebView is actually needed.
+                        if (idleSniffers.isEmpty()) {
+                            for (SniffJob other : new java.util.ArrayList<>(sniffJobs.values())) {
+                                if (other.background) other.cancel();
+                            }
                         }
                     }
                     counted = true;
@@ -353,19 +411,24 @@ public class ExoPlayerPlugin extends Plugin {
         WebResourceResponse intercept(WebResourceRequest request) {
             if (done.get()) return null;
             String req = request.getUrl().toString();
+            Map<String, String> headers = request.getRequestHeaders();
+            boolean adLike = isAdLike(req, headers);
+            // A stream manifest is never treated as an ad (the URL rules only target loaders).
+            if (isMediaUrl(req) && isManifestUrl(req) && !req.equalsIgnoreCase(pageUrl) && !ExoPlayerActivity.isAdRequest(req)) {
+                succeed(req, headers);
+                return null;
+            }
             // Ad networks and page furniture (fonts, stylesheets, images) are answered empty
             // without touching the network: they slow the embed down and never carry the stream.
-            if (ExoPlayerActivity.isAdRequest(req) || isPageFurniture(req)) {
+            if (adLike || isPageFurniture(req)) {
                 return new WebResourceResponse("text/plain", "UTF-8", new java.io.ByteArrayInputStream(new byte[0]));
             }
-            if (isMediaUrl(req) && !req.equalsIgnoreCase(pageUrl)) {
-                if (isManifestUrl(req)) {
-                    succeed(req, request.getRequestHeaders());
-                } else if (mp4Candidate == null) {
-                    mp4Candidate = req;
-                    mp4Headers = request.getRequestHeaders();
-                    MAIN.postDelayed(() -> { if (!done.get()) finishWithBestGuess(); }, 4000);
-                }
+            // A plain video file is only a fallback, and never an ad's video (interstitials play an
+            // .mp4 seconds before the real player asks for its stream).
+            if (isMediaUrl(req) && !req.equalsIgnoreCase(pageUrl) && mp4Candidate == null) {
+                mp4Candidate = req;
+                mp4Headers = headers;
+                MAIN.postDelayed(() -> { if (!done.get()) finishWithBestGuess(); }, 2500);
             }
             return null;
         }
@@ -382,6 +445,8 @@ public class ExoPlayerPlugin extends Plugin {
 
         void pageFinished(WebView view) {
             if (pageFinishedAt == 0) pageFinishedAt = System.currentTimeMillis();
+            // With the every-frame script the player has long been nudged; this is the fallback.
+            if (sv != null && sv.everyFrame) return;
             // Start playback as early as the page allows: many players only ask for the
             // stream once they play, and again later once their own scripts have settled.
             for (int delay : new int[]{150, 1000, 2500, 5000, 8000}) {
@@ -404,25 +469,69 @@ public class ExoPlayerPlugin extends Plugin {
             runOnMain(() -> complete(false, null, null, true));
         }
 
+        /**
+         * One caller no longer needs the stream (another provider won for it). The sniff only stops
+         * when nobody else is waiting for it.
+         */
+        void cancelFor(String callId) {
+            if (done.get()) return;
+            runOnMain(() -> {
+                if (done.get()) return;
+                PluginCall leaving = callers.remove(callId);
+                sniffJobs.remove(callId);
+                if (callers.isEmpty()) {
+                    if (leaving != null) callers.put(callId, leaving); // so complete() answers it
+                    complete(false, null, null, true);
+                } else if (leaving != null) {
+                    JSObject ret = new JSObject();
+                    ret.put("found", false);
+                    ret.put("cancelled", true);
+                    leaving.resolve(ret);
+                }
+            });
+        }
+
+        /** Play asked for the page this background sniff is already loading: continue it in the foreground. */
+        void promote(String callId, PluginCall waiting) {
+            callers.put(callId, waiting);
+            sniffJobs.put(callId, this);
+            if (background && counted) {
+                backgroundSniffs--;
+                foregroundSniffs++;
+            }
+            background = false;
+            // The foreground gets its full time from now.
+            MAIN.removeCallbacks(onTimeout);
+            MAIN.postDelayed(onTimeout, timeoutMs);
+        }
+
         private void rejectBusy() {
             if (!done.compareAndSet(false, true)) return;
             sniffJobs.remove(id);
             JSObject ret = new JSObject();
             ret.put("found", false);
             ret.put("busy", true);
-            call.resolve(ret);
+            for (PluginCall c : callers.values()) c.resolve(ret);
+            callers.clear();
         }
 
         private void complete(boolean found, String media, Map<String, String> reqHeaders, boolean cancelled) {
             if (!done.compareAndSet(false, true)) return;
             runOnMain(() -> {
                 MAIN.removeCallbacks(onTimeout);
+                for (String callId : callers.keySet()) sniffJobs.remove(callId);
                 sniffJobs.remove(id);
                 if (counted) {
                     counted = false;
                     if (background) backgroundSniffs--; else foregroundSniffs--;
                 }
                 releaseSniffView(sv);
+                for (PluginCall c : callers.values()) c.resolve(buildResult(found, media, reqHeaders, cancelled));
+                callers.clear();
+            });
+        }
+
+        private JSObject buildResult(boolean found, String media, Map<String, String> reqHeaders, boolean cancelled) {
                 JSObject ret = new JSObject();
                 ret.put("found", found);
                 ret.put("cancelled", cancelled);
@@ -448,8 +557,7 @@ public class ExoPlayerPlugin extends Plugin {
                 timing.put("streamMs", mediaAt > 0 && loadStartedAt > 0 ? mediaAt - loadStartedAt : -1);
                 timing.put("totalMs", now - requestedAt);
                 ret.put("timing", timing);
-                call.resolve(ret);
-            });
+                return ret;
         }
     }
 
@@ -464,6 +572,22 @@ public class ExoPlayerPlugin extends Plugin {
         }
         final String id = call.getString("id", java.util.UUID.randomUUID().toString());
         final boolean background = Boolean.TRUE.equals(call.getBoolean("background", false));
+        if (!background) {
+            // Tapping Play while the same page is being sniffed speculatively: join that sniff
+            // (it may be seconds from done) instead of cancelling it and starting over.
+            runOnMain(() -> {
+                for (SniffJob running : sniffJobs.values()) {
+                    if (running.background && !running.done.get() && running.pageUrl.equals(pageUrl)) {
+                        running.promote(id, call);
+                        return;
+                    }
+                }
+                SniffJob job = new SniffJob(id, pageUrl, referer, timeoutMs, false, call);
+                sniffJobs.put(id, job);
+                job.start();
+            });
+            return;
+        }
         SniffJob job = new SniffJob(id, pageUrl, referer, timeoutMs, background, call);
         sniffJobs.put(id, job);
         job.start();
@@ -474,7 +598,7 @@ public class ExoPlayerPlugin extends Plugin {
     public void cancelSniff(PluginCall call) {
         String id = call.getString("id");
         SniffJob job = id != null ? sniffJobs.get(id) : null;
-        if (job != null) job.cancel();
+        if (job != null) job.cancelFor(id);
         call.resolve();
     }
 

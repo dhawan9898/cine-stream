@@ -40,6 +40,12 @@ export interface StreamExtractor {
   id: string;
   name: string;
   mainUrl: string;
+  /**
+   * The provider's embed page for a title, known without any request. When present, the registry
+   * starts sniffing it at once, in parallel with extract()'s own (static) attempt, instead of only
+   * after that attempt gave up - the static attempt rarely finds a stream on script-built players.
+   */
+  embedUrl?(params: { id: number; type: 'movie' | 'tv'; season?: number; episode?: number }): string | null;
   extract(params: {
     id: number;
     type: 'movie' | 'tv';

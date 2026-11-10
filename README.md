@@ -10,13 +10,12 @@ Inspired by the native architecture and fluid UI of [Anistream](../Anistream), C
 
 ### 1. 📡 Multi-Extractor Streaming Engine & TMDB Catalog
 - **Direct TMDB v3 Integration**: High-speed catalog fetching of trending titles, popular releases, critically acclaimed movies, and TV shows on the air, backed by in-flight request deduplication and exponential-backoff retries.
-- **Concurrent Stream Discovery Engine**: Six title extractors run in parallel with automatic fallback to embedded playback or native stream sniffing:
-  - 🔴 **Flixeo** (`flixeo.tv`)
-  - 🔵 **VidLink PRO** (`vidlink.pro`)
-  - 🟢 **VidSrc** (`vidsrc.to` and mirrors)
-  - 🌐 **AutoEmbed** (`autoembed.co`)
-  - 🟣 **MultiEmbed** (`multiembed.mov`)
+- **Concurrent Stream Discovery Engine**: four providers run in parallel, and only a direct stream (HLS / DASH / MP4) ever reaches the player:
+  - 🟢 **Vega** (`vidsrc.to` and mirrors), the first choice for movies
+  - 🔴 **Flixeo** (its player, `vixsrc.to`), the first choice for series; read straight from the page when possible
+  - 🟣 **CineHype** (`vidfast.vc`)
   - 🇮🇳 **Movierulz Regional** (`5movierulz.site`) for Telugu, Hindi, Tamil, Malayalam and Kannada titles
+- **Fast start (target: under 5 s for a title nobody prepared)**: providers whose player page is known up front are sniffed from the first moment, two side by side, while their static attempt runs. The native sniffer injects its Play nudge into every frame at document start (players sit in nested cross-origin iframes and wait for a tap), answers ad loaders and trackers empty by URL shape (their domains rotate), and never accepts an ad's video as the stream. The provider that worked last time gets a 1.2 s head start instead of an exclusive turn. Opening a title page prepares the stream in the background ("Faster Start"); tapping Play joins that sniff instead of restarting it.
 
 ### 2. 🎨 Cinema-Grade Aesthetics & WebView Performance
 - **Compositor-First Rendering**: Only `transform` and `opacity` are animated; scrolling surfaces use flat opaque cards while `backdrop-filter` is reserved for small fixed chrome (floating dock, popovers, modals).

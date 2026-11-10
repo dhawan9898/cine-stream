@@ -58,6 +58,11 @@ export function patchGradle(gradle, version, versionCode) {
       .join('\n');
     out += `\n// CineStream native player\ndependencies {\n${deps}\n}\n`;
   }
+  // The stream sniffer injects its Play nudge into every frame (WebViewCompat.addDocumentStartJavaScript).
+  // Capacitor already ships androidx.webkit, but only for itself; the app has to ask for it too.
+  if (!out.includes('androidx.webkit:webkit')) {
+    out += `\n// CineStream stream sniffer\ndependencies {\n    implementation "androidx.webkit:webkit:$androidxWebkitVersion"\n}\n`;
+  }
   return out;
 }
 

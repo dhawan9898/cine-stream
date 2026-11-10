@@ -12,10 +12,16 @@ import { CineHypeExtractor } from './cinehypeExtractor.ts';
 import { MovierulzExtractor } from './movierulzExtractor.ts';
 
 const MAX_SNIFF_ATTEMPTS = 4;
-const SNIFF_CONCURRENCY = 2;
+// The best two embeds are sniffed side by side from the start; a third only after the hedge delay.
+const SNIFF_CONCURRENCY = 3;
+const UNHEDGED_SNIFFS = 2;
 const PROVIDER_TIMEOUT_MS = 6000;
-const SNIFF_TIMEOUT_MS = 12000;
-const RESOLVE_DEADLINE_MS = 20000;
+// A working embed gives its stream in about 5 s once ads are blocked and Play is pressed in every
+// frame (see the native sniffer); waiting much longer only delays the next provider.
+const SNIFF_TIMEOUT_MS = 9000;
+const RESOLVE_DEADLINE_MS = 14000;
+// The provider that worked for this title last time runs alone this long before the others join.
+const LAST_GOOD_HEAD_START_MS = 1200;
 const EARLY_EXIT_GRACE_MS = 250;
 const HEALTH_KEY = 'cinestream_provider_stats_v2';
 const FAILS_BEFORE_COOLDOWN = 3;
@@ -25,8 +31,6 @@ const COOLDOWN_MS = 10 * 60 * 1000;
 const PRIMARY_BIAS_MS = 1500;
 const LAST_GOOD_KEY = 'cinestream_last_good_v1';
 const LAST_GOOD_MAX = 300;
-const LAST_GOOD_TIMEOUT_MS = 3500;
-const LAST_GOOD_SNIFF_TIMEOUT_MS = 8000;
 
 type Sniffer = (embed: ExtractedStream, signal?: AbortSignal, background?: boolean) => Promise<ExtractedStream | null>;
 
@@ -157,21 +161,13 @@ export class ExtractorRegistry {
     const healthy = usable.filter(e => this.stats.tryAcquire(e.id));
     const active = healthy.length > 0 ? healthy : usable;
     const goodId = this.lastGood.get(`${params.type}:${params.id}`);
-
-    // Shortcut: provider that worked for this title last time (directOnly native playback)
-    if (!params.fresh && !params.preferredServerId && directOnly) {
-      const good = goodId ? active.find(e => e.id === goodId) : undefined;
-      if (good) {
-        const viaGood = await this.tryProvider(good, params, canSniff);
-        if (viaGood) {
-          this.rememberGood(params, good.id);
-          return [viaGood];
-        }
-      }
-    }
-
-    const race = active.filter(e => !(e.id === goodId && !params.fresh && !params.preferredServerId && directOnly));
-    const raceList = race.length > 0 ? race : active;
+    // The provider that worked for this title last time gets a head start rather than an exclusive
+    // turn: if it still works it wins alone, and if it does not, the others are already running
+    // instead of starting only after its whole attempt (extract + sniff) has timed out.
+    const useHeadStart = !params.fresh && !params.preferredServerId && Boolean(goodId) && active.some(e => e.id === goodId);
+    const raceList = useHeadStart
+      ? [...active.filter(e => e.id === goodId), ...active.filter(e => e.id !== goodId)]
+      : active;
 
     const lookupStart = Date.now();
     return new Promise<ExtractedStream[]>(resolve => {
@@ -181,11 +177,13 @@ export class ExtractorRegistry {
       let pendingExtract = raceList.length;
       let sniffRunning = 0;
       let sniffStarted = 0;
-      // Hedged sniffing: the best embed starts at once; the next only after the first has had
-      // its usual time (or failed), so one WebView is not burned on a likely loser.
+      // Hedged sniffing beyond the first UNHEDGED_SNIFFS: the next only after the running ones have
+      // had their usual time (or failed), so a WebView is not burned on a likely loser.
       let lastSniffStart = 0;
       let lastSniffServer: string | undefined;
       let hedgeTimer: ReturnType<typeof setTimeout> | undefined;
+      let headStartTimer: ReturnType<typeof setTimeout> | undefined;
+      let othersStarted = !useHeadStart;
       let done = false;
       let grace: ReturnType<typeof setTimeout> | undefined;
       let deadline: ReturnType<typeof setTimeout> | undefined;
@@ -199,6 +197,7 @@ export class ExtractorRegistry {
         if (grace) clearTimeout(grace);
         if (deadline) clearTimeout(deadline);
         if (hedgeTimer) clearTimeout(hedgeTimer);
+        if (headStartTimer) clearTimeout(headStartTimer);
         const sorted = [...found].sort((x, y) => {
           if (params.preferredServerId) {
             if (x.serverId === params.preferredServerId) return -1;
@@ -212,6 +211,14 @@ export class ExtractorRegistry {
 
       const maybeFinish = () => {
         if (done) return;
+        // While the head start runs, the providers that have not started yet still count.
+        if (!othersStarted) {
+          // The remembered provider came up empty (its attempt is over, nothing left to sniff): no
+          // need to sit out the rest of its head start.
+          const headDone = pendingExtract <= raceList.length - 1;
+          if (headDone && sniffRunning === 0 && queue.length === 0 && found.length === 0) startOthers();
+          return;
+        }
         if (pendingExtract === 0 && sniffRunning === 0 && (queue.length === 0 || sniffStarted >= MAX_SNIFF_ATTEMPTS)) finish();
       };
 
@@ -225,7 +232,7 @@ export class ExtractorRegistry {
 
       const pump = () => {
         while (!done && sniffRunning < SNIFF_CONCURRENCY && sniffStarted < MAX_SNIFF_ATTEMPTS && queue.length > 0) {
-          if (sniffRunning > 0) {
+          if (sniffRunning >= UNHEDGED_SNIFFS) {
             const wait = this.stats.hedgeDelayMs(lastSniffServer ?? '') - (Date.now() - lastSniffStart);
             if (wait > 0) {
               if (!hedgeTimer) hedgeTimer = setTimeout(() => { hedgeTimer = undefined; pump(); }, wait);
@@ -254,7 +261,7 @@ export class ExtractorRegistry {
       };
 
       const enqueue = (embed: ExtractedStream) => {
-        if (queuedUrls.has(embed.url)) return;
+        if (done || queuedUrls.has(embed.url)) return;
         queuedUrls.add(embed.url);
         if (embed.serverId && embed.serverId === goodId) { queue.unshift(embed); return; }
         // Best provider first (by learned speed and reliability); ties keep arrival order.
@@ -264,11 +271,17 @@ export class ExtractorRegistry {
         queue.splice(at, 0, embed);
       };
 
-      deadline = setTimeout(finish, RESOLVE_DEADLINE_MS);
-      if (raceList.length === 0) { finish(); return; }
+      // Queues the embed page right away when the provider can name it without a request.
+      const queueEarly = (extractor: StreamExtractor) => {
+        if (!canSniff || !extractor.embedUrl) return;
+        const url = (() => { try { return extractor.embedUrl!(params); } catch { return null; } })();
+        if (!url) return;
+        const early: ExtractedStream = { url, format: 'hls', isFallbackEmbed: true, serverId: extractor.id, serverName: extractor.name };
+        params.onEmbed?.(early);
+        enqueue(early);
+      };
 
-      // Concurrent parallel execution across extractors
-      raceList.forEach(extractor => {
+      const run = (extractor: StreamExtractor) => {
         let timer: ReturnType<typeof setTimeout> | undefined;
         const timeout = new Promise<null>(r => { timer = setTimeout(() => r(null), PROVIDER_TIMEOUT_MS); });
 
@@ -285,7 +298,6 @@ export class ExtractorRegistry {
             });
             if (done) return;
 
-            // Stream health check: verify valid URL and stream presence
             if (stream && stream.url && stream.url.trim().length > 0) {
               const tagged = {
                 ...stream,
@@ -311,42 +323,35 @@ export class ExtractorRegistry {
             pump();
             maybeFinish();
           });
-      });
-    });
-  }
+      };
 
-  private async tryProvider(
-    extractor: StreamExtractor,
-    params: Parameters<StreamExtractor['extract']>[0] & { onEmbed?: (embed: ExtractedStream) => void; sniffBackground?: boolean },
-    canSniff: boolean
-  ): Promise<ExtractedStream | null> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const startedAt = Date.now();
-    try {
-      const stream = await Promise.race([
-        (async () => extractor.extract(params))(),
-        new Promise<null>(r => { timer = setTimeout(() => r(null), LAST_GOOD_TIMEOUT_MS); })
-      ]);
-      const elapsed = Date.now() - startedAt;
-      recordTiming({
-        phase: 'extract', ms: elapsed, serverId: extractor.id, titleId: params.id, title: params.title,
-        outcome: !stream || !stream.url ? (elapsed >= LAST_GOOD_TIMEOUT_MS - 50 ? 'timeout' : 'none') : stream.isFallbackEmbed ? 'embed' : 'direct'
-      });
-      if (!stream || !stream.url) { this.recordResult(extractor.id, false); return null; }
-      const tagged = { ...stream, serverId: stream.serverId || extractor.id, serverName: stream.serverName || extractor.name };
-      if (!tagged.isFallbackEmbed) { this.recordResult(extractor.id, true, Date.now() - startedAt); return tagged; }
-      params.onEmbed?.(tagged);
-      if (!canSniff) return null; // cannot sniff here: says nothing about the provider's health
-      const sniffStart = Date.now();
-      const sniffed = await this.sniffWithTimeout(tagged, LAST_GOOD_SNIFF_TIMEOUT_MS, undefined, params.sniffBackground);
-      recordTiming({ phase: 'sniff', ms: Date.now() - sniffStart, serverId: extractor.id, titleId: params.id, title: params.title, outcome: sniffed ? 'sniffed' : 'failed' });
-      if (sniffed || !params.sniffBackground) this.recordResult(extractor.id, Boolean(sniffed), Date.now() - startedAt);
-      return sniffed ? { ...sniffed, serverId: tagged.serverId, serverName: tagged.serverName } : null;
-    } catch {
-      return null;
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
+      // Everyone else: after the head start, or as soon as the remembered provider has nothing.
+      const startOthers = () => {
+        if (othersStarted || done) return;
+        othersStarted = true;
+        if (headStartTimer) clearTimeout(headStartTimer);
+        const others = raceList.slice(1);
+        // Every early embed is queued before any sniff starts, so the best-ranked ones get the WebViews.
+        others.forEach(queueEarly);
+        pump();
+        others.forEach(run);
+        maybeFinish();
+      };
+
+      deadline = setTimeout(finish, RESOLVE_DEADLINE_MS);
+      if (raceList.length === 0) { finish(); return; }
+
+      if (useHeadStart) {
+        queueEarly(raceList[0]);
+        pump();
+        run(raceList[0]);
+        headStartTimer = setTimeout(startOthers, LAST_GOOD_HEAD_START_MS);
+      } else {
+        raceList.forEach(queueEarly);
+        pump();
+        raceList.forEach(run);
+      }
+    });
   }
 
   /** Turns a saved embed page into a direct stream with the native sniffer, or null. */

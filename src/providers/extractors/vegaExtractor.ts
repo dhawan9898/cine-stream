@@ -16,6 +16,12 @@ export class VegaExtractor extends BaseExtractor {
   private defaultMirrors = [...this.mirrors];
   private defaultMainUrl = this.mainUrl;
 
+  /** vidsrc.to's embed page: sniffed at once, in parallel with the static attempt on the mirrors. */
+  embedUrl(params: { id: number; type: 'movie' | 'tv'; season?: number; episode?: number }): string {
+    const { id, type, season = 1, episode = 1 } = params;
+    return `${this.mainUrl}${type === 'tv' ? `/embed/tv/${id}/${season}/${episode}` : `/embed/movie/${id}`}`;
+  }
+
   applyConfig(override: { mainUrl?: string; mirrors?: string[] }): void {
     this.mainUrl = override.mainUrl ?? this.defaultMainUrl;
     this.mirrors = override.mirrors && override.mirrors.length ? [...override.mirrors] : [...this.defaultMirrors];
