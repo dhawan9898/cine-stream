@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "lint": "oxlint",
     "test": "tsx --test $(find src scripts -name \"*.test.ts\")",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "smoke": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
