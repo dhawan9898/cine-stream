@@ -97,15 +97,18 @@ export const LibraryScreen: React.FC<LibraryScreenProps> = ({ onPlayMedia, onSel
         <div className="seg-track">
           <button onClick={() => { hapticLight(); setTab('history'); }} className={`interactive seg-pill ${tab === 'history' ? 'active' : ''}`}>
             <Clock size={16} />
-            <span>History ({history.length})</span>
+            <span className="seg-label">History</span>
+            {history.length > 0 && <span className="seg-count">{history.length}</span>}
           </button>
           <button onClick={() => { hapticLight(); setTab('list'); }} className={`interactive seg-pill ${tab === 'list' ? 'active' : ''}`}>
             <Bookmark size={16} />
-            <span>My List ({list.length})</span>
+            <span className="seg-label">My List</span>
+            {list.length > 0 && <span className="seg-count">{list.length}</span>}
           </button>
           <button onClick={() => { hapticLight(); setTab('downloads'); }} className={`interactive seg-pill ${tab === 'downloads' ? 'active' : ''}`}>
             <Download size={16} />
-            <span>Downloads ({downloadedCount})</span>
+            <span className="seg-label">Downloads</span>
+            {downloadedCount > 0 && <span className="seg-count">{downloadedCount}</span>}
           </button>
         </div>
       </div>

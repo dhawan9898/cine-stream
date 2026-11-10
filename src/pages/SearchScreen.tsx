@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, Search as SearchIcon, X, Loader2, Play } from 'lucide-react';
 import { getTrending, searchMedia, type MediaItem, type MediaType } from '../providers/cineHypeCore.ts';
 import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
+import { ErrorState } from 'streamkit/ui/ErrorState.tsx';
 import { PosterCard } from '../components/PosterCard.tsx';
 import { hapticLight, hapticMedium, hapticSelection } from '../services/hapticsService.ts';
 
@@ -23,6 +24,9 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ active, onBack, onSe
   const [attempt, setAttempt] = useState(0);
   const [filter, setFilter] = useState<'all' | MediaType>('all');
   const [topSearches, setTopSearches] = useState<MediaItem[]>([]);
+  // 'failed' replaces the skeletons with a retry; opening the tab again also retries.
+  const [topStatus, setTopStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [topAttempt, setTopAttempt] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -30,12 +34,16 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ active, onBack, onSe
   }, [active]);
 
   useEffect(() => {
+    // Loads on mount (so the list is ready when the tab opens); after a failure, opening the tab retries.
+    if (topStatus === 'ready' || (!active && topStatus === 'failed')) return;
     let cancelled = false;
+    setTopStatus('loading');
     getTrending('all', 'week')
-      .then(list => { if (!cancelled) setTopSearches(list.slice(0, 12)); })
-      .catch(() => { /* the empty state simply stays blank */ });
+      .then(list => { if (!cancelled) { setTopSearches(list.slice(0, 12)); setTopStatus('ready'); } })
+      .catch(() => { if (!cancelled) setTopStatus('failed'); });
     return () => { cancelled = true; };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- topStatus is the guard, not a trigger
+  }, [active, topAttempt]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query.trim()), 320);
@@ -125,9 +133,12 @@ export const SearchScreen: React.FC<SearchScreenProps> = ({ active, onBack, onSe
         <div style={{ padding: '18px 20px 0 20px' }}>
           <h2 style={{ fontSize: '19px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '12px' }}>Top Searches</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {topSearches.length === 0 && Array.from({ length: 6 }).map((_, i) => (
+            {topSearches.length === 0 && topStatus === 'loading' && Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="skeleton" style={{ height: '68px', borderRadius: 'var(--radius-md)' }} />
             ))}
+            {topSearches.length === 0 && topStatus === 'failed' && (
+              <ErrorState compact message="Top searches couldn't load. Check your connection." onRetry={() => setTopAttempt(a => a + 1)} />
+            )}
             {topSearches.map(media => (
               <button
                 key={`${media.mediaType}-${media.id}`}

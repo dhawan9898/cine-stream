@@ -108,24 +108,27 @@ export const SettingsScreen: React.FC = () => {
       <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
         <section>
           <SectionLabel>Appearance</SectionLabel>
-          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', padding: '16px' }}>
-            <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px' }}>Theme</h4>
-            <div className="seg-track">
-              {THEMES.map(t => (
-                <button key={t.id} onClick={() => { hapticSelection(); changeTheme(t.id); }} className={`interactive seg-pill ${theme === t.id ? 'active' : ''}`}>
-                  {t.label}
-                </button>
-              ))}
+          {/* Theme and glass style share one card, as in AniStream. */}
+          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+            <div style={{ padding: '16px' }}>
+              <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px' }}>Theme</h4>
+              <div className="seg-track">
+                {THEMES.map(t => (
+                  <button key={t.id} onClick={() => { hapticSelection(); changeTheme(t.id); }} className={`interactive seg-pill ${theme === t.id ? 'active' : ''}`}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden', marginTop: '12px' }}>
-            <Row
-              icon={<Droplets size={18} />}
-              title="Transparent Glass"
-              text="Floating bars, buttons and tiles turn see-through instead of blurred."
-              onClick={() => { const next = !glassClear; setGlassClear(next); setGlassStyle(next ? 'clear' : 'frosted'); }}
-              trailing={<div className={`toggle-switch ${glassClear ? 'on' : ''}`}><div className="knob" /></div>}
-            />
+            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
+              <Row
+                icon={<Droplets size={18} />}
+                title="Transparent Glass"
+                text="Floating bars, buttons and tiles turn see-through instead of blurred."
+                onClick={() => { const next = !glassClear; setGlassClear(next); setGlassStyle(next ? 'clear' : 'frosted'); }}
+                trailing={<div className={`toggle-switch ${glassClear ? 'on' : ''}`}><div className="knob" /></div>}
+              />
+            </div>
           </div>
         </section>
 
