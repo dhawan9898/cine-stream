@@ -13,14 +13,10 @@ import {
   POPULAR_TV,
   TOP_RATED_MOVIES,
   TOP_RATED_TV,
-  TRENDING_MOVIES,
-  TRENDING_TV,
   TRENDING_ALL,
   type BrowseSource
 } from '../services/browseSources.ts';
 import {
-  GENRES,
-  MOODS,
   categorySource,
   categorySupports,
   getCategory,
@@ -34,7 +30,7 @@ import { QuickPreview } from '../components/QuickPreview.tsx';
 import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { ErrorState } from 'streamkit/ui/ErrorState.tsx';
 import { GenrePicker } from '../components/GenrePicker.tsx';
-import { hapticLight, hapticMedium, hapticSelection } from '../services/hapticsService.ts';
+import { hapticLight, hapticMedium } from '../services/hapticsService.ts';
 
 interface HomeScreenProps {
   onSelectMedia: (item: MediaItem) => void;
@@ -46,10 +42,6 @@ interface HomeScreenProps {
 }
 
 // Top selection strictly has TV Shows and Movies (like Netflix)
-const MODES: { id: 'tv' | 'movie'; label: string }[] = [
-  { id: 'tv', label: 'TV Shows' },
-  { id: 'movie', label: 'Movies' }
-];
 
 const MAX_RAILS = 16;
 const cat = (key: string) => getCategory(key)!;
@@ -91,20 +83,6 @@ function buildRails(filter: TypeFilter, taste: Taste): BrowseSource[] {
   return rails.slice(0, MAX_RAILS);
 }
 
-// Quick genre and category chips for the active mode (Netflix-style, no regional languages)
-function buildChips(filter: TypeFilter, taste: Taste): BrowseSource[] {
-  const seen = new Set<string>();
-  const curatedGenres = GENRES.filter(g => categorySupports(g, filter));
-  const pool = [
-    ...taste.genres,
-    ...curatedGenres,
-    ...MOODS
-  ];
-  return pool
-    .filter(c => categorySupports(c, filter) && !seen.has(c.key) && seen.add(c.key))
-    .slice(0, 14)
-    .map(c => categorySource(c, filter, { title: c.name }));
-}
 
 const RailHeader: React.FC<{ title: string; onSeeAll?: () => void }> = ({ title, onSeeAll }) => (
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', marginBottom: '10px' }}>
@@ -251,7 +229,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
   const [myList, setMyList] = useState<MediaItem[]>(() => getBookmarks());
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerFilter, setPickerFilter] = useState<TypeFilter>('all');
-  const [mode, setMode] = useState<TypeFilter>('all');
+  // Home shows movies and TV together; Movies / TV Shows is chosen in Categories (one place, not three).
+  const mode: TypeFilter = 'all';
   const [taste, setTaste] = useState<Taste>(EMPTY_TASTE);
   const [preview, setPreview] = useState<MediaItem | null>(null);
 
@@ -329,13 +308,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
   };
 
   const rails = useMemo(() => buildRails(mode, taste), [mode, taste]);
-  const chips = useMemo(() => buildChips(mode, taste), [mode, taste]);
   const watched = useMemo(() => new Set(history.map(h => `${h.type}-${h.id}`)), [history]);
   const seed = history.find(h => h.progressPercent > 5);
-  const top10Source = mode === 'tv' ? TRENDING_TV : mode === 'movie' ? TRENDING_MOVIES : TRENDING_ALL;
+  const top10Source = TRENDING_ALL;
   const suggested = useMemo(() => taste.genres, [taste]);
 
-  const openPicker = () => { setPickerFilter(mode === 'all' ? 'tv' : mode); setPickerOpen(true); };
+  const openPicker = () => setPickerOpen(true);
 
   return (
     <div
@@ -359,7 +337,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
       {/* Top bar: wordmark + Categories + search, floating over the hero.
           Gradient only, no blur - a blurred sticky bar re-renders the whole
           feed under it on every scroll frame. */}
-      {/* Optimized Top bar: wordmark + Fixed Segmented Type Switcher + Categories + Search */}
       <div
         style={{
           position: 'sticky',
@@ -377,47 +354,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
           <div style={{ display: 'flex', alignItems: 'baseline', flexShrink: 0 }}>
             <span style={{ fontSize: '24px', fontWeight: 900, letterSpacing: '-0.8px', color: 'var(--accent-primary)', textShadow: '0 2px 12px rgba(0,0,0,0.6)' }}>CINE</span>
             <span style={{ fontSize: '24px', fontWeight: 900, letterSpacing: '-0.8px', color: '#fff', textShadow: '0 2px 12px rgba(0,0,0,0.6)' }}>STREAM</span>
-          </div>
-
-          {/* Top Selection: TV Shows | Movies (Netflix-style) */}
-          <div
-            className="seg-track glass-panel"
-            style={{
-              padding: '3px',
-              borderRadius: 'var(--radius-full)',
-              display: 'flex',
-              alignItems: 'center',
-              backgroundColor: 'rgba(255, 255, 255, 0.08)'
-            }}
-          >
-            {MODES.map(m => {
-              const active = mode === m.id;
-              return (
-                <button
-                  key={m.id}
-                  onClick={() => {
-                    hapticSelection();
-                    setMode(curr => curr === m.id ? 'all' : m.id);
-                  }}
-                  className={`interactive ${active ? 'active' : ''}`}
-                  aria-pressed={active}
-                  style={{
-                    padding: '5px 15px',
-                    borderRadius: 'var(--radius-full)',
-                    border: 'none',
-                    backgroundColor: active ? 'var(--accent-primary)' : 'transparent',
-                    color: active ? '#ffffff' : 'rgba(255, 255, 255, 0.75)',
-                    fontSize: '12.5px',
-                    fontWeight: active ? 800 : 600,
-                    cursor: 'pointer',
-                    transition: 'all 0.18s ease',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  {m.label}
-                </button>
-              );
-            })}
           </div>
 
           {/* Action buttons (Categories and Search) */}
@@ -443,34 +379,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
           </div>
         </div>
 
-        {/* Quick Genre & Category Chips Strip */}
-        <div
-          className="rail"
-          style={{
-            gap: '6px',
-            paddingBottom: '2px',
-            scrollbarWidth: 'none',
-            WebkitOverflowScrolling: 'touch'
-          }}
-        >
-          {chips.map(src => (
-            <button
-              key={src.key}
-              onClick={() => { hapticLight(); onOpenSource(src); }}
-              className="interactive glass-pill-dark"
-              style={{
-                padding: '5px 13px',
-                borderRadius: 'var(--radius-full)',
-                color: 'var(--text-secondary)',
-                fontSize: '12px',
-                fontWeight: 600,
-                whiteSpace: 'nowrap'
-              }}
-            >
-              {src.title}
-            </button>
-          ))}
-        </div>
       </div>
 
       {trendingError ? (
@@ -478,7 +386,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
           <ErrorState message="Couldn't load movies and shows. Check your connection and try again." onRetry={retry} />
         </div>
       ) : (
-        <HeroCarousel items={trending} onPlay={item => onPlayMedia(item)} onOpenDetails={onSelectMedia} paused={paused} rankLabel={mode === 'tv' ? 'TV Today' : mode === 'movie' ? 'Movies Today' : 'Trending'} />
+        <HeroCarousel items={trending} onPlay={item => onPlayMedia(item)} onOpenDetails={onSelectMedia} paused={paused} rankLabel="Trending" />
       )}
 
       {history.length > 0 && (
@@ -565,7 +473,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
       {myList.length > 0 && (
         <ItemRail
           title="My List"
-          items={mode === 'all' ? myList : myList.filter(m => m.mediaType === mode)}
+          items={myList}
           onSelectMedia={onSelectMedia}
           onPreview={setPreview}
         />
@@ -573,7 +481,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
 
       {trending.length >= 5 && (
         <ItemRail
-          title={mode === 'tv' ? 'Top 10 TV Shows This Week' : mode === 'movie' ? 'Top 10 Movies This Week' : 'Top 10 Today'}
+          title="Top 10 Today"
           items={trending.slice(0, 10)}
           onSelectMedia={onSelectMedia}
           onPreview={setPreview}

@@ -1,6 +1,7 @@
 // SettingsScreen.tsx - Appearance, haptics, playback and data settings.
 import React, { useState } from 'react';
-import { SkipForward, Gauge, Trash2, Database, Vibrate, Droplets, Zap, Bookmark } from 'lucide-react';
+import { SkipForward, Gauge, Trash2, Database, Vibrate, Droplets, Zap, Bookmark, ChevronRight, ChevronDown } from 'lucide-react';
+import { CategoryPicker } from 'streamkit/ui/CategoryPicker.tsx';
 import { clearWatchHistory, clearBookmarks, getBookmarks, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../services/persistentCache.ts';
@@ -22,19 +23,34 @@ const PLAYBACK_LANGS: { code: string; label: string }[] = [
   { code: 'ta', label: 'Tamil' }, { code: 'ml', label: 'Malayalam' }, { code: 'kn', label: 'Kannada' }
 ];
 
-const LangChips: React.FC<{ title: string; hint: string; offLabel: string; value: string; onChange: (code: string) => void }> = ({ title, hint, offLabel, value, onChange }) => (
-  <div style={{ padding: '14px 16px' }}>
-    <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>{title}</h4>
-    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '2px 0 10px' }}>{hint}</p>
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-      {[{ code: '', label: offLabel }, ...PLAYBACK_LANGS].map(l => (
-        <button key={l.code} onClick={() => onChange(l.code)} className={`interactive seg-pill ${value === l.code ? 'active' : ''}`} style={{ flex: '0 0 auto', padding: '6px 12px' }}>
-          {l.label}
-        </button>
-      ))}
-    </div>
-  </div>
-);
+// One row per language setting: its current value, tapping opens the list. (These used to be two
+// long rows of language chips.)
+const LangRow: React.FC<{ title: string; hint: string; offLabel: string; value: string; onChange: (code: string) => void }> = ({ title, hint, offLabel, value, onChange }) => {
+  const [open, setOpen] = useState(false);
+  const options = [{ code: '', label: offLabel }, ...PLAYBACK_LANGS];
+  const current = options.find(o => o.code === value)?.label ?? offLabel;
+  return (
+    <>
+      <div onClick={() => { hapticLight(); setOpen(true); }} className="interactive" role="button" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>{title}</h4>
+          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{hint}</p>
+        </div>
+        <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>{current}</span>
+        <ChevronRight size={16} color="var(--text-muted)" />
+      </div>
+      <CategoryPicker
+        open={open}
+        presentation="card"
+        title={title}
+        sections={[{ items: options.map(o => ({ key: o.code || 'off', name: o.label })) }]}
+        selectedKey={value || 'off'}
+        onSelect={key => { hapticSelection(); setOpen(false); onChange(key === 'off' ? '' : key); }}
+        onClose={() => setOpen(false)}
+      />
+    </>
+  );
+};
 
 const IconBox: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div style={{ width: '38px', height: '38px', borderRadius: 'var(--radius-sm)', background: 'rgba(229, 9, 20, 0.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-primary)', flexShrink: 0 }}>
@@ -78,6 +94,7 @@ export const SettingsScreen: React.FC = () => {
   const [cacheCleared, setCacheCleared] = useState(false);
   const [timings, setTimings] = useState(() => summarize());
   const [reportCopied, setReportCopied] = useState(false);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
 
   const update = (patch: Partial<typeof prefs>) => {
     saveUserPreferences(patch);
@@ -176,10 +193,10 @@ export const SettingsScreen: React.FC = () => {
               </div>
             </div>
             <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
-              <LangChips title="Preferred Audio" hint="Used when a title offers several languages" offLabel="Auto" value={prefs.audioLanguage} onChange={code => update({ audioLanguage: code })} />
+              <LangRow title="Preferred Audio" hint="Used when a title offers several languages" offLabel="Auto" value={prefs.audioLanguage} onChange={code => update({ audioLanguage: code })} />
             </div>
             <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
-              <LangChips title="Subtitles" hint="Turned on automatically when available" offLabel="Off" value={prefs.subtitleLanguage} onChange={code => update({ subtitleLanguage: code })} />
+              <LangRow title="Subtitles" hint="Turned on automatically when available" offLabel="Off" value={prefs.subtitleLanguage} onChange={code => update({ subtitleLanguage: code })} />
             </div>
           </div>
         </section>
@@ -267,7 +284,27 @@ export const SettingsScreen: React.FC = () => {
         </section>
 
         <section>
-          <SectionLabel>Stream Speed</SectionLabel>
+          <SectionLabel>About</SectionLabel>
+          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', padding: '16px' }}>
+            <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>CineStream</h4>
+            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>Version {__APP_VERSION__}</p>
+            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '10px', lineHeight: 1.5 }}>
+              Movie and TV metadata from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.
+            </p>
+          </div>
+        </section>
+
+        {/* For reporting slow streams; most people never need it, so it starts folded. */}
+        <section>
+          <button
+            onClick={() => { hapticLight(); setShowDiagnostics(v => !v); }}
+            className="interactive"
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '10px', padding: 0 }}
+          >
+            <span>Stream diagnostics</span>
+            {showDiagnostics ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          </button>
+          {showDiagnostics && (
           <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', padding: '16px' }}>
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px', lineHeight: 1.4 }}>
               Time for each server to give an embed page or stream, and to turn an embed page into a playable stream.
@@ -305,18 +342,9 @@ export const SettingsScreen: React.FC = () => {
               <button className="interactive seg-pill" style={{ flex: 1 }} onClick={() => { clearTimings(); setTimings(summarize()); setReportCopied(false); }}>Reset</button>
             </div>
           </div>
+          )}
         </section>
 
-        <section>
-          <SectionLabel>About</SectionLabel>
-          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', padding: '16px' }}>
-            <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>CineStream</h4>
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>Version {__APP_VERSION__}</p>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '10px', lineHeight: 1.5 }}>
-              Movie and TV metadata from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.
-            </p>
-          </div>
-        </section>
       </div>
 
       <ConfirmModal

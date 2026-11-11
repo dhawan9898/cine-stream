@@ -1,26 +1,24 @@
 // BrowseScreen.tsx - Browse one list (a genre, a language, or a Home rail): a poster grid
-// with an interactive Genre Filter Chip Bar, Sort switcher, and Categories picker.
+// with a genre chip bar and a single Sort control.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, ChevronDown, SlidersHorizontal, Loader2, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpDown, ChevronDown, Loader2 } from 'lucide-react';
 import { discoverMedia, type MediaItem } from '../providers/cineHypeCore.ts';
 import { SORT_OPTIONS, type BrowseSource, type SortBy } from '../services/browseSources.ts';
 import {
   GENRES,
   categorySupports,
-  categorySource,
   getCategory,
-  type Category,
   type TypeFilter
 } from '../services/categories.ts';
-import { computeTaste, EMPTY_TASTE, type Taste } from '../services/tasteService.ts';
 import { PosterCard } from '../components/PosterCard.tsx';
-import { GenrePicker } from '../components/GenrePicker.tsx';
+import { CategoryPicker } from 'streamkit/ui/CategoryPicker.tsx';
 import { hapticLight, hapticSelection } from '../services/hapticsService.ts';
 
 interface BrowseScreenProps {
   source: BrowseSource;
   onBack: () => void;
-  onOpenSource: (source: BrowseSource) => void;
+  /** Kept for the caller; the page no longer switches category itself (Categories lives on Home). */
+  onOpenSource?: (source: BrowseSource) => void;
   onSelectMedia: (media: MediaItem) => void;
 }
 
@@ -40,15 +38,13 @@ function interleaveMedia(a: MediaItem[], b: MediaItem[]): MediaItem[] {
   return out;
 }
 
-export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOpenSource, onSelectMedia }) => {
+export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onSelectMedia }) => {
   const [items, setItems] = useState<MediaItem[]>([]);
   const [page, setPage] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
   const [sortBy, setSortBy] = useState<SortBy>('popularity.desc');
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerFilter, setPickerFilter] = useState<TypeFilter>(source.category?.filter ?? 'all');
-  const [taste, setTaste] = useState<Taste>(EMPTY_TASTE);
 
   // Determine media type for discovery
   const activeType: TypeFilter = useMemo(() => {
@@ -74,7 +70,6 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
     return [{ key: 'all', name: 'All' }, ...list];
   }, [activeType]);
 
-  useEffect(() => { computeTaste().then(setTaste).catch(() => {}); }, []);
   const loadingRef = useRef(false);
   // Bumped on sort/source/genre change so late responses are dropped.
   const generationRef = useRef(0);
@@ -169,7 +164,6 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
   useEffect(() => {
     generationRef.current++;
     loadingRef.current = false;
-    setPickerFilter(source.category?.filter ?? 'all');
     const initialKey = source.category && GENRES.some(g => g.key === source.category?.key)
       ? source.category.key
       : 'all';
@@ -220,11 +214,6 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 600) loadNext();
   };
 
-  const pickCategory = (category: Category, filter: TypeFilter) => {
-    setPickerOpen(false);
-    if (source.category?.key === category.key && source.category.filter === filter) return;
-    onOpenSource(categorySource(category, filter));
-  };
 
   const displayTitle = useMemo(() => {
     if (selectedGenreKey !== 'all') {
@@ -276,13 +265,16 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
             </span>
           )}
         </div>
+        {/* One control for the list's order; genres are the chips below. (The page used to have a
+            Categories picker, a genre chip bar and a row of sort chips.) */}
         <button
           onClick={() => { hapticLight(); setPickerOpen(true); }}
+          aria-label="Sort"
           className="interactive glass-pill"
           style={{ padding: '7px 12px', borderRadius: 'var(--radius-full)', display: 'flex', alignItems: 'center', gap: '5px', color: 'var(--text-primary)', fontSize: '12px', fontWeight: 600, flexShrink: 0 }}
         >
-          <SlidersHorizontal size={14} />
-          <span>Categories</span>
+          <ArrowUpDown size={14} />
+          <span>{SORT_OPTIONS.find(o => o.id === sortBy)?.label ?? 'Sort'}</span>
           <ChevronDown size={14} />
         </button>
       </div>
@@ -315,10 +307,8 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
                   fontSize: '12px',
                   fontWeight: active ? 700 : 600,
                   whiteSpace: 'nowrap',
-                  color: active ? '#ffffff' : 'var(--text-secondary)',
-                  backgroundColor: active ? 'var(--accent-primary)' : undefined,
-                  boxShadow: active ? '0 2px 10px rgba(229, 9, 20, 0.4)' : undefined,
-                  border: active ? '1px solid rgba(255,255,255,0.2)' : undefined,
+                  // Selected: the frosted lens (.chip.active), as everywhere else in the app.
+                  color: active ? undefined : 'var(--text-secondary)',
                   transition: 'all 0.18s ease'
                 }}
               >
@@ -326,60 +316,6 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
               </button>
             );
           })}
-        </div>
-      </div>
-
-      {/* Sort Options & Active Filter Status Row */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '6px 16px 12px 16px',
-        gap: '12px'
-      }}>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-          {SORT_OPTIONS.map(opt => (
-            <button
-              key={opt.id}
-              onClick={() => { hapticSelection(); changeSort(opt.id); }}
-              className={`interactive glass-pill chip ${sortBy === opt.id ? 'active' : ''}`}
-              style={{
-                padding: '4px 11px',
-                borderRadius: 'var(--radius-full)',
-                color: sortBy === opt.id ? undefined : 'var(--text-secondary)',
-                fontSize: '11px',
-                fontWeight: 700,
-                whiteSpace: 'nowrap'
-              }}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {selectedGenreKey !== 'all' && (
-            <button
-              onClick={() => changeGenre('all')}
-              className="interactive"
-              style={{
-                background: 'none',
-                border: 'none',
-                color: 'var(--text-muted)',
-                fontSize: '11px',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '2px',
-                cursor: 'pointer',
-                padding: '2px 4px'
-              }}
-            >
-              <X size={12} />
-              <span>Reset</span>
-            </button>
-          )}
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-            {items.length > 0 ? `${items.length} titles` : ''}
-          </span>
         </div>
       </div>
 
@@ -429,14 +365,14 @@ export const BrowseScreen: React.FC<BrowseScreenProps> = ({ source, onBack, onOp
         </div>
       )}
 
-      <GenrePicker
+      <CategoryPicker
         open={pickerOpen}
-        filter={pickerFilter}
-        onFilterChange={setPickerFilter}
-        selectedKey={source.category && source.category.filter === pickerFilter ? source.category.key : undefined}
-        suggested={[...taste.languages, ...taste.genres]}
+        presentation="card"
+        title="Sort by"
+        sections={[{ items: SORT_OPTIONS.map(o => ({ key: o.id, name: o.label })) }]}
+        selectedKey={sortBy}
+        onSelect={key => { hapticSelection(); setPickerOpen(false); changeSort(key as SortBy); }}
         onClose={() => setPickerOpen(false)}
-        onSelect={pickCategory}
       />
     </div>
   );
