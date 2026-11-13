@@ -34,6 +34,19 @@ function isDirectVideoUrl(url: string): boolean {
   );
 }
 
+// Longest a stream lookup may keep the loading page up (the lookup's own deadline is about 14 s).
+const LOOKUP_GUARD_MS = 30_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      v => { clearTimeout(timer); resolve(v); },
+      e => { clearTimeout(timer); reject(e); }
+    );
+  });
+}
+
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   media,
   season = 1,
@@ -107,6 +120,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return fetchedEpisodes.filter(e => e.seasonNumber === season);
   }, [isSeries, episodeList, fetchedEpisodes, season]);
 
+  // The native player's episode list: number, title, description and thumbnail of every episode.
+  const playerEpisodes = useMemo(
+    () => episodes.map(e => ({ id: String(e.id), number: String(e.episodeNumber), title: e.name || undefined, synopsis: e.overview || undefined, thumbnail: e.still || undefined })),
+    [episodes]
+  );
   const hasNextEpisode = isSeries && episodes.some(e => e.episodeNumber === episode + 1);
 
   const initialPositionMs = useMemo(
@@ -143,6 +161,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     };
   }, [episodes, season]);
 
+  // What the native-event listeners call. They are registered once for the life of this screen and
+  // read the current callbacks from here: re-registering on every change left short gaps with no
+  // listener, and a "player closed" event landing in one was lost (the app then sat on a loading page).
+  const nativeHandlersRef = useRef({ onBack, saveProgress, onSelectEpisode, resolveEpisodeTarget, episode, isSeries });
+  useEffect(() => { nativeHandlersRef.current = { onBack, saveProgress, onSelectEpisode, resolveEpisodeTarget, episode, isSeries }; });
+
   // Native ExoPlayer event listeners (playerClosed, progressUpdate, episode navigation, reloadRequested)
   useEffect(() => {
     if (!isNative) return;
@@ -152,12 +176,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const setupListeners = async () => {
       try {
         const h1 = await ExoPlayerPlugin.addListener('playerClosed', () => {
-          onBack();
+          nativeHandlersRef.current.onBack();
         });
         const h2 = await ExoPlayerPlugin.addListener('progressUpdate', (e) => {
+          const H = nativeHandlersRef.current;
           if (e.positionMs > 0 && e.durationMs > 0) {
-            const reportedEp = isSeries ? parseInt(e.episode, 10) : undefined;
-            saveProgress(
+            const reportedEp = H.isSeries ? parseInt(e.episode, 10) : undefined;
+            H.saveProgress(
               e.positionMs,
               e.durationMs,
               reportedEp && !isNaN(reportedEp) ? reportedEp : undefined
@@ -165,23 +190,26 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           }
         });
         const h3 = await ExoPlayerPlugin.addListener('episodeSelected', (e) => {
+          const H = nativeHandlersRef.current;
           const selectedNum = parseInt(e.selectedNumber || e.episode, 10);
-          if (!isNaN(selectedNum) && onSelectEpisode) {
-            onSelectEpisode(resolveEpisodeTarget(selectedNum));
+          if (!isNaN(selectedNum) && H.onSelectEpisode) {
+            H.onSelectEpisode(H.resolveEpisodeTarget(selectedNum));
           }
         });
         const h4 = await ExoPlayerPlugin.addListener('nextEpisodeRequested', (e) => {
+          const H = nativeHandlersRef.current;
           const prevNum = parseInt(e.episode, 10);
-          const nextNum = !isNaN(prevNum) ? prevNum + 1 : episode + 1;
-          if (onSelectEpisode) {
-            onSelectEpisode(resolveEpisodeTarget(nextNum));
+          const nextNum = !isNaN(prevNum) ? prevNum + 1 : H.episode + 1;
+          if (H.onSelectEpisode) {
+            H.onSelectEpisode(H.resolveEpisodeTarget(nextNum));
           }
         });
         const h5 = await ExoPlayerPlugin.addListener('nextEpisodeStarted', (e) => {
+          const H = nativeHandlersRef.current;
           const startedNum = parseInt(e.episode, 10);
-          if (!isNaN(startedNum) && onSelectEpisode) {
+          if (!isNaN(startedNum) && H.onSelectEpisode) {
             nativePrefetchStartedEpRef.current = startedNum;
-            onSelectEpisode(resolveEpisodeTarget(startedNum));
+            H.onSelectEpisode(H.resolveEpisodeTarget(startedNum));
           }
         });
         const h6 = await ExoPlayerPlugin.addListener('reloadRequested', (e) => {
@@ -210,7 +238,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       disposed = true;
       handles.forEach(h => h.remove());
     };
-  }, [onBack, saveProgress, episode, isSeries, onSelectEpisode, resolveEpisodeTarget]);
+    // markServerFailed only touches refs and a setter; the handlers read everything else from refs.
+  }, []);
 
   // Helper to prefetch the next episode for Native ExoPlayer
   const prefetchNativeNextEpisode = useCallback((currentEp: number) => {
@@ -279,7 +308,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         headers: download.headers,
         mode: langMode,
         subtitles: download.subtitles,
-        episodes: isSeries ? episodes.map(e => ({ id: String(e.id), number: String(e.episodeNumber) })) : undefined,
+        episodes: isSeries ? playerEpisodes : undefined,
         startPositionMs: startPositionMs > 0 ? startPositionMs : undefined,
         autoPlayNext: prefs.autoplayNext && hasNextEpisode,
         offline: true
@@ -287,9 +316,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return () => { active = false; };
     }
 
-    resolveStream(
-      { id: media.id, type: media.mediaType, season, episode, languageMode: langMode, language: media.language, title: media.title, preferredServerId: selectedServerId, exclude: failedServers() },
-      { fresh: attempt > 0 }
+    // The lookup has its own deadlines, but whatever happens inside it the screen must end in either a
+    // stream or an error with Retry - never an endless loading page.
+    withTimeout(
+      resolveStream(
+        { id: media.id, type: media.mediaType, season, episode, languageMode: langMode, language: media.language, title: media.title, preferredServerId: selectedServerId, exclude: failedServers() },
+        { fresh: attempt > 0 }
+      ),
+      LOOKUP_GUARD_MS,
+      'Finding a stream took too long. Try again or pick another server.'
     )
       .then(res => {
         if (!active) return;
@@ -329,7 +364,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               url: a.url,
               qualities: a.qualities?.map(q => ({ quality: q.quality, url: q.url }))
             })),
-            episodes: isSeries ? episodes.map(e => ({ id: String(e.id), number: String(e.episodeNumber) })) : undefined,
+            episodes: isSeries ? playerEpisodes : undefined,
             startPositionMs: startPositionMs > 0 ? startPositionMs : undefined,
             isFallback: false,
             autoPlayNext: prefs.autoplayNext && hasNextEpisode
@@ -362,6 +397,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     isSeries,
     media.title,
     episodes,
+    playerEpisodes,
     hasNextEpisode,
     initialPositionMs,
     prefetchNativeNextEpisode,

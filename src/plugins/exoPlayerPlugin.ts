@@ -22,6 +22,10 @@ export interface AudioOption {
 export interface PlayEpisodeOption {
   id: string;
   number: string;
+  // For the player's Netflix-style episode list; any of them may be missing.
+  title?: string;
+  synopsis?: string;
+  thumbnail?: string;
 }
 
 export interface EpisodeEvent {

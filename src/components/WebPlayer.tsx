@@ -371,6 +371,7 @@ export const WebPlayer: React.FC<WebPlayerProps> = ({
 
     const failStream = (message: string) => {
       if (disposed) return;
+      advancedRef.current = false;
       if (hlsRef.current) {
         hlsRef.current.destroy();
         hlsRef.current = null;
@@ -463,6 +464,7 @@ export const WebPlayer: React.FC<WebPlayerProps> = ({
   }, [streamSource.streamUrl, streamSource.referer, initialTime, reloadToken]);
 
   const retryStream = () => {
+    advancedRef.current = false;
     resumeAtRef.current = lastPositionRef.current;
     setStreamError(null);
     if (onFailover) {
@@ -529,9 +531,14 @@ export const WebPlayer: React.FC<WebPlayerProps> = ({
   };
 
   const playNextEpisode = () => {
-    if (advancedRef.current || !onNextEpisode) return;
+    if (!onNextEpisode || advancedRef.current) return;
     advancedRef.current = true;
+    setIsBuffering(true);
     onNextEpisode();
+    // If the next episode never started (lookup failed), the button works again.
+    later(() => {
+      advancedRef.current = false;
+    }, 6000);
   };
 
   const dismissPostPlay = () => {

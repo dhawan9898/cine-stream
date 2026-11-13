@@ -9,6 +9,7 @@ import { CineHypeExtractor } from './cinehypeExtractor.ts';
 import { VidLinkExtractor } from './vidlinkExtractor.ts';
 import { VidRockExtractor, decryptVidrockUrl } from './vidrockExtractor.ts';
 import { RivestreamExtractor, generateSecretKey } from './rivestreamExtractor.ts';
+import { looksLikeMediaSegment } from './baseExtractor.ts';
 import { MovyExtractor } from './movyExtractor.ts';
 import { decryptMovyPayload } from './movyCrypto.ts';
 
@@ -96,11 +97,17 @@ test('Movy payload with a wrong seed is rejected, not returned as garbage', () =
 
 // ---- probing and rate limits (HTTP stubbed on the extractor, no network) ----
 type Http = (url: string, headers?: Record<string, string>) => Promise<string>;
-function withHttp<T extends object>(ex: T, impl: Http): T {
+type Bytes = (url: string, headers?: Record<string, string>) => Promise<Uint8Array>;
+const TS_BYTES = (() => { const b = new Uint8Array(1880); for (let i = 0; i < b.length; i += 188) b[i] = 0x47; return b; })();
+const PNG_70 = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(62).fill(0)]);
+function withHttp<T extends object>(ex: T, impl: Http, bytes: Bytes = async () => TS_BYTES): T {
   (ex as unknown as { httpGet: Http }).httpGet = impl;
+  (ex as unknown as { httpGetBytes: Bytes }).httpGetBytes = bytes;
   return ex;
 }
+// A master playlist whose one rendition is v.m3u8, whose one segment is seg0.ts.
 const GOOD_M3U8 = '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nv.m3u8\n';
+const MEDIA_M3U8 = '#EXTM3U\n#EXT-X-TARGETDURATION:10\n#EXTINF:10.0,\nseg0.ts\n#EXT-X-ENDLIST\n';
 
 test('Rivestream skips a service whose CDN is dead and returns one that plays', async () => {
   const ex = withHttp(new RivestreamExtractor(), async url => {
@@ -109,6 +116,7 @@ test('Rivestream skips a service whose CDN is dead and returns one that plays', 
     if (url.includes('service=alive')) return JSON.stringify({ data: [{ url: 'https://cdn.test/alive.m3u8', quality: '720', format: 'hls' }] });
     if (url.includes('dead.m3u8')) throw new Error('HTTP 502');
     if (url.includes('alive.m3u8')) return GOOD_M3U8;
+    if (url.endsWith('v.m3u8')) return MEDIA_M3U8;
     throw new Error('unexpected ' + url);
   });
   const s = await ex.extract({ id: 550, type: 'movie' });
@@ -148,4 +156,42 @@ test('many requests on one abort signal leave no listeners behind', async () => 
     await new Promise(r => setTimeout(r, 20));
     assert.equal(warned, false);
   } finally { globalThis.fetch = orig; process.off('warning', onWarn); }
+});
+
+test('Kunai links are marked for early re-checking when saved; legacy links keep the default', async () => {
+  const s = stub(['vidrock']);
+  try {
+    const out = await new ExtractorRegistry(true).resolveAllStreams({ id: 7, type: 'movie', fresh: true });
+    assert.equal(out[0].revalidateAfterMs, 2 * 60 * 1000);
+  } finally { s.restore(); }
+  const s2 = stub(['flixeo']);
+  try {
+    const out = await new ExtractorRegistry(true).resolveAllStreams({ id: 8, type: 'movie', fresh: true });
+    assert.equal(out[0].revalidateAfterMs, undefined);
+  } finally { s2.restore(); }
+});
+
+test('a lane whose playlist is fine but whose segments are placeholder images is skipped', async () => {
+  const ex = withHttp(new RivestreamExtractor(), async url => {
+    if (url.includes('VideoProviderServices')) return JSON.stringify({ data: ['dead', 'alive'] }); // (the service list is cached by the earlier test)
+    if (url.includes('service=dead')) return JSON.stringify({ data: [{ url: 'https://fake.test/m.m3u8', format: 'hls' }] });
+    if (url.includes('service=alive')) return JSON.stringify({ data: [{ url: 'https://real.test/m.m3u8', format: 'hls' }] });
+    if (url.endsWith('/m.m3u8')) return GOOD_M3U8;
+    if (url.endsWith('v.m3u8')) return MEDIA_M3U8;
+    throw new Error('unexpected ' + url);
+  }, async url => (url.startsWith('https://fake.test') ? PNG_70 : TS_BYTES));
+  const s = await ex.extract({ id: 600, type: 'tv', season: 1, episode: 1 });
+  assert.equal(s?.url, 'https://real.test/m.m3u8');
+});
+
+test('segment detector: TS and fMP4 pass; placeholder images, empty and error bodies do not', () => {
+  assert.equal(looksLikeMediaSegment(TS_BYTES), true);
+  const junkThenTs = new Uint8Array(1200); junkThenTs.fill(0xaa); for (let i = 40; i + 188 <= junkThenTs.length; i += 188) junkThenTs[i] = 0x47;
+  assert.equal(looksLikeMediaSegment(junkThenTs), true);
+  const mp4 = new Uint8Array(32); mp4.set([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70]); // "ftyp"
+  assert.equal(looksLikeMediaSegment(mp4), true);
+  assert.equal(looksLikeMediaSegment(PNG_70), false);
+  assert.equal(looksLikeMediaSegment(new Uint8Array(0)), false);
+  assert.equal(looksLikeMediaSegment(new TextEncoder().encode('<html>blocked</html>')), false);
+  assert.equal(looksLikeMediaSegment(Uint8Array.from([0x2e])), false);
 });

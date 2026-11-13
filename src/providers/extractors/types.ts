@@ -32,6 +32,8 @@ export interface ExtractedStream {
   // Other languages of this title; the player lists them under Audio.
   audios?: AudioVariant[];
   isFallbackEmbed?: boolean;
+  /** A saved copy of this link is checked before playback once it was last confirmed this long ago (default: 15 min). Set for links that carry short-lived tokens. */
+  revalidateAfterMs?: number;
   serverId?: string;
   serverName?: string;
 }

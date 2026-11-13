@@ -110,6 +110,7 @@ async function resolveUncachedInner(params: StreamParams, hit: { cached: boolean
     hit.cached = true;
     return persisted;
   }
+  const lookupStartedAt = Date.now();
   const savedEmbeds = getStreamRecord(cacheKey)?.embeds ?? [];
   const foundEmbeds: ExtractedStream[] = [];
 
@@ -212,7 +213,10 @@ async function resolveUncachedInner(params: StreamParams, hit: { cached: boolean
   } else {
     // Embed pages saved by earlier lookups can still be turned into a direct stream
     // by the native sniffer (a hidden web view; the embed itself is never played).
-    const revived = await reviveFromEmbeds(params, [...foundEmbeds, ...savedEmbeds], params.prefetch);
+    // The providers already had their whole deadline (and sniffed these same pages): past a certain
+    // point another round of sniffing only makes the person wait longer for the same "no stream".
+    const spentMs = Date.now() - lookupStartedAt;
+    const revived = spentMs > REVIVE_BUDGET_MS ? null : await reviveFromEmbeds(params, [...foundEmbeds, ...savedEmbeds], params.prefetch);
     if (revived) {
       allStreams.push(revived);
       result = {
@@ -279,6 +283,9 @@ const NEGATIVE_MS = 60_000;
 const negative = new Map<string, number>();
 const isNegative = (key: string) => (negative.get(key) ?? 0) > Date.now();
 
+// Sniffing saved embed pages after a failed lookup is skipped when the lookup already took this long.
+const REVIVE_BUDGET_MS = 8_000;
+
 // A saved link that was last confirmed longer ago than this is checked before it reaches the player.
 const VALIDATE_AFTER_MS = 15 * 60 * 1000;
 // ...but the check never holds playback up for longer than this.
@@ -326,7 +333,8 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean }
     if (syncPersisted && syncPersisted.url) {
       const record = getStreamRecord<ResolvedStream>(key);
       // Saved long ago and not confirmed since: make sure it still answers before playback starts.
-      if (!params.prefetch && record && Date.now() - record.checkedAt > VALIDATE_AFTER_MS) {
+      const maxAgeMs = (syncPersisted as { revalidateAfterMs?: number }).revalidateAfterMs ?? VALIDATE_AFTER_MS;
+      if (!params.prefetch && record && Date.now() - record.checkedAt > maxAgeMs) {
         const startedAt = Date.now();
         return validateSaved(params, key, record).then(valid => {
           if (valid) {

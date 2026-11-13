@@ -36,9 +36,13 @@ const COOLDOWN_MS = 10 * 60 * 1000;
 
 /** Head start (ms of expected time) given to the provider that suits the title. */
 const PRIMARY_BIAS_MS = 1500;
-// Preference among the Kunai providers when several found a stream: H.264 HLS first (plays on every
-// device), then VidLink (HEVC in DASH, which a device may lack a decoder for), then Movy.
-const KUNAI_ORDER = ['vidrock', 'rivestream', 'vidlink', 'movy'];
+// Preference among the Kunai providers when several found a stream. Measured on real titles: Rivestream
+// answers in 0.1-0.5 s with continuous MPEG-TS; VidRock hands out a different CDN lane per request (some
+// serve placeholder images as segments - the probe now rejects those, at the cost of 3-5 s); VidLink is
+// HEVC in DASH, which a device may lack a decoder for; Movy is rate limited.
+// Kunai-style links carry tokens that expire; a saved one is re-checked after this long, not the default 15 min.
+const KUNAI_REVALIDATE_MS = 2 * 60 * 1000;
+const KUNAI_ORDER = ['rivestream', 'vidrock', 'vidlink', 'movy'];
 const LAST_GOOD_KEY = 'cinestream_last_good_v1';
 const LAST_GOOD_MAX = 300;
 
@@ -325,7 +329,8 @@ export class ExtractorRegistry {
               const tagged = {
                 ...stream,
                 serverId: stream.serverId || extractor.id,
-                serverName: stream.serverName || extractor.name
+                serverName: stream.serverName || extractor.name,
+                ...(extractor.tier === 'primary' && stream.revalidateAfterMs === undefined ? { revalidateAfterMs: KUNAI_REVALIDATE_MS } : {})
               };
               if (!tagged.isFallbackEmbed) {
                 this.recordResult(extractor.id, true, elapsed);

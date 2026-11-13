@@ -95,7 +95,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:layout_marginStart="64dp"
+                android:layout_marginStart="150dp"
                 android:layout_marginEnd="150dp"
                 android:gravity="center_horizontal"
                 android:orientation="vertical">
@@ -498,13 +498,12 @@
             android:layout_marginStart="8dp"
             android:visibility="gone">
 
-            <!-- Countdown: a thin red bar along the bottom edge that grows
-                 left to right until the next episode starts. -->
+            <!-- Countdown: a soft fill sweeping across the pill until the
+                 next episode starts (clipped to the pill's shape). -->
             <View
                 android:id="@+id/next_episode_fill"
                 android:layout_width="match_parent"
-                android:layout_height="3dp"
-                android:layout_gravity="bottom" />
+                android:layout_height="match_parent" />
 
             <!-- Play icon is set in code (ExoPlayerActivity.styleGlassChrome):
                  a "▶" text glyph renders as a large color emoji on many
@@ -515,10 +514,10 @@
                 android:layout_height="match_parent"
                 android:drawablePadding="6dp"
                 android:gravity="center"
-                android:paddingStart="12dp"
+                android:paddingStart="14dp"
                 android:paddingEnd="14dp"
                 android:text="Next Episode"
-                android:textColor="#000000"
+                android:textColor="#FFFFFF"
                 android:textSize="13sp"
                 android:textStyle="bold" />
         </FrameLayout>
