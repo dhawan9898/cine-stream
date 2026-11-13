@@ -112,6 +112,22 @@ test('servers that just failed are skipped, unless that leaves none', async () =
   assert.equal(all.length > 0, true, 'excluding every provider falls back to using them all');
 });
 
+test('a failed server does not come back through another provider handing out its player page', async () => {
+  const reg = new ExtractorRegistry(false);
+  const page = 'https://shared/embed/1';
+  const owner = { ...fake('owner', async () => null), embedUrl: () => page };
+  // A second provider falls back to the first one's page.
+  reg.register(owner);
+  reg.register(fake('borrower', async () => ({ url: page, format: 'hls', isFallbackEmbed: true })));
+  const sniffed: string[] = [];
+  const seen: string[] = [];
+  reg.setSniffer(async e => { sniffed.push(e.url); return direct('https://cdn/shared.m3u8'); });
+  const out = await reg.resolveAllStreams({ ...sniffParams, fresh: true, exclude: ['owner'], onEmbed: e => seen.push(e.url) });
+  assert.deepEqual(out, [], 'the excluded server\'s stream is not offered again');
+  assert.deepEqual(sniffed, []);
+  assert.deepEqual(seen, [], 'nor saved for a later revive');
+});
+
 test('the remembered provider is sniffed alone when it only offers an embed', async () => {
   const reg = new ExtractorRegistry(false);
   const a = fake('a', async () => embed('a'));

@@ -158,7 +158,6 @@ function apply(config: ProviderConfig): void {
   listeners.forEach(l => { try { l(config); } catch { /* a listener must not break the others */ } });
 }
 
-export function getProviderConfig(): ProviderConfig { return current; }
 export function getProviderOverride(id: string): ProviderOverride | undefined { return current.providers[id]; }
 export function isProviderEnabled(id: string): boolean { return current.providers[id]?.enabled !== false; }
 export function getResolverOverride(id: string): ResolverOverride | undefined { return current.resolvers?.[id]; }

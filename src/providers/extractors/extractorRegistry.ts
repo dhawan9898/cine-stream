@@ -193,6 +193,18 @@ export class ExtractorRegistry {
     const excluded = new Set(params.exclude ?? []);
     const notExcluded = ordered.filter(e => !excluded.has(e.id));
     const usable = notExcluded.length > 0 ? notExcluded : ordered;
+    // The player pages of the providers left out. Another provider handing back one of those pages
+    // (a shared fallback embed) would bring the stream that just failed straight back under a new name.
+    const blockedEmbeds = new Set<string>();
+    if (usable === notExcluded) {
+      for (const e of ordered) {
+        if (!excluded.has(e.id) || !e.embedUrl) continue;
+        try {
+          const url = e.embedUrl(params);
+          if (url) blockedEmbeds.add(url);
+        } catch { /* no fixed page for this title */ }
+      }
+    }
     // Providers whose breaker is open sit out (a half-open one gets a single probe) - unless that would leave none.
     const healthy = usable.filter(e => this.stats.tryAcquire(e.id));
     const active = healthy.length > 0 ? healthy : usable;
@@ -371,7 +383,7 @@ export class ExtractorRegistry {
               };
               if (!tagged.isFallbackEmbed) {
                 found.push(tagged);
-              } else {
+              } else if (!blockedEmbeds.has(tagged.url)) {
                 // An embed page is neither a success nor a failure until it is sniffed (or cannot be here:
                 // a background prefetch, or the web).
                 params.onEmbed?.(tagged);

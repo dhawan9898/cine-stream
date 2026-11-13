@@ -16,13 +16,6 @@ export const readPersisted = cache.get;
 export const readPersistedAsync = cache.getAsync;
 export const writePersisted = cache.set;
 export const clearPersistedCache = cache.clear;
-export const pruneExpiredPersistedCache = cache.prune;
-
-export function clearStreamCache(): void {
-  try {
-    Object.keys(localStorage).filter(k => k.includes('stream_')).forEach(k => localStorage.removeItem(k));
-  } catch { /* storage unavailable */ }
-}
 
 // Initial cleanup on module load
 cache.prune();

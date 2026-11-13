@@ -535,64 +535,7 @@ export async function searchMedia(query: string, page = 1): Promise<MediaItem[]>
     .map(i => mapRawToMedia(i, i.media_type === 'tv' ? 'tv' : 'movie'));
 }
 
-// 8. Discover by Genre
-export async function discoverByGenre(genreId: number, type: MediaType, page = 1, sortBy = 'popularity.desc'): Promise<MediaItem[]> {
-  const cacheKey = `discover_${type}_g${genreId}_p${page}_${sortBy}`;
-  const cached = await getCached<MediaItem[]>(cacheKey);
-  if (cached) return cached;
-
-  const endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
-  const data = await tmdbFetch<TmdbList>(endpoint, {
-    with_genres: genreId,
-    page,
-    sort_by: sortBy
-  });
-
-  const items = data.results
-    .filter(i => i.poster_path || i.backdrop_path)
-    .map(i => mapRawToMedia(i, type));
-
-  writePersisted(cacheKey, items, 60 * 60 * 1000);
-  return items;
-}
-
-// 9. Regional Language Support
-export interface LanguageOption {
-  code: string;
-  name: string;
-}
-
-export const REGIONAL_LANGUAGES: LanguageOption[] = [
-  { code: 'te', name: 'Telugu' },
-  { code: 'ta', name: 'Tamil' },
-  { code: 'hi', name: 'Hindi' },
-  { code: 'ml', name: 'Malayalam' },
-  { code: 'kn', name: 'Kannada' },
-  { code: 'pa', name: 'Punjabi' },
-  { code: 'bn', name: 'Bengali' }
-];
-
-export async function discoverByLanguage(langCode: string, type: MediaType = 'movie', page = 1, sortBy = 'popularity.desc'): Promise<MediaItem[]> {
-  const cacheKey = `discover_lang_${type}_${langCode}_p${page}_${sortBy}`;
-  const cached = await getCached<MediaItem[]>(cacheKey);
-  if (cached) return cached;
-
-  const endpoint = type === 'movie' ? '/discover/movie' : '/discover/tv';
-  const data = await tmdbFetch<TmdbList>(endpoint, {
-    with_original_language: langCode,
-    page,
-    sort_by: sortBy
-  });
-
-  const items = data.results
-    .filter(i => i.poster_path || i.backdrop_path)
-    .map(i => mapRawToMedia(i, type));
-
-  writePersisted(cacheKey, items, 60 * 60 * 1000);
-  return items;
-}
-
-// 9b. Unified discover: any mix of genre(s), language and type in one call.
+// 8. Unified discover: any mix of genre(s), language and type in one call.
 // `genres` uses TMDB syntax: "35,10749" = both, "35|10749" = either.
 export interface DiscoverOptions {
   type: MediaType;

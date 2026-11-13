@@ -34,6 +34,11 @@ function isDirectVideoUrl(url: string): boolean {
   );
 }
 
+// How long a resolved stream waits for the season's episode list before the native player is
+// started without one (it then has no episode picker / next episode for this episode).
+const EPISODE_LIST_WAIT_MS = 2500;
+const NO_PLAYABLE_STREAM = "This server didn't return a playable stream. Try another server.";
+
 // Longest a stream lookup may keep the loading page up (the lookup's own deadline is about 14 s).
 const LOOKUP_GUARD_MS = 30_000;
 
@@ -63,6 +68,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [langMode] = useState<string>('sub');
   const [selectedServerId, setSelectedServerId] = useState<string | undefined>(undefined);
   const [reportCopied, setReportCopied] = useState(false);
+  // Where the stream now loaded should start (the web player reads it; native gets it with play()).
+  const [startMs, setStartMs] = useState<number>(0);
   const sourceRef = useRef<ResolvedStream | null>(null);
   // Servers whose stream failed for this title/episode: the next lookup skips them,
   // so "retry" reaches a different provider instead of the same dead one.
@@ -84,6 +91,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const latestRef = useRef({ contentKey, media, season, episode, langMode: 'sub', selectedServerId: undefined as string | undefined });
   useEffect(() => { latestRef.current = { contentKey, media, season, episode, langMode, selectedServerId }; });
   const [fetchedEpisodes, setFetchedEpisodes] = useState<EpisodeItem[]>([]);
+  // The season whose episode-list request has finished (loaded or failed).
+  const [listSettledFor, setListSettledFor] = useState<string | null>(null);
 
   // Holds the resume position requested by ExoPlayerActivity when an HTTP error triggers a fresh reload
   const reloadResumeMsRef = useRef<number | null>(null);
@@ -116,7 +125,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       .then(eps => {
         if (!cancelled) setFetchedEpisodes(eps);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setListSettledFor(`${media.id}|${season}`);
+      });
     return () => {
       cancelled = true;
     };
@@ -135,6 +147,27 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     [episodes]
   );
   const hasNextEpisode = isSeries && episodes.some(e => e.episodeNumber === episode + 1);
+
+  // The stream lookup below must not depend on the episode list: the list often arrives after the
+  // stream, and re-running the lookup then handed the same stream to the player a second time,
+  // which restarted playback from the old resume point. The hand-off reads the list from here
+  // instead, waiting briefly for it when it is still on its way.
+  const listReady = !isSeries || episodeList.some(e => e.seasonNumber === season) || listSettledFor === `${media.id}|${season}`;
+  const listRef = useRef({ episodes, playerEpisodes, hasNextEpisode, ready: listReady });
+  const listWaitersRef = useRef<(() => void)[]>([]);
+  useEffect(() => {
+    listRef.current = { episodes, playerEpisodes, hasNextEpisode, ready: listReady };
+    if (listReady) listWaitersRef.current.splice(0).forEach(done => done());
+  });
+  const episodeListForHandOff = useCallback(async (maxWaitMs: number) => {
+    if (isNative && !listRef.current.ready) {
+      await new Promise<void>(resolve => {
+        const timer = setTimeout(resolve, maxWaitMs);
+        listWaitersRef.current.push(() => { clearTimeout(timer); resolve(); });
+      });
+    }
+    return listRef.current;
+  }, []);
 
   const initialPositionMs = useMemo(
     () => getResumePositionMs(media.id, media.mediaType, season, episode),
@@ -261,7 +294,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const prefetchNativeNextEpisode = useCallback((currentEp: number) => {
     if (!isNative || !isSeries) return;
     const nextEpNum = currentEp + 1;
-    if (!episodes.some(e => e.episodeNumber === nextEpNum)) return;
+    if (!listRef.current.episodes.some(e => e.episodeNumber === nextEpNum)) return;
 
     resolveStream({ id: media.id, type: media.mediaType, season, episode: nextEpNum, language: media.language, title: media.title, ...searchKeys, preferredServerId: selectedServerId })
       .then(nextRes => {
@@ -283,7 +316,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }).catch(() => {});
       })
       .catch(() => {});
-  }, [isSeries, episodes, media.id, media.mediaType, media.title, media.language, season, selectedServerId, searchKeys]);
+  }, [isSeries, media.id, media.mediaType, media.title, media.language, season, selectedServerId, searchKeys]);
 
   // Background stream resolution
   useEffect(() => {
@@ -301,8 +334,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     setError(null);
     setReportCopied(false);
 
-    const startPositionMs = reloadResumeMsRef.current ?? initialPositionMs;
+    // A retry / server switch continues from where playback got to, not from where this episode
+    // was opened (progress has been saved since).
+    const startPositionMs = reloadResumeMsRef.current
+      ?? (attempt > 0 ? getResumePositionMs(media.id, media.mediaType, season, episode) : initialPositionMs);
     reloadResumeMsRef.current = null;
+    setStartMs(startPositionMs);
 
     // A downloaded copy plays offline, with no stream lookup at all.
     const download = isNative
@@ -316,20 +353,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       setSource(saved);
       sourceRef.current = saved;
       setLoading(false);
-      const prefs = getUserPreferences();
-      openNativeExoPlayer({
-        url: download.streamUrl,
-        title: media.title,
-        episode: isSeries ? String(episode) : '1',
-        seasonPrefix: isSeries ? `S${season}:` : '',
-        referer: download.referer,
-        headers: download.headers,
-        mode: langMode,
-        subtitles: download.subtitles,
-        episodes: isSeries ? playerEpisodes : undefined,
-        startPositionMs: startPositionMs > 0 ? startPositionMs : undefined,
-        autoPlayNext: prefs.autoplayNext && hasNextEpisode,
-        offline: true
+      // Offline the episode list can't load: don't hold a saved copy back for it.
+      void episodeListForHandOff(navigator.onLine === false ? 0 : 600).then(list => {
+        if (!active) return;
+        const prefs = getUserPreferences();
+        openNativeExoPlayer({
+          url: download.streamUrl,
+          title: media.title,
+          episode: isSeries ? String(episode) : '1',
+          seasonPrefix: isSeries ? `S${season}:` : '',
+          referer: download.referer,
+          headers: download.headers,
+          mode: langMode,
+          subtitles: download.subtitles,
+          episodes: isSeries ? list.playerEpisodes : undefined,
+          startPositionMs: startPositionMs > 0 ? startPositionMs : undefined,
+          autoPlayNext: prefs.autoplayNext && list.hasNextEpisode,
+          offline: true
+        });
       });
       return () => { active = false; };
     }
@@ -349,7 +390,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       LOOKUP_GUARD_MS,
       'Finding a stream took too long. Try again or pick another server.'
     )
-      .then(res => {
+      .then(async res => {
+        if (!active) return;
+        // Only direct streams are ever played. Anything else ends in the error page (with Retry /
+        // Try Next Server) - it used to leave a blank screen on web and an endless spinner natively.
+        if (!res?.url || res.isFallbackEmbed || (!isNative && !isDirectVideoUrl(res.url))) {
+          sourceRef.current = res ?? null;
+          setSource(res ?? null);
+          throw new Error(NO_PLAYABLE_STREAM);
+        }
+        const list = await episodeListForHandOff(EPISODE_LIST_WAIT_MS);
         if (!active) return;
 
         setSource(res);
@@ -361,13 +411,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           prefetchUpcomingEpisodes(
             { id: media.id, type: media.mediaType, season, languageMode: langMode, language: media.language, title: media.title, ...searchKeys, preferredServerId: selectedServerId },
             episode,
-            episodes.map(e => e.episodeNumber),
+            list.episodes.map(e => e.episodeNumber),
             2
           );
         }
 
         // On native Android, launch native Media3 Netflix ExoPlayer
-        if (isNative && res && res.url && !res.isFallbackEmbed) {
+        if (isNative) {
           const prefs = getUserPreferences();
           const audio = applyPreferredQuality(pickAudio(res, prefs.audioLanguage), prefs.defaultQuality);
           openNativeExoPlayer({
@@ -387,14 +437,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               url: a.url,
               qualities: a.qualities?.map(q => ({ quality: q.quality, url: q.url }))
             })),
-            episodes: isSeries ? playerEpisodes : undefined,
+            episodes: isSeries ? list.playerEpisodes : undefined,
             startPositionMs: startPositionMs > 0 ? startPositionMs : undefined,
             isFallback: false,
-            autoPlayNext: prefs.autoplayNext && hasNextEpisode,
+            autoPlayNext: prefs.autoplayNext && list.hasNextEpisode,
             serverId: res.serverId,
             alternates: res.alternates
           });
-          if (hasNextEpisode) {
+          if (list.hasNextEpisode) {
             prefetchNativeNextEpisode(episode);
           }
         }
@@ -422,11 +472,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     attempt,
     isSeries,
     media.title,
-    episodes,
-    playerEpisodes,
-    hasNextEpisode,
     initialPositionMs,
     prefetchNativeNextEpisode,
+    episodeListForHandOff,
     langMode,
     selectedServerId,
     searchKeys
@@ -540,7 +588,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         title={media.title}
         episode={isSeries ? currentWebEpisode ?? { id: String(episode), number: String(episode) } : undefined}
         episodeList={isSeries ? webEpisodes : undefined}
-        initialTime={initialPositionMs > 0 ? initialPositionMs / 1000 : 0}
+        initialTime={startMs > 0 ? startMs / 1000 : 0}
         onBack={onBack}
         hasNextEpisode={hasNextEpisode}
         onNextEpisode={handleNextEpisode}
@@ -557,6 +605,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     );
   }
 
-  // Only direct streams are ever played. Anything else is an error, never an iframe.
+  // Only direct streams are ever played; the lookup turns anything else into the error page above.
   return null;
 };

@@ -26,19 +26,8 @@ export class MovierulzExtractor extends BaseExtractor {
       slugs.push(`${baseSlug}-dual-audio`);
     }
 
-    // 2. Base slug & regional title variations
+    // 2. Base slug
     slugs.push(baseSlug);
-
-    if (clean.includes('kagitam') || clean.includes('kaagitham')) {
-      slugs.push(baseSlug.replace(/kaagitham|kagitam/g, 'kaagidham'));
-      slugs.push(baseSlug.replace(/kaagitham|kagitam/g, 'thella-kaagitham'));
-      slugs.push('thella-kaagitham-2021-telugu-full-movie-watch-online-free');
-    }
-    if (clean.includes('least') || clean.includes('most')) {
-      slugs.push(baseSlug.replace(/least/g, 'most'));
-      slugs.push(baseSlug.replace(/most/g, 'least'));
-      slugs.push('most-eligible-bachelor-2021-telugu-full-movie-watch-online-free');
-    }
 
     return Array.from(new Set(slugs));
   }
@@ -132,14 +121,17 @@ export class MovierulzExtractor extends BaseExtractor {
     const candidates = extractCandidates(body, referer).slice(0, MAX_CANDIDATES);
     const settled = await Promise.all(candidates.map(async (c): Promise<ResolvedVariant | null> => {
       if (MEDIA_EXT.test(c.url)) return { url: c.url, hint: c.hint };
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const resolved = await Promise.race([
           this.resolveFromPage(c.url, { referer, maxDepth: 1, maxPages: 2, signal, timeoutMs: CANDIDATE_TIMEOUT_MS }),
-          new Promise<null>(r => setTimeout(() => r(null), CANDIDATE_TIMEOUT_MS))
+          new Promise<null>(r => { timer = setTimeout(() => r(null), CANDIDATE_TIMEOUT_MS); })
         ]);
         return resolved?.url ? { url: resolved.url, hint: c.hint } : null;
       } catch {
         return null;
+      } finally {
+        if (timer) clearTimeout(timer);
       }
     }));
 

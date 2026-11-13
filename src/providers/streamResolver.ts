@@ -179,9 +179,12 @@ function paramsForStore(p: StreamParams): Record<string, unknown> {
 }
 
 // Tries saved embed pages with the sniffer, a couple at most. Native only; a no-op elsewhere.
-async function reviveFromEmbeds(_params: StreamParams, embeds: ExtractedStream[], backgroundOnly?: boolean): Promise<ExtractedStream | null> {
+async function reviveFromEmbeds(params: StreamParams, embeds: ExtractedStream[], backgroundOnly?: boolean): Promise<ExtractedStream | null> {
   if (backgroundOnly || !Capacitor.isNativePlatform()) return null;
-  for (const embed of embeds.slice(0, 2)) {
+  // Not the pages of servers whose stream just failed to play.
+  const excluded = new Set(params.exclude ?? []);
+  const usable = embeds.filter(e => !e.serverId || !excluded.has(e.serverId));
+  for (const embed of usable.slice(0, 2)) {
     const stream = await extractorRegistry.sniffEmbed(embed).catch(() => null);
     if (stream && stream.url) return { ...stream, serverId: embed.serverId, serverName: embed.serverName };
   }
@@ -497,6 +500,8 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean; 
       if (existing.prefetch && !params.prefetch) {
         const prior = existing.promise;
         const entry = startEntry(key, { prefetch: false }, signal => prior.catch(() => resolveUncached({ ...params, prefetch: false }, signal)));
+        // The user is waiting on this one too: background prefetching yields to it.
+        scheduler.trackUrgent(entry.promise);
         return attach(key, entry, options.signal);
       }
       return attach(key, existing, options.signal);
@@ -556,27 +561,6 @@ export function prefetchStream(params: StreamParams, options: { priority?: numbe
   }
   // The most likely next plays are worth a background sniff, not only a plain lookup.
   scheduler.enqueue(keyOf(params), { ...params, speculative: priority <= Priority.FOCUS }, priority);
-}
-
-export async function resolveAllAvailableStreams(params: StreamParams): Promise<ResolvedStream[]> {
-  const extractedList = await extractorRegistry.resolveAllStreams({
-    id: params.id,
-    type: params.type,
-    season: params.season,
-    episode: params.episode,
-    title: params.title,
-    language: params.language
-  });
-
-  return extractedList.map(s => ({
-    ...s,
-    id: params.id,
-    type: params.type,
-    season: params.season,
-    episode: params.episode,
-    title: params.title,
-    language: params.language
-  }));
 }
 
 // Warms the stream cache for titles on screen so first tap plays instantly

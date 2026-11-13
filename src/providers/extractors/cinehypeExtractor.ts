@@ -24,12 +24,10 @@ export class CineHypeExtractor extends BaseExtractor {
     title?: string;
     signal?: AbortSignal;
   }): Promise<ExtractedStream | null> {
-    const { id, type, season = 1, episode = 1, signal } = params;
+    const { signal } = params;
     if (signal?.aborted) return null;
 
-    const primaryUrl = type === 'tv'
-      ? `${this.mainUrl}/tv/${id}/${season}/${episode}?autoPlay=true&theme=ec1c24&nextButton=true`
-      : `${this.mainUrl}/movie/${id}?autoPlay=true&theme=ec1c24`;
+    const primaryUrl = this.embedUrl(params);
 
     try {
       const extracted = await this.resolveFromPage(primaryUrl, {
