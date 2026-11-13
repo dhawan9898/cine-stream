@@ -1,10 +1,21 @@
 // baseExtractor.ts - Base class providing HTTP helper functions for stream extractors
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
-import type { StreamExtractor, ExtractedStream, ExtractorSubtitle } from './types.ts';
+import type { StreamExtractor, ExtractedStream, ExtractorSubtitle, StreamFormat } from './types.ts';
 import { discover, pickBest, type FoundStream } from './streamDiscovery.ts';
 
 // Per-request limit; a provider's whole lookup is capped by the registry anyway.
 const DEFAULT_HTTP_TIMEOUT_MS = 5000;
+const PROBE_TIMEOUT_MS = 3500;
+
+function combineSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([a, b]);
+  const c = new AbortController();
+  const abort = () => c.abort();
+  if (a.aborted || b.aborted) c.abort();
+  a.addEventListener('abort', abort, { once: true });
+  b.addEventListener('abort', abort, { once: true });
+  return c.signal;
+}
 
 export abstract class BaseExtractor implements StreamExtractor {
   abstract id: string;
@@ -48,27 +59,32 @@ export abstract class BaseExtractor implements StreamExtractor {
       throw new Error(`HTTP ${response.status}`);
     }
 
-    // Web: fetch with AbortSignal combined with timeout
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    // Web: fetch with the caller's signal combined with the timeout. AbortSignal.any keeps this to one
+    // listener however many requests share the signal (a listener per request leaked on busy lookups).
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const signal = options.signal ? combineSignals(options.signal, timeout) : timeout;
+    const res = await fetch(url, { headers: mergedHeaders, signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.text();
+  }
 
-    const onExternalAbort = () => controller.abort();
-    if (options.signal) {
-      options.signal.addEventListener('abort', onExternalAbort);
-    }
-
+  /**
+   * Is this stream really playable? A provider can hand out a link whose CDN is dead (a proxy answering
+   * 502, an expired token); returning it would end the lookup on a stream that cannot start. The playlist
+   * (or the first bytes of a file) is fetched with the headers the player will send, and must look right.
+   * Network trouble counts as "not playable": the next lane or provider is tried instead.
+   */
+  protected async probe(stream: { url: string; format: StreamFormat; headers?: Record<string, string> }, signal?: AbortSignal): Promise<boolean> {
+    if (signal?.aborted) return false;
     try {
-      const res = await fetch(url, {
-        headers: mergedHeaders,
-        signal: controller.signal
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.text();
-    } finally {
-      clearTimeout(timer);
-      if (options.signal) {
-        options.signal.removeEventListener('abort', onExternalAbort);
+      if (stream.format === 'mp4') {
+        await this.httpGet(stream.url, { ...stream.headers, Range: 'bytes=0-1' }, { signal, timeoutMs: PROBE_TIMEOUT_MS });
+        return true;
       }
+      const body = await this.httpGet(stream.url, { ...stream.headers, Accept: '*/*' }, { signal, timeoutMs: PROBE_TIMEOUT_MS });
+      return stream.format === 'dash' ? body.includes('<MPD') : body.trimStart().startsWith('#EXTM3U');
+    } catch {
+      return false;
     }
   }
 

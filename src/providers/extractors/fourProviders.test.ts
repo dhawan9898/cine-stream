@@ -6,6 +6,10 @@ import { MovierulzExtractor } from './movierulzExtractor.ts';
 import { FlixeoExtractor } from './flixeoExtractor.ts';
 import { VegaExtractor } from './vegaExtractor.ts';
 import { CineHypeExtractor } from './cinehypeExtractor.ts';
+import { VidLinkExtractor } from './vidlinkExtractor.ts';
+import { VidRockExtractor } from './vidrockExtractor.ts';
+import { RivestreamExtractor } from './rivestreamExtractor.ts';
+import { MovyExtractor } from './movyExtractor.ts';
 import { resolveStream, forgetStream } from '../streamResolver.ts';
 
 const mem = new Map<string, string>();
@@ -19,14 +23,15 @@ beforeEach(() => {
   mem.clear();
 });
 
-test('all 4 providers are registered in the default extractor registry', () => {
+test('all 8 providers are registered in the default extractor registry', () => {
   const all = extractorRegistry.getAllExtractors();
   const ids = all.map(e => e.id);
   assert.ok(ids.includes('movierulz'), 'movierulz is registered');
   assert.ok(ids.includes('flixeo'), 'flixeo is registered');
   assert.ok(ids.includes('vega'), 'vega is registered');
   assert.ok(ids.includes('cinehype'), 'cinehype is registered');
-  assert.equal(all.length, 4, 'exactly 4 providers registered');
+  assert.ok(ids.includes('vidlink'), 'vidlink is registered');
+  assert.equal(all.length, 8, 'exactly 8 providers registered');
 });
 
 test('each extractor returns valid stream metadata for movies and TV', async () => {
@@ -72,7 +77,7 @@ test('each extractor returns valid stream metadata for movies and TV', async () 
 
 // Stub every extractor: `direct` ids return a playable m3u8, the rest return only an embed page.
 function stubExtractors(direct: string[]) {
-  const proto = [MovierulzExtractor, FlixeoExtractor, VegaExtractor, CineHypeExtractor];
+  const proto = [MovierulzExtractor, FlixeoExtractor, VegaExtractor, CineHypeExtractor, VidLinkExtractor, VidRockExtractor, RivestreamExtractor, MovyExtractor];
   const originals = proto.map(C => C.prototype.extract);
   proto.forEach(C => {
     C.prototype.extract = async function (this: { id: string; name: string }, p: { id: number }) {
@@ -95,11 +100,12 @@ test('resolveAllStreams returns direct streams only, never embed pages', async (
 });
 
 test('resolveBestStream honors preferredServerId among direct streams and ignores embeds', async () => {
-  const restore = stubExtractors(['movierulz', 'flixeo', 'vega', 'cinehype']);
+  const restore = stubExtractors(['movierulz', 'flixeo', 'vega', 'cinehype', 'vidlink', 'vidrock', 'rivestream', 'movy']);
   try {
     const reg = new ExtractorRegistry(true);
-    const all = await reg.resolveAllStreams({ id: 550, type: 'movie', fresh: true });
-    for (const targetId of ['movierulz', 'flixeo', 'vega', 'cinehype']) {
+    // Picking a server runs every provider (the Kunai tier only leads when nothing was picked).
+    for (const targetId of ['movierulz', 'flixeo', 'vega', 'cinehype', 'vidlink', 'vidrock', 'rivestream', 'movy']) {
+      const all = await reg.resolveAllStreams({ id: 550, type: 'movie', fresh: true, preferredServerId: targetId });
       const best = await reg.resolveBestStream({ id: 550, type: 'movie', preferredServerId: targetId }, all);
       assert.equal(best?.serverId, targetId);
     }
@@ -109,15 +115,15 @@ test('resolveBestStream honors preferredServerId among direct streams and ignore
 });
 
 test('streamResolver exposes all servers, switches server, and fails over', async () => {
-  const restore = stubExtractors(['movierulz', 'flixeo', 'vega', 'cinehype']);
+  const restore = stubExtractors(['movierulz', 'flixeo', 'vega', 'cinehype', 'vidlink', 'vidrock', 'rivestream', 'movy']);
   try {
     const params = { id: 680, type: 'movie' as const };
     forgetStream(params);
     const res = await resolveStream(params, { fresh: true });
     assert.ok(res.url.endsWith('.m3u8') && !res.isFallbackEmbed);
-    assert.deepEqual(res.availableServers?.map(s => s.serverId).sort(), ['cinehype', 'flixeo', 'movierulz', 'vega']);
+    assert.deepEqual(res.availableServers?.map(s => s.serverId).sort(), ['cinehype', 'flixeo', 'movierulz', 'movy', 'rivestream', 'vega', 'vidlink', 'vidrock']);
 
-    for (const id of ['vega', 'cinehype', 'flixeo', 'movierulz']) {
+    for (const id of ['vega', 'cinehype', 'flixeo', 'movierulz', 'vidlink', 'vidrock', 'rivestream', 'movy']) {
       const r = await resolveStream({ ...params, preferredServerId: id }, { fresh: true });
       assert.equal(r.serverId, id);
       assert.ok(r.url.includes('680'));
@@ -184,7 +190,7 @@ test('a title every provider failed for is not prefetched again for a while', as
   const params = { id: 6262, type: 'movie' as const };
   forgetStream(params);
   let calls = 0;
-  const proto = [MovierulzExtractor, FlixeoExtractor, VegaExtractor, CineHypeExtractor];
+  const proto = [MovierulzExtractor, FlixeoExtractor, VegaExtractor, CineHypeExtractor, VidLinkExtractor, VidRockExtractor, RivestreamExtractor, MovyExtractor];
   const wrapped = proto.map(C => C.prototype.extract);
   proto.forEach((C, i) => { C.prototype.extract = (async function (this: unknown, p: unknown) { calls++; return wrapped[i].call(this as never, p as never); }) as typeof C.prototype.extract; });
   try {

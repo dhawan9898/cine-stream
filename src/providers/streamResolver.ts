@@ -73,7 +73,7 @@ function paramsForStore(p: StreamParams): Record<string, unknown> {
 }
 
 // Tries saved embed pages with the sniffer, a couple at most. Native only; a no-op elsewhere.
-async function reviveFromEmbeds(params: StreamParams, embeds: ExtractedStream[], backgroundOnly?: boolean): Promise<ExtractedStream | null> {
+async function reviveFromEmbeds(_params: StreamParams, embeds: ExtractedStream[], backgroundOnly?: boolean): Promise<ExtractedStream | null> {
   if (backgroundOnly || !Capacitor.isNativePlatform()) return null;
   for (const embed of embeds.slice(0, 2)) {
     const stream = await extractorRegistry.sniffEmbed(embed).catch(() => null);

@@ -41,6 +41,11 @@ export interface StreamExtractor {
   name: string;
   mainUrl: string;
   /**
+   * 'primary' providers (the Kunai direct-API ones) run first, together; the others only start when
+   * none of them has a stream yet after PRIMARY_HEAD_START_MS, or as soon as all of them came up empty.
+   */
+  tier?: 'primary';
+  /**
    * The provider's embed page for a title, known without any request. When present, the registry
    * starts sniffing it at once, in parallel with extract()'s own (static) attempt, instead of only
    * after that attempt gave up - the static attempt rarely finds a stream on script-built players.

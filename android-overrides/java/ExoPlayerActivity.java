@@ -398,7 +398,13 @@ public class ExoPlayerActivity extends AppCompatActivity {
     // Key = "episode|mode".
     private String reloadAttemptedKey;
     private int reloadCount = 0;
-    private static final int MAX_SERVER_RELOADS = 3;
+    // One more than the providers that can lead a lookup, so a bad run never ends in an error screen
+    // while another server is still untried.
+    private static final int MAX_SERVER_RELOADS = 5;
+    // A stream that has not reached READY this long after it was handed to the player is a dead
+    // server (a CDN that accepts the connection and never answers): fail over like an HTTP error.
+    private static final long STARTUP_STALL_MS = 20_000;
+    private final Runnable startupWatchdog = this::onStartupStalled;
 
     private int reloadsFor(String key) {
         return key != null && key.equals(reloadAttemptedKey) ? reloadCount : 0;
@@ -640,8 +646,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 webSettings.setJavaScriptEnabled(true);
                 webSettings.setDomStorageEnabled(true);
                 webSettings.setDatabaseEnabled(true);
-                webSettings.setAllowFileAccess(true);
-                webSettings.setAllowContentAccess(true);
+                webSettings.setAllowFileAccess(false); // third-party pages: no file:// access
+                webSettings.setAllowContentAccess(false);
                 webSettings.setMediaPlaybackRequiresUserGesture(false);
                 webSettings.setUserAgentString("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
 
@@ -709,13 +715,13 @@ public class ExoPlayerActivity extends AppCompatActivity {
                     webSettings.setJavaScriptEnabled(true);
                     webSettings.setDomStorageEnabled(true);
                     webSettings.setDatabaseEnabled(true);
-                    webSettings.setAllowFileAccess(true);
-                    webSettings.setAllowContentAccess(true);
+                    webSettings.setAllowFileAccess(false); // third-party pages: no file:// access
+                    webSettings.setAllowContentAccess(false);
                     webSettings.setMediaPlaybackRequiresUserGesture(false);
                     webSettings.setSupportMultipleWindows(false);
                     webSettings.setJavaScriptCanOpenWindowsAutomatically(false);
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-                        webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+                        webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE);
                     }
                     webSettings.setUserAgentString("Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
 
@@ -802,6 +808,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
     }
 
     private void releasePlayer() {
+        handler.removeCallbacks(startupWatchdog);
         handler.removeCallbacks(subtitleSyncTicker);
         stopStreamSniffer();
         handler.removeCallbacks(progressTicker);
@@ -2169,6 +2176,61 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 () -> ExoPlayerPlugin.notifyNextEpisodeRequested(title, previous));
     }
 
+    // Gives up on the current server and has the app look the episode up again on another one (the
+    // app skips servers that failed). False when the reload budget for this episode is used up, so the
+    // caller shows the error instead. `giveUp` runs when neither the native lookup nor the app can help.
+    private boolean failoverToAnotherServer(final Runnable giveUp) {
+        final String key = episodeNumber + "|" + currentMode;
+        if (offlinePlayback || reloadsFor(key) >= MAX_SERVER_RELOADS) return false;
+        Log.w(TAG, "Re-resolving episode " + key + " on another server (" + (reloadsFor(key) + 1) + "/" + MAX_SERVER_RELOADS + ")");
+        final long resumeAt = lastKnownPositionMs;
+        final String number = episodeNumber;
+        final String mode = currentMode;
+        final String title = animeTitle;
+        releasePlayer();
+        errorOverlay.setVisibility(View.GONE);
+        showLoadingState();
+        lastKnownPositionMs = resumeAt;
+        pendingResumeMs = resumeAt;
+        pendingResumeEpisode = number;
+        resolveNatively(number, mode, resumeAt, true, false, () -> {
+            // Native lookup failed: ask the app once; if it is not there either, give up.
+            if (ExoPlayerPlugin.notifyReloadRequested(title, number, mode, resumeAt)) {
+                noteReload(number + "|" + mode);
+            } else {
+                giveUp.run();
+            }
+        });
+        return true;
+    }
+
+    private void onStartupStalled() {
+        if (player == null || player.getPlaybackState() == Player.STATE_READY || offlinePlayback) return;
+        Log.w(TAG, "Stream did not start within " + STARTUP_STALL_MS + " ms");
+        if (!failoverToAnotherServer(() -> showPlaybackError("This stream did not start.\nTry again or pick another server."))) {
+            showPlaybackError("This stream did not start.\nTry again or pick another server.");
+        }
+    }
+
+    // Errors that say the stream itself is unusable on this device - a codec it cannot decode, a
+    // container or manifest it cannot read - and will not get better by retrying the same link.
+    private static boolean isStreamUnusable(androidx.media3.common.PlaybackException error) {
+        switch (error.errorCode) {
+            case androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED:
+            case androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED:
+            case androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED:
+            case androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES:
+            case androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED:
+            case androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED:
+            case androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED:
+            case androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED:
+            case androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     // Surfaces the real cause of a playback failure - an HTTP status code
     // when the CDN itself rejected a request (blocked/expired link), or the
     // specific exception otherwise (e.g. an unrecognized container/codec) -
@@ -2345,6 +2407,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
         // reported it - a fresh instance (retry, or a URL-based quality
         // switch) needs to re-resolve it from scratch rather than keep
         // pointing at a TrackGroup from the old one.
+        handler.removeCallbacks(startupWatchdog);
+        if (!offlinePlayback) handler.postDelayed(startupWatchdog, STARTUP_STALL_MS);
         useAdaptiveQualityMenu = false;
         videoQualityOptions.clear();
         videoQualityOptions.clear();
@@ -2444,6 +2508,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
                     }
                 }
                 if (state == Player.STATE_READY) {
+                    handler.removeCallbacks(startupWatchdog);
                     handler.removeCallbacks(loadingWatchdog);
                     awaitingStream = false;
                     // Recovered - a later hiccup gets the full retry budget.
@@ -2510,28 +2575,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 // An HTTP error such as 404 is usually gone after a fresh
                 // lookup of the episode (that's why closing and reopening it
                 // works) - do that once automatically, resuming here.
-                String key = episodeNumber + "|" + currentMode;
-                if (failedUri != null && reloadsFor(key) < MAX_SERVER_RELOADS) {
-                    Log.w(TAG, "HTTP error, re-resolving episode " + key + " on another server (" + (reloadsFor(key) + 1) + "/" + MAX_SERVER_RELOADS + "): " + failedUri);
-                    final long resumeAt = lastKnownPositionMs;
-                    final String number = episodeNumber;
-                    final String mode = currentMode;
-                    final String title = animeTitle;
-                    releasePlayer();
-                    errorOverlay.setVisibility(View.GONE);
-                    showLoadingState();
-                    lastKnownPositionMs = resumeAt;
-                    pendingResumeMs = resumeAt;
-                    pendingResumeEpisode = number;
-                    resolveNatively(number, mode, resumeAt, true, false, () -> {
-                        // Native lookup failed: ask the app once; if it is not
-                        // there either, show the error.
-                        if (ExoPlayerPlugin.notifyReloadRequested(title, number, mode, resumeAt)) {
-                            noteReload(number + "|" + mode);
-                        } else {
-                            showPlaybackError(describePlaybackError(error));
-                        }
-                    });
+                if ((failedUri != null || isStreamUnusable(error))
+                        && failoverToAnotherServer(() -> showPlaybackError(describePlaybackError(error)))) {
                     return;
                 }
                 showPlaybackError(describePlaybackError(error));

@@ -101,18 +101,33 @@ jobs:
         working-directory: android
         run: ./gradlew assembleRelease --stacktrace
 
-      # Android refuses unsigned APKs ("App not installed"). The keystore is
-      # committed at signing/release.p12 so every build carries the same
-      # signature and installs over the previous version.
+      # Android refuses unsigned APKs ("App not installed"). Every build must carry the same signature
+      # so it installs over the previous version. The key comes from repository secrets when they are set
+      # (KEYSTORE_BASE64 = base64 of the .p12, KEYSTORE_PASSWORD, optional KEY_ALIAS); until then the
+      # keystore committed at signing/release.p12 is used - which anyone with repo access can sign with,
+      # so move to the secrets (see README, "Release signing").
       - name: Align and Sign APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KS_PASS" ]; then
+            KS="$RUNNER_TEMP/release.p12"
+            echo "$KEYSTORE_BASE64" | base64 -d > "$KS"
+          else
+            echo "::warning::Signing with the keystore committed in the repository. Set the KEYSTORE_BASE64 and KEYSTORE_PASSWORD secrets."
+            KS=signing/release.p12
+            export KS_PASS=cinestream-app-key
+          fi
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           UNSIGNED=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
           mkdir -p build-output
           "$BT/zipalign" -f -p 4 "$UNSIGNED" "$RUNNER_TEMP/aligned.apk"
-          "$BT/apksigner" sign --ks signing/release.p12 --ks-type pkcs12 \
-            --ks-key-alias cinestream --ks-pass pass:cinestream-app-key \
+          "$BT/apksigner" sign --ks "$KS" --ks-type pkcs12 \
+            --ks-key-alias "${KEY_ALIAS:-cinestream}" --ks-pass env:KS_PASS \
             --out "build-output/CineStream-v${VERSION}.apk" "$RUNNER_TEMP/aligned.apk"
+          rm -f "$RUNNER_TEMP/release.p12"
           "$BT/apksigner" verify --print-certs "build-output/CineStream-v${VERSION}.apk"
           ls -lh build-output
 

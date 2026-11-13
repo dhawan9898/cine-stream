@@ -398,7 +398,6 @@ export const WebPlayer: React.FC<WebPlayerProps> = ({
       let mediaRecoveries = 0;
 
       hls.on(Hls.Events.MANIFEST_PARSED, (_event, data) => {
-        console.log('[VideoPlayer] Manifest parsed, levels count:', data.levels.length);
         if (data.levels.length > 0 && data.levels.every(l => !l.videoCodec && !l.width)) {
           setVideoTrackWarning('No video track in this stream (audio only or unsupported codec).');
         }

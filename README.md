@@ -10,11 +10,10 @@ Inspired by the native architecture and fluid UI of [Anistream](../Anistream), C
 
 ### 1. 📡 Multi-Extractor Streaming Engine & TMDB Catalog
 - **Direct TMDB v3 Integration**: High-speed catalog fetching of trending titles, popular releases, critically acclaimed movies, and TV shows on the air, backed by in-flight request deduplication and exponential-backoff retries.
-- **Concurrent Stream Discovery Engine**: four providers run in parallel, and only a direct stream (HLS / DASH / MP4) ever reaches the player:
-  - 🟢 **Vega** (`vidsrc.to` and mirrors), the first choice for movies
-  - 🔴 **Flixeo** (its player, `vixsrc.to`), the first choice for series; read straight from the page when possible
-  - 🟣 **CineHype** (`vidfast.vc`)
-  - 🇮🇳 **Movierulz Regional** (`5movierulz.site`) for Telugu, Hindi, Tamil, Malayalam and Kannada titles
+- **Concurrent Stream Discovery Engine**: only a direct stream (HLS / DASH / MP4) ever reaches the player. Providers come in two tiers, and the fallback between them is automatic:
+  - **Tier 1, direct-API providers** (ported from [Kunai](https://github.com/KitsuneKode/kunai), MIT): **VidRock**, **Rivestream**, **VidLink** and **Movy** answer from JSON APIs in roughly 0.3 to 1.5 s, with no embed page and no WebView. They run together. Every candidate stream is probed (its playlist must really load) before it can win, so a dead CDN is skipped, and a provider that answers 429 or whose helper service is down steps aside for a while instead of slowing every title.
+  - **Tier 2, embed providers**: **Vega** (`vidsrc.to`), **Flixeo** (`vixsrc.to`), **CineHype** (`vidfast.vc`) and **Movierulz Regional** (Telugu, Hindi, Tamil, Malayalam, Kannada). They start only if tier 1 found nothing, or after 3.5 s of tier 1 still searching, and are sniffed in the native WebView.
+  - **While playing**, a server that fails (HTTP error, a codec or container the device cannot handle, or no start within 20 s) is skipped automatically and the title is looked up again on the next one, up to 5 times, resuming where it stopped. Nothing is asked of the user. Picking a server by hand still works.
 - **Fast start (target: under 5 s for a title nobody prepared)**: providers whose player page is known up front are sniffed from the first moment, two side by side, while their static attempt runs. The native sniffer injects its Play nudge into every frame at document start (players sit in nested cross-origin iframes and wait for a tap), answers ad loaders and trackers empty by URL shape (their domains rotate), and never accepts an ad's video as the stream. The provider that worked last time gets a 1.2 s head start instead of an exclusive turn. Opening a title page prepares the stream in the background ("Faster Start"); tapping Play joins that sniff instead of restarting it.
 
 ### 2. 🎨 Cinema-Grade Aesthetics & WebView Performance
@@ -64,7 +63,7 @@ CineStream/
     │   ├── cineHypeCore.ts       # TMDB catalog client & data models
     │   ├── streamResolver.ts     # Cached stream resolution with fallback embed URL
     │   ├── subtitleService.ts, webSniffer.ts
-    │   └── extractors/           # Six title extractors + registry (health, last-good, early exit)
+    │   └── extractors/           # Eight title extractors (tier 1: Kunai-style direct APIs, tier 2: embed sniffing) + registry (tiers, health, last-good)
     ├── services/                 # historyService, themeService, persistentCache config, nativePlayer, ...
     ├── components/               # Adapters over streamkit (HeroCarousel, GenrePicker) + app widgets
     ├── pages/                    # Home, Browse, Search, MediaDetail, Library, Settings
@@ -90,6 +89,20 @@ npm run dev
 > `TMDB_API_KEY` repository secret (the workflow fails fast if it is missing). Note that any key bundled
 > into a client app can be extracted from the APK, so use a key you can rotate, or put a proxy in front of TMDB.
 > The CLI scripts in `scripts/` read `TMDB_API_KEY` / `VITE_TMDB_API_KEY` from the environment.
+
+### Release signing
+
+CI signs every release with one key so builds install over each other. Set the repository secrets
+`KEYSTORE_BASE64` (`base64 -w0 release.p12`), `KEYSTORE_PASSWORD` and, if it is not `cinestream`, `KEY_ALIAS`.
+Until they are set the workflow falls back to `signing/release.p12`, which is committed (with its password in
+the workflow history), so anyone with the repository can sign an APK that installs over yours. After the
+secrets are set, create a new key and move to it with the next release (Android requires an uninstall once when the
+signing key changes), then remove `signing/` from the repository.
+
+### Checking providers
+
+`npx tsx scripts/bench-providers.ts [kunai|<provider id>]` times each provider on its own and reports whether it
+returned a direct stream or an embed page.
 
 ### Quality checks
 

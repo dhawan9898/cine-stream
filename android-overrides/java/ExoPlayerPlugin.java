@@ -257,6 +257,8 @@ public class ExoPlayerPlugin extends Plugin {
         WebSettings ws = web.getSettings();
         ws.setJavaScriptEnabled(true);
         ws.setDomStorageEnabled(true);
+        ws.setAllowFileAccess(false);
+        ws.setAllowContentAccess(false);
         ws.setMediaPlaybackRequiresUserGesture(false);
         // Only the page's scripts and API calls matter for finding the stream: no
         // pictures, so the embed page is ready sooner and uses less data.

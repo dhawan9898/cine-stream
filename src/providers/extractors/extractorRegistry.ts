@@ -10,6 +10,10 @@ import { VegaExtractor } from './vegaExtractor.ts';
 import { FlixeoExtractor } from './flixeoExtractor.ts';
 import { CineHypeExtractor } from './cinehypeExtractor.ts';
 import { MovierulzExtractor } from './movierulzExtractor.ts';
+import { VidLinkExtractor } from './vidlinkExtractor.ts';
+import { VidRockExtractor } from './vidrockExtractor.ts';
+import { RivestreamExtractor } from './rivestreamExtractor.ts';
+import { MovyExtractor } from './movyExtractor.ts';
 
 const MAX_SNIFF_ATTEMPTS = 4;
 // The best two embeds are sniffed side by side from the start; a third only after the hedge delay.
@@ -22,6 +26,9 @@ const SNIFF_TIMEOUT_MS = 9000;
 const RESOLVE_DEADLINE_MS = 14000;
 // The provider that worked for this title last time runs alone this long before the others join.
 const LAST_GOOD_HEAD_START_MS = 1200;
+// The Kunai direct-API providers (tier 'primary') run alone this long; the sniffed-embed providers join
+// after that, or at once when every Kunai provider has failed (see resolveAllStreams).
+const PRIMARY_HEAD_START_MS = 3500;
 const EARLY_EXIT_GRACE_MS = 250;
 const HEALTH_KEY = 'cinestream_provider_stats_v2';
 const FAILS_BEFORE_COOLDOWN = 3;
@@ -29,6 +36,9 @@ const COOLDOWN_MS = 10 * 60 * 1000;
 
 /** Head start (ms of expected time) given to the provider that suits the title. */
 const PRIMARY_BIAS_MS = 1500;
+// Preference among the Kunai providers when several found a stream: H.264 HLS first (plays on every
+// device), then VidLink (HEVC in DASH, which a device may lack a decoder for), then Movy.
+const KUNAI_ORDER = ['vidrock', 'rivestream', 'vidlink', 'movy'];
 const LAST_GOOD_KEY = 'cinestream_last_good_v1';
 const LAST_GOOD_MAX = 300;
 
@@ -68,6 +78,12 @@ export class ExtractorRegistry {
 
   constructor(withDefaults = true) {
     if (!withDefaults) return;
+    // The Kunai direct-API providers answer from JSON APIs in about a second (no embed page to sniff),
+    // so they lead; the four embed-based providers below are the fallback tier.
+    this.register(new VidLinkExtractor());
+    this.register(new VidRockExtractor());
+    this.register(new RivestreamExtractor());
+    this.register(new MovyExtractor());
     this.register(new MovierulzExtractor());
     this.register(new FlixeoExtractor());
     this.register(new VegaExtractor());
@@ -164,10 +180,17 @@ export class ExtractorRegistry {
     // The provider that worked for this title last time gets a head start rather than an exclusive
     // turn: if it still works it wins alone, and if it does not, the others are already running
     // instead of starting only after its whole attempt (extract + sniff) has timed out.
-    const useHeadStart = !params.fresh && !params.preferredServerId && Boolean(goodId) && active.some(e => e.id === goodId);
+    const useLastGood = !params.fresh && !params.preferredServerId && Boolean(goodId) && active.some(e => e.id === goodId);
+    // The Kunai tier leads unless the user picked a server or another provider worked for this title last time.
+    const primaries = active.filter(e => e.tier === 'primary');
+    const useTier = !params.preferredServerId && !useLastGood && primaries.length > 0 && primaries.length < active.length;
+    const useHeadStart = useLastGood || useTier;
+    const headIds = new Set(useLastGood ? [goodId as string] : useTier ? primaries.map(e => e.id) : []);
+    const headStartMs = useLastGood ? LAST_GOOD_HEAD_START_MS : PRIMARY_HEAD_START_MS;
     const raceList = useHeadStart
-      ? [...active.filter(e => e.id === goodId), ...active.filter(e => e.id !== goodId)]
+      ? [...active.filter(e => headIds.has(e.id)), ...active.filter(e => !headIds.has(e.id))]
       : active;
+    const headCount = headIds.size;
 
     const lookupStart = Date.now();
     return new Promise<ExtractedStream[]>(resolve => {
@@ -215,7 +238,7 @@ export class ExtractorRegistry {
         if (!othersStarted) {
           // The remembered provider came up empty (its attempt is over, nothing left to sniff): no
           // need to sit out the rest of its head start.
-          const headDone = pendingExtract <= raceList.length - 1;
+          const headDone = pendingExtract <= raceList.length - headCount;
           if (headDone && sniffRunning === 0 && queue.length === 0 && found.length === 0) startOthers();
           return;
         }
@@ -330,7 +353,7 @@ export class ExtractorRegistry {
         if (othersStarted || done) return;
         othersStarted = true;
         if (headStartTimer) clearTimeout(headStartTimer);
-        const others = raceList.slice(1);
+        const others = raceList.slice(headCount);
         // Every early embed is queued before any sniff starts, so the best-ranked ones get the WebViews.
         others.forEach(queueEarly);
         pump();
@@ -342,10 +365,11 @@ export class ExtractorRegistry {
       if (raceList.length === 0) { finish(); return; }
 
       if (useHeadStart) {
-        queueEarly(raceList[0]);
+        const head = raceList.slice(0, headCount);
+        head.forEach(queueEarly);
         pump();
-        run(raceList[0]);
-        headStartTimer = setTimeout(startOthers, LAST_GOOD_HEAD_START_MS);
+        head.forEach(run);
+        headStartTimer = setTimeout(startOthers, headStartMs);
       } else {
         raceList.forEach(queueEarly);
         pump();
@@ -404,19 +428,25 @@ export class ExtractorRegistry {
       ? 'movierulz'
       : (params.type === 'movie' ? 'vega' : 'flixeo');
 
-    // 1. Primary provider direct stream
+    // 1. The Kunai direct-API providers, in their own order
+    for (const id of KUNAI_ORDER) {
+      const kunaiDirect = all.find(s => !s.isFallbackEmbed && s.serverId === id);
+      if (kunaiDirect) return kunaiDirect;
+    }
+
+    // 2. The legacy provider that suits the title
     const primaryDirect = all.find(s => !s.isFallbackEmbed && s.serverId === primaryId);
     if (primaryDirect) return primaryDirect;
 
-    // 2. Any direct media stream across providers
+    // 3. Any direct media stream across providers
     const directStream = all.find(s => !s.isFallbackEmbed);
     if (directStream) return directStream;
 
-    // 3. Primary provider stream (Vega / Flixeo for general, Movierulz for Regional)
+    // 4. Primary provider stream (Vega / Flixeo for general, Movierulz for Regional)
     const primaryStream = all.find(s => s.serverId === primaryId);
     if (primaryStream) return primaryStream;
 
-    // 4. Clean stream preference: Vega -> Flixeo -> CineHype -> Movierulz
+    // 5. Clean stream preference: Vega -> Flixeo -> CineHype -> Movierulz
     const cleanStream =
       all.find(s => s.serverId === 'vega') ||
       all.find(s => s.serverId === 'flixeo') ||
