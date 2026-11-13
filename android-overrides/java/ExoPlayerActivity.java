@@ -595,6 +595,16 @@ public class ExoPlayerActivity extends AppCompatActivity {
 
     private void loadFromIntent(Intent intent) {
         String videoUrl = intent.getStringExtra("url");
+        // "Show this episode loading" for the episode that is already playing (the app catching up after
+        // the player started a prefetched next episode itself): nothing to load, and going into the
+        // loading state would pause it behind a spinner that no stream ever replaces.
+        if ((videoUrl == null || videoUrl.isEmpty()) && player != null && !awaitingStream
+                && episodeNumbersMatch(intent.getStringExtra("episode"), episodeNumber)
+                && (intent.getStringExtra("title") == null || intent.getStringExtra("title").equals(animeTitle))
+                && (intent.getStringExtra("seasonPrefix") == null || intent.getStringExtra("seasonPrefix").equals(seasonPrefix))) {
+            Log.i(TAG, "Ignoring a loading request for E" + episodeNumber + ": already playing it");
+            return;
+        }
         String referer = intent.getStringExtra("referer");
         String subtitlesJson = intent.getStringExtra("subtitles");
         String qualitiesJson = intent.getStringExtra("qualities");

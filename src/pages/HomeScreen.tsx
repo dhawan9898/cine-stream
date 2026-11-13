@@ -2,7 +2,7 @@
 // category pool (movies + TV, every language and genre) and ordered by what
 // the viewer watches; rows below the fold load when scrolled near.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Play, ChevronRight, ChevronDown, Search as SearchIcon, X, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { ChevronRight, ChevronDown, Search as SearchIcon, X, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { clearPersistedCache } from '../services/persistentCache.ts';
 import { Priority, prefetchStream, warmStreams } from '../providers/streamResolver.ts';
 import { getTrending, getRecommendations, type MediaItem } from '../providers/cineHypeCore.ts';
@@ -33,7 +33,8 @@ import { GenrePicker } from '../components/GenrePicker.tsx';
 import { hapticLight, hapticMedium } from '../services/hapticsService.ts';
 
 interface HomeScreenProps {
-  onSelectMedia: (item: MediaItem) => void;
+  // `rect`: where the tapped artwork is, so the title page can open from it.
+  onSelectMedia: (item: MediaItem, rect?: DOMRect) => void;
   onPlayMedia: (item: MediaItem, season?: number, episode?: number) => void;
   onOpenSearch: () => void;
   onOpenSource: (source: BrowseSource) => void;
@@ -400,7 +401,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
 
           <div className="rail" style={{ gap: '14px', paddingBottom: '10px' }}>
             {history.map(item => {
-              const resume = () => onPlayMedia({
+              // The title's page (with its Resume button and episode list), not straight into the player.
+              const openTitle = (el?: Element | null) => onSelectMedia({
                 id: item.id,
                 title: item.title,
                 mediaType: item.type,
@@ -408,18 +410,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
                 backdrop: item.backdrop,
                 overview: '',
                 releaseDate: '',
-                voteAverage: 0
-              }, item.season, item.episode);
+                voteAverage: 0,
+                genreIds: item.genreIds,
+                language: item.language
+              }, el?.getBoundingClientRect());
               return (
               <div
                 key={`${item.type}-${item.id}`}
-                onClick={() => { hapticMedium(); resume(); }}
+                onClick={e => { hapticMedium(); openTitle(e.currentTarget.firstElementChild); }}
                 onKeyDown={e => {
-                  if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); resume(); }
+                  if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openTitle(e.currentTarget.firstElementChild); }
                 }}
                 role="button"
                 tabIndex={0}
-                aria-label={`Resume ${item.title}`}
+                aria-label={`Open ${item.title}`}
                 className="interactive glass-panel"
                 style={{ flex: '0 0 200px', borderRadius: 'var(--radius-md)', overflow: 'hidden', position: 'relative' }}
               >
@@ -448,11 +452,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
                     }}
                     style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                   />
-                  <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 40%, rgba(0,0,0,0.85) 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'rgba(0,0,0,0.65)', border: '1px solid rgba(255,255,255,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <Play size={16} fill="#fff" color="#fff" style={{ marginLeft: '2px' }} />
-                    </div>
-                  </div>
+                  <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 40%, rgba(0,0,0,0.85) 100%)' }} />
                 </div>
                 <div style={{ width: '100%', height: '3px', backgroundColor: 'rgba(255,255,255,0.2)' }}>
                   <div style={{ width: `${Math.min(100, item.progressPercent)}%`, height: '100%', background: 'var(--accent-primary)' }} />

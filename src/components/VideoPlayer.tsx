@@ -93,6 +93,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // Immediately open native ExoPlayer window when mounted on Android
   useEffect(() => {
     if (!isNative) return;
+    // The player moved to this episode by itself (a prefetched next episode, see nextEpisodeStarted) and is
+    // already playing it: opening it in its loading state again paused it on a spinner that no stream
+    // would ever replace (the lookup below is skipped for this case).
+    if (nativePrefetchStartedEpRef.current === episode) return;
     ExoPlayerPlugin.open({
       title: media.title,
       episode: isSeries ? String(episode) : '1',
