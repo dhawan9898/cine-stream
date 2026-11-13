@@ -38,13 +38,24 @@ export interface ApiProviderSpec {
   format?: 'hls' | 'dash' | 'mp4';
 }
 
+/**
+ * A link resolver that is a third-party service (e.g. the decrypt API lobster uses for FlixHQ embeds).
+ * The config can repoint it or switch it off for everyone; it can never switch it on for a viewer who
+ * turned it off.
+ */
+export interface ResolverOverride {
+  enabled?: boolean;
+  endpoints?: string[];
+}
+
 export interface ProviderConfig {
   version: number;
   providers: Record<string, ProviderOverride>;
   apiProviders: ApiProviderSpec[];
+  resolvers?: Record<string, ResolverOverride>;
 }
 
-export const DEFAULT_PROVIDER_CONFIG: ProviderConfig = { version: 0, providers: {}, apiProviders: [] };
+export const DEFAULT_PROVIDER_CONFIG: ProviderConfig = { version: 0, providers: {}, apiProviders: [], resolvers: {} };
 
 const STORAGE_KEY = 'cinestream_provider_config_v1';
 const REFRESH_MS = 6 * 60 * 60 * 1000;
@@ -111,7 +122,20 @@ export function parseProviderConfig(raw: unknown): ProviderConfig | null {
       });
     }
   }
-  return { version: raw.version, providers, apiProviders };
+  const resolvers: Record<string, ResolverOverride> = {};
+  if (isRecord(raw.resolvers)) {
+    for (const [id, v] of Object.entries(raw.resolvers)) {
+      if (!ID_RE.test(id) || !isRecord(v)) continue;
+      const o: ResolverOverride = {};
+      if (typeof v.enabled === 'boolean') o.enabled = v.enabled;
+      if (Array.isArray(v.endpoints)) {
+        const endpoints = v.endpoints.map(m => safeUrl(m)).filter((m): m is string => !!m).slice(0, MAX_MIRRORS);
+        if (endpoints.length) o.endpoints = endpoints;
+      }
+      resolvers[id] = o;
+    }
+  }
+  return { version: raw.version, providers, apiProviders, resolvers };
 }
 
 // ---- state ----------------------------------------------------------------------------
@@ -137,6 +161,7 @@ function apply(config: ProviderConfig): void {
 export function getProviderConfig(): ProviderConfig { return current; }
 export function getProviderOverride(id: string): ProviderOverride | undefined { return current.providers[id]; }
 export function isProviderEnabled(id: string): boolean { return current.providers[id]?.enabled !== false; }
+export function getResolverOverride(id: string): ResolverOverride | undefined { return current.resolvers?.[id]; }
 
 /** Called with the config now, and again whenever a newer one is loaded. */
 export function subscribeProviderConfig(fn: (c: ProviderConfig) => void): () => void {

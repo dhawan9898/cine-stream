@@ -1,11 +1,13 @@
 // vegaExtractor.ts - Zenda-Cross / Vega-App Stream Provider
 import { BaseExtractor } from './baseExtractor.ts';
-import type { ExtractedStream } from './types.ts';
+import type { ExtractedStream, SourceManifest } from './types.ts';
 
 export class VegaExtractor extends BaseExtractor {
   id = 'vega';
   name = 'Vega Engine';
   mainUrl = 'https://vidsrc.to';
+  // Embed page sniffed in a WebView; the long-standing first choice for movies.
+  manifest = { idKind: 'tmdb', costHint: 'sniff', priorMs: 6000, strongFor: { kinds: ['movie'] }, trust: 'scraper' } satisfies SourceManifest;
 
   private mirrors = [
     'https://vidsrc.to',

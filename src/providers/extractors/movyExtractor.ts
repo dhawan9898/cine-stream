@@ -3,7 +3,7 @@
 //   2. GET /<lane>/sources?...&enc=2&seed=..  -> ciphertext; decrypts with the seed to { sources: [...], subtitles: [...] }
 // Each lane is a different upstream scraper, so lanes are tried a few at a time and the first with a stream wins.
 import { BaseExtractor } from './baseExtractor.ts';
-import type { ExtractedStream } from './types.ts';
+import type { ExtractedStream, SourceManifest } from './types.ts';
 import { Cooldown, KUNAI_UA, firstSuccess, formatOf, qualityRank, toSubtitles } from './kunaiCommon.ts';
 import { decryptMovyPayload } from './movyCrypto.ts';
 
@@ -24,7 +24,8 @@ export class MovyExtractor extends BaseExtractor {
   id = 'movy';
   name = 'Movy';
   mainUrl = API;
-  tier = 'primary' as const;
+  // Rate limited (see its Cooldown): last of the Kunai APIs.
+  manifest = { idKind: 'tmdb', costHint: 'api', priorMs: 2600, linkTtlMs: 2 * 60 * 1000, trust: 'api' } satisfies SourceManifest;
   private cooldown = new Cooldown();
 
   private get headers() {

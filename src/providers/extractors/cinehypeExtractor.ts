@@ -1,11 +1,12 @@
 // cinehypeExtractor.ts - Native CineHype Stream Extractor
 import { BaseExtractor } from './baseExtractor.ts';
-import type { ExtractedStream } from './types.ts';
+import type { ExtractedStream, SourceManifest } from './types.ts';
 
 export class CineHypeExtractor extends BaseExtractor {
   id = 'cinehype';
   name = 'CineHype Server';
   mainUrl = 'https://vidfast.vc';
+  manifest = { idKind: 'tmdb', costHint: 'sniff', priorMs: 6500, trust: 'scraper' } satisfies SourceManifest;
 
   /** The player page, sniffed at once in parallel with the static attempt. */
   embedUrl(params: { id: number; type: 'movie' | 'tv'; season?: number; episode?: number }): string {

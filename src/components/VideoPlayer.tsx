@@ -68,6 +68,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   // so "retry" reaches a different provider instead of the same dead one.
   const failedServersRef = useRef<{ key: string; servers: Set<string> }>({ key: '', servers: new Set() });
   const contentKey = `${media.mediaType}|${media.id}|${season}|${episode}`;
+  // Search keys for title-search sources (FlixHQ, Jellyfin); not part of any cache key.
+  const searchKeys = useMemo(() => {
+    const year = parseInt((media.releaseDate ?? '').slice(0, 4), 10);
+    return { originalTitle: media.originalTitle, year: Number.isFinite(year) ? year : undefined };
+  }, [media.originalTitle, media.releaseDate]);
   const failedServers = (key: string = contentKey): string[] => (failedServersRef.current.key === key ? [...failedServersRef.current.servers] : []);
   const markServerFailed = (serverId: string | undefined, key: string = contentKey) => {
     if (!serverId) return;
@@ -222,11 +227,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           setSelectedServerId(undefined);
           setAttempt(n => n + 1);
         });
+        // The player switched to one of its alternates by itself: remember the failed server (a later
+        // lookup skips it) and which one now plays (a later failure is pinned on the right one).
+        const h7 = await ExoPlayerPlugin.addListener('serverSwitched', (e) => {
+          const L = latestRef.current;
+          markServerFailed(e.failedServerId, L.contentKey);
+          if (sourceRef.current) sourceRef.current = { ...sourceRef.current, url: e.url, serverId: e.serverId };
+        });
         if (disposed) {
-          [h1, h2, h3, h4, h5, h6].forEach(h => h.remove());
+          [h1, h2, h3, h4, h5, h6, h7].forEach(h => h.remove());
           return;
         }
-        handles = [h1, h2, h3, h4, h5, h6];
+        handles = [h1, h2, h3, h4, h5, h6, h7];
       } catch (err) {
         console.warn('[VideoPlayer] Error setting up ExoPlayer listeners:', err);
       }
@@ -247,7 +259,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     const nextEpNum = currentEp + 1;
     if (!episodes.some(e => e.episodeNumber === nextEpNum)) return;
 
-    resolveStream({ id: media.id, type: media.mediaType, season, episode: nextEpNum, language: media.language, preferredServerId: selectedServerId })
+    resolveStream({ id: media.id, type: media.mediaType, season, episode: nextEpNum, language: media.language, title: media.title, ...searchKeys, preferredServerId: selectedServerId })
       .then(nextRes => {
         if (!nextRes?.url) return;
         const prefs = getUserPreferences();
@@ -261,11 +273,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           headers: nextRes.headers,
           subtitles: subtitlesForPlayer(nextRes.subtitles, prefs.subtitleLanguage),
           isFallback: false,
-          autoPlayNext: prefs.autoplayNext
+          autoPlayNext: prefs.autoplayNext,
+          serverId: nextRes.serverId,
+          alternates: nextRes.alternates
         }).catch(() => {});
       })
       .catch(() => {});
-  }, [isSeries, episodes, media.id, media.mediaType, media.title, media.language, season, selectedServerId]);
+  }, [isSeries, episodes, media.id, media.mediaType, media.title, media.language, season, selectedServerId, searchKeys]);
 
   // Background stream resolution
   useEffect(() => {
@@ -325,7 +339,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // stream or an error with Retry - never an endless loading page.
     withTimeout(
       resolveStream(
-        { id: media.id, type: media.mediaType, season, episode, languageMode: langMode, language: media.language, title: media.title, preferredServerId: selectedServerId, exclude: failedServers() },
+        { id: media.id, type: media.mediaType, season, episode, languageMode: langMode, language: media.language, title: media.title, ...searchKeys, preferredServerId: selectedServerId, exclude: failedServers() },
         { fresh: attempt > 0, signal: lookup.signal }
       ),
       LOOKUP_GUARD_MS,
@@ -341,7 +355,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         // Quietly resolve the next two episodes so they are cached before needed.
         if (isSeries) {
           prefetchUpcomingEpisodes(
-            { id: media.id, type: media.mediaType, season, languageMode: langMode, language: media.language, title: media.title, preferredServerId: selectedServerId },
+            { id: media.id, type: media.mediaType, season, languageMode: langMode, language: media.language, title: media.title, ...searchKeys, preferredServerId: selectedServerId },
             episode,
             episodes.map(e => e.episodeNumber),
             2
@@ -372,7 +386,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             episodes: isSeries ? playerEpisodes : undefined,
             startPositionMs: startPositionMs > 0 ? startPositionMs : undefined,
             isFallback: false,
-            autoPlayNext: prefs.autoplayNext && hasNextEpisode
+            autoPlayNext: prefs.autoplayNext && hasNextEpisode,
+            serverId: res.serverId,
+            alternates: res.alternates
           });
           if (hasNextEpisode) {
             prefetchNativeNextEpisode(episode);
@@ -408,7 +424,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     initialPositionMs,
     prefetchNativeNextEpisode,
     langMode,
-    selectedServerId
+    selectedServerId,
+    searchKeys
   ]);
 
   const handleNextEpisode = () => {

@@ -23,7 +23,7 @@ beforeEach(() => {
   mem.clear();
 });
 
-test('all 8 providers are registered in the default extractor registry', () => {
+test('all 9 providers are registered in the default extractor registry (Jellyfin only once set up)', () => {
   const all = extractorRegistry.getAllExtractors();
   const ids = all.map(e => e.id);
   assert.ok(ids.includes('movierulz'), 'movierulz is registered');
@@ -31,7 +31,9 @@ test('all 8 providers are registered in the default extractor registry', () => {
   assert.ok(ids.includes('vega'), 'vega is registered');
   assert.ok(ids.includes('cinehype'), 'cinehype is registered');
   assert.ok(ids.includes('vidlink'), 'vidlink is registered');
-  assert.equal(all.length, 8, 'exactly 8 providers registered');
+  assert.ok(ids.includes('flixhq'), 'flixhq (lobster / flix-cli) is registered');
+  assert.ok(!ids.includes('jellyfin'), 'jellyfin is not offered until a server is set up');
+  assert.equal(all.length, 9, 'exactly 9 providers registered');
 });
 
 test('each extractor returns valid stream metadata for movies and TV', async () => {
@@ -121,7 +123,7 @@ test('streamResolver exposes all servers, switches server, and fails over', asyn
     forgetStream(params);
     const res = await resolveStream(params, { fresh: true });
     assert.ok(res.url.endsWith('.m3u8') && !res.isFallbackEmbed);
-    assert.deepEqual(res.availableServers?.map(s => s.serverId).sort(), ['cinehype', 'flixeo', 'movierulz', 'movy', 'rivestream', 'vega', 'vidlink', 'vidrock']);
+    assert.deepEqual(res.availableServers?.map(s => s.serverId).sort(), ['cinehype', 'flixeo', 'flixhq', 'movierulz', 'movy', 'rivestream', 'vega', 'vidlink', 'vidrock']);
 
     for (const id of ['vega', 'cinehype', 'flixeo', 'movierulz', 'vidlink', 'vidrock', 'rivestream', 'movy']) {
       const r = await resolveStream({ ...params, preferredServerId: id }, { fresh: true });

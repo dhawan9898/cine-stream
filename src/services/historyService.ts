@@ -35,6 +35,12 @@ export interface UserPreferences {
   preloadStreams: boolean;
   // 'Auto' or a rendition such as '720p' / '1080p', used when the stream offers it.
   defaultQuality: string;
+  // FlixHQ embeds turned into streams by a third-party decrypt service (faster than the in-app
+  // sniffer, but that service sees every link asked for). Off unless the viewer turns it on.
+  flixhqDecryptApi: boolean;
+  // The viewer's own Jellyfin server (Settings > Sources); empty when not set up.
+  jellyfinUrl: string;
+  jellyfinApiKey: string;
 }
 
 const HISTORY_KEY = 'cinestream_watch_history';
@@ -50,7 +56,10 @@ const DEFAULT_PREFS: UserPreferences = {
   dataSaver: false,
   downloadQuality: '720',
   preloadStreams: true,
-  defaultQuality: 'Auto'
+  defaultQuality: 'Auto',
+  flixhqDecryptApi: false,
+  jellyfinUrl: '',
+  jellyfinApiKey: ''
 };
 
 // In-Memory state caches to eliminate redundant JSON parsing on renders

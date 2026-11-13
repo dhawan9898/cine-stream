@@ -5,7 +5,7 @@
 // secretKey is derived from the TMDB id by generateSecretKey (a custom hash, no network). Services are tried
 // a few at a time; the first that answers with a stream wins.
 import { BaseExtractor } from './baseExtractor.ts';
-import type { ExtractedStream } from './types.ts';
+import type { ExtractedStream, SourceManifest } from './types.ts';
 import { Cooldown, KUNAI_UA, firstSuccess, formatOf, qualityRank, toSubtitles } from './kunaiCommon.ts';
 
 const API = 'https://www.rivestream.app/api/backendfetch';
@@ -176,7 +176,8 @@ export class RivestreamExtractor extends BaseExtractor {
   id = 'rivestream';
   name = 'Rivestream';
   mainUrl = 'https://www.rivestream.app';
-  tier = 'primary' as const;
+  // Fastest Kunai API (0.1-0.5 s); some services hand out placeholder-segment lanes.
+  manifest = { idKind: 'tmdb', costHint: 'api', priorMs: 900, linkTtlMs: 2 * 60 * 1000, deepProbe: true, trust: 'api' } satisfies SourceManifest;
   private cooldown = new Cooldown();
 
   private get headers() { return { 'User-Agent': KUNAI_UA, Referer: REFERER }; }

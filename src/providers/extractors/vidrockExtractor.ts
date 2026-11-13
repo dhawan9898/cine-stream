@@ -2,7 +2,7 @@
 // GET vidrock.net/api/movie/<tmdb> | tv/<tmdb>/<s>/<e> answers { <lane>: { url: <AES-256-GCM, base64url(iv|ct)>, language, type } };
 // each lane's url decrypts with a fixed key to an HLS master (or a JSON list of renditions).
 import { BaseExtractor } from './baseExtractor.ts';
-import type { ExtractedStream, QualityVariant } from './types.ts';
+import type { ExtractedStream, QualityVariant, SourceManifest } from './types.ts';
 import { KUNAI_UA, base64UrlToBytes, firstSuccess, formatOf, qualityRank } from './kunaiCommon.ts';
 
 const ORIGIN = 'https://vidrock.net';
@@ -29,7 +29,8 @@ export class VidRockExtractor extends BaseExtractor {
   id = 'vidrock';
   name = 'VidRock';
   mainUrl = ORIGIN;
-  tier = 'primary' as const;
+  // Each request gets a different CDN lane; some serve placeholder images as segments.
+  manifest = { idKind: 'tmdb', costHint: 'api', priorMs: 1800, linkTtlMs: 2 * 60 * 1000, deepProbe: true, trust: 'api' } satisfies SourceManifest;
 
   async extract(params: { id: number; type: 'movie' | 'tv'; season?: number; episode?: number; signal?: AbortSignal }): Promise<ExtractedStream | null> {
     const { id, type, season = 1, episode = 1, signal } = params;

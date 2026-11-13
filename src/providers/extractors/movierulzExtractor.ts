@@ -1,6 +1,6 @@
 // movierulzExtractor.ts - Indian regional content extractor (Telugu, Hindi, Tamil, Malayalam, Kannada, Multi-Audio)
 import { BaseExtractor } from './baseExtractor.ts';
-import type { ExtractedStream } from './types.ts';
+import type { ExtractedStream, SourceManifest } from './types.ts';
 import { buildVariantSet, extractCandidates, type ResolvedVariant } from './variantDiscovery.ts';
 
 const MEDIA_EXT = /\.(m3u8|mpd|mp4|mkv|webm)(\?|$)/i;
@@ -11,6 +11,8 @@ export class MovierulzExtractor extends BaseExtractor {
   id = 'movierulz';
   name = 'Movierulz Regional';
   mainUrl = 'https://5movierulz.site';
+  // Indian-language catalog found by title (several page loads): ranked ahead for those titles only.
+  manifest = { idKind: 'search', costHint: 'multi-hop', priorMs: 5000, strongFor: { languages: ['te', 'hi', 'ta', 'ml', 'kn', 'pa', 'bn'] }, trust: 'scraper' } satisfies SourceManifest;
 
   private generateSlugs(title: string, languageMode?: string): string[] {
     if (!title) return [];

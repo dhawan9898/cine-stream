@@ -1,6 +1,22 @@
 # Provider architecture v2
 
-Status: proposal · 2026-11-13
+Status: steps 1–3 and 6–8 implemented, steps 4–5 partly · 2026-11-13
+
+## Implementation status
+
+| Step | State | Where |
+|---|---|---|
+| 1 Adapter layer | Done, in a lighter form than §3.1: `StreamExtractor` gained `manifest`, `available()` and `extractAll()` (every server/lane, embeds included) instead of a separate `Source`/`Link` type. Existing extractors work unchanged. | `extractors/types.ts`, `extractors/manifest.ts` |
+| 2 One ranking | Done. `KUNAI_ORDER`, `primaryId`, `isRegionalTitle`, `tier` and the fixed 3.5 s head start are gone; the race order, the head start (1.5× the second-fastest cheap provider, 0.8–3.5 s) and the final pick all come from `plannedMs`. | `extractorRegistry.ts` |
+| 3 Alternates + native failover | Done. Up to 4 alternates (other servers first) are stored with each stream, passed to the player, and tried locally before any app round trip; the app hears about it through `serverSwitched`. | `streamResolver.ts#pickAlternates`, `ExoPlayerActivity#tryNextAlternate` |
+| 4 Per-host rate limiter | Done for all requests through `BaseExtractor` (token bucket per host, 429 closes the host, background requests keep half the budget free). The per-extractor `Cooldown` in Movy/Rivestream is still in place alongside it. Manifest/config-driven per-host limits are not wired yet (`hostLimiter.configure` exists). | `extractors/hostLimiter.ts` |
+| 5 IdMapper | Done and used by FlixHQ and Jellyfin. **Movierulz is not moved onto it yet**: it guesses page slugs rather than using a search endpoint. | `sources/idMapper.ts` |
+| 6 FlixHQ (lobster + flix-cli) | Done: search, cached title match (30 d) and season/episode ids (1 d), servers → embed links, decrypt API (opt-in, Settings) with the registry's native sniffer as the fallback. Tested on recorded markup only; the live site was unreachable from the build machine. | `sources/flixhq.ts`, `sources/decryptApi.ts` |
+| 7 Validator budget | Done: segment probing only for `deepProbe` sources (Rivestream, VidRock). | `baseExtractor.ts#probe` |
+| 8 Self-hosted | Jellyfin done (TMDB provider-id match, direct play natively + HLS transcode, text subtitles as WebVTT). Plex not done. | `sources/jellyfin.ts`, Settings > Sources |
+
+Decisions taken on §8's open questions: the decrypt service is **off by default** (the sniffer resolves FlixHQ
+embeds instead); alternates are passed as they are and a stale one simply fails over to the next.
 
 Goal: every provider (the four Kunai ports, the four legacy embed providers, and the planned
 FlixHQ-family and self-hosted sources) plugs into one pipeline that is **fast on the first Play,

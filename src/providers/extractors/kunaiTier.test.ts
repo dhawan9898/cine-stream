@@ -10,6 +10,7 @@ import { VidLinkExtractor } from './vidlinkExtractor.ts';
 import { VidRockExtractor, decryptVidrockUrl } from './vidrockExtractor.ts';
 import { RivestreamExtractor, generateSecretKey } from './rivestreamExtractor.ts';
 import { looksLikeMediaSegment } from './baseExtractor.ts';
+import { isCheap } from './manifest.ts';
 import { MovyExtractor } from './movyExtractor.ts';
 import { decryptMovyPayload } from './movyCrypto.ts';
 
@@ -40,11 +41,11 @@ function stub(works: string[]) {
   return { asked, restore: () => all.forEach((C, i) => { C.prototype.extract = originals[i]; }) };
 }
 
-test('the four Kunai providers are flagged as the primary tier, the legacy four are not', () => {
+test('the four Kunai providers are cheap (they lead the race), the embed and scraper providers are not', () => {
   const reg = new ExtractorRegistry(true);
-  const tiers = Object.fromEntries(reg.getAllExtractors().map(e => [e.id, e.tier]));
-  for (const id of ['vidlink', 'vidrock', 'rivestream', 'movy']) assert.equal(tiers[id], 'primary', id);
-  for (const id of ['movierulz', 'flixeo', 'vega', 'cinehype']) assert.equal(tiers[id], undefined, id);
+  const cheap = Object.fromEntries(reg.getAllExtractors().map(e => [e.id, isCheap(e)]));
+  for (const id of ['vidlink', 'vidrock', 'rivestream', 'movy']) assert.equal(cheap[id], true, id);
+  for (const id of ['movierulz', 'flixeo', 'vega', 'cinehype', 'flixhq']) assert.equal(cheap[id], false, id);
 });
 
 test('when Kunai answers, the legacy providers are never asked', async () => {

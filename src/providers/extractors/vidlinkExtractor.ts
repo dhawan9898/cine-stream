@@ -3,7 +3,7 @@
 //   2. vidlink.pro/api/b/movie/<enc>  or  /tv/<enc>/<season>/<episode>  -> { stream: { playlist, captions, headers... } }
 // The encrypted id depends only on the TMDB id, so it is remembered for 30 minutes.
 import { BaseExtractor } from './baseExtractor.ts';
-import type { ExtractedStream, ExtractorSubtitle } from './types.ts';
+import type { ExtractedStream, ExtractorSubtitle, SourceManifest } from './types.ts';
 import { Cooldown } from './kunaiCommon.ts';
 
 const ENC_DEC = 'https://enc-dec.app/api/enc-vidlink';
@@ -25,7 +25,8 @@ export class VidLinkExtractor extends BaseExtractor {
   id = 'vidlink';
   name = 'VidLink';
   mainUrl = ORIGIN;
-  tier = 'primary' as const;
+  // HEVC in DASH: ranked after the H.264 HLS providers (a device may lack the decoder).
+  manifest = { idKind: 'tmdb', costHint: 'api', priorMs: 2200, linkTtlMs: 2 * 60 * 1000, trust: 'api' } satisfies SourceManifest;
   // enc-dec.app is a third party VidLink cannot work without: while it is down (or refusing us) VidLink
   // answers nothing at once, so the other providers are not held up by its timeout on every title.
   private encDecDown = new Cooldown();

@@ -1,5 +1,9 @@
 // extractorRegistry.ts - Central registry for real title-specific stream extractors
-import type { StreamExtractor, ExtractedStream } from './types.ts';
+import type { StreamExtractor, ExtractedStream, ExtractParams } from './types.ts';
+import { isCheap, manifestOf, priorMs, strongFor, trustRank } from './manifest.ts';
+import { markBackground } from './hostLimiter.ts';
+import { FlixHQSource } from '../sources/flixhq.ts';
+import { JellyfinSource } from '../sources/jellyfin.ts';
 import { sniffDirectStream } from '../webSniffer.ts';
 import { LastGoodStore } from 'streamkit/providers/health.ts';
 import { ProviderStats } from './providerStats.ts';
@@ -20,29 +24,27 @@ const MAX_SNIFF_ATTEMPTS = 4;
 const SNIFF_CONCURRENCY = 3;
 const UNHEDGED_SNIFFS = 2;
 const PROVIDER_TIMEOUT_MS = 6000;
+// Multi-hop scrapers (search -> seasons -> episodes -> servers -> source) need longer the first time a
+// title is seen; their id and episode caches make later lookups much shorter.
+const MULTI_HOP_TIMEOUT_MS = 9000;
 // A working embed gives its stream in about 5 s once ads are blocked and Play is pressed in every
 // frame (see the native sniffer); waiting much longer only delays the next provider.
 const SNIFF_TIMEOUT_MS = 9000;
 const RESOLVE_DEADLINE_MS = 14000;
 // The provider that worked for this title last time runs alone this long before the others join.
 const LAST_GOOD_HEAD_START_MS = 1200;
-// The Kunai direct-API providers (tier 'primary') run alone this long; the sniffed-embed providers join
-// after that, or at once when every Kunai provider has failed (see resolveAllStreams).
-const PRIMARY_HEAD_START_MS = 3500;
+// Cheap providers (JSON APIs, self-hosted: manifest costHint 'instant'/'api') run alone for about the time
+// they usually need - 1.5x the second-fastest one's expected time, within these bounds; the expensive ones
+// (WebView sniffs, multi-hop scrapers) join after that, or at once when every cheap one has failed.
+const CHEAP_HEAD_START_MIN_MS = 800;
+const CHEAP_HEAD_START_MAX_MS = 3500;
 const EARLY_EXIT_GRACE_MS = 250;
 const HEALTH_KEY = 'cinestream_provider_stats_v2';
 const FAILS_BEFORE_COOLDOWN = 3;
 const COOLDOWN_MS = 10 * 60 * 1000;
 
-/** Head start (ms of expected time) given to the provider that suits the title. */
+/** Head start (ms of expected time) for a provider whose manifest says it suits the title (kind/language). */
 const PRIMARY_BIAS_MS = 1500;
-// Preference among the Kunai providers when several found a stream. Measured on real titles: Rivestream
-// answers in 0.1-0.5 s with continuous MPEG-TS; VidRock hands out a different CDN lane per request (some
-// serve placeholder images as segments - the probe now rejects those, at the cost of 3-5 s); VidLink is
-// HEVC in DASH, which a device may lack a decoder for; Movy is rate limited.
-// Kunai-style links carry tokens that expire; a saved one is re-checked after this long, not the default 15 min.
-const KUNAI_REVALIDATE_MS = 2 * 60 * 1000;
-const KUNAI_ORDER = ['rivestream', 'vidrock', 'vidlink', 'movy'];
 const LAST_GOOD_KEY = 'cinestream_last_good_v1';
 const LAST_GOOD_MAX = 300;
 
@@ -92,6 +94,10 @@ export class ExtractorRegistry {
     this.register(new FlixeoExtractor());
     this.register(new VegaExtractor());
     this.register(new CineHypeExtractor());
+    // Ported from lobster / flix-cli (both scrape FlixHQ): title search, cached id mapping, one embed per server.
+    this.register(new FlixHQSource());
+    // mov-cli's jellyplex idea: the viewer's own Jellyfin server, when they set one up (Settings).
+    this.register(new JellyfinSource());
     // Remote config: kill switch, new hosts, API providers (see providerConfig.ts).
     subscribeProviderConfig(cfg => this.applyConfig(cfg));
   }
@@ -121,35 +127,42 @@ export class ExtractorRegistry {
   }
 
   getAllExtractors(): StreamExtractor[] {
-    return this.extractors.filter(e => isProviderEnabled(e.id));
+    return this.extractors.filter(e => isProviderEnabled(e.id) && (e.available?.() ?? true));
   }
 
-  private isRegionalTitle(title?: string, language?: string, languageMode?: string): boolean {
-    const titleLower = (title || '').toLowerCase();
-    const hasRegionalLang =
-      Boolean(language && ['te', 'hi', 'ta', 'ml', 'kn', 'pa', 'bn'].includes(language.toLowerCase())) ||
-      Boolean(languageMode && ['hindi', 'telugu', 'tamil', 'multi'].includes(languageMode.toLowerCase()));
-    const hasRegionalUnicode = /[\u0C00-\u0C7F\u0900-\u097F\u0B80-\u0BFF\u0D00-\u0D7F\u0C80-\u0CFF]/.test(title || '');
-    const hasRegionalKeywords = /\b(thella|tella|kaagitham|kagitam|kaagidham|pushpa|devara|kalki|salaar|saripodhaa|kanguva|hanuman|tillu|guntur|bramayugam|avesham|baskhar|amaran|movierulz|telugu|hindi|tamil|malayalam|kannada)\b/i.test(titleLower);
-    return hasRegionalLang || hasRegionalUnicode || hasRegionalKeywords;
+  /**
+   * The planner's one number: expected ms to a playable stream for this title. What has been learned
+   * (speed / success rate) once there is any, the manifest's prior until then; minus a head start when
+   * the manifest says the provider suits the title, and the remote-config bias.
+   */
+  private plannedMs(e: StreamExtractor, title: { type: 'movie' | 'tv'; language?: string }): number {
+    const base = this.stats.measured(e.id) ? this.stats.expectedMs(e.id) : priorMs(e);
+    return base - (strongFor(e, title) ? PRIMARY_BIAS_MS : 0) - (getProviderOverride(e.id)?.bias ?? 0);
   }
 
-  private getOrderedExtractors(type: 'movie' | 'tv', preferredServerId?: string, isRegional = false): StreamExtractor[] {
-    if (preferredServerId) {
-      const enabled = this.extractors.filter(e => isProviderEnabled(e.id));
-      const preferred = enabled.find(e => e.id === preferredServerId);
-      const rest = enabled.filter(e => e.id !== preferredServerId);
+  /** Providers best first by plannedMs; ties go to the more trusted source, then registration order. */
+  private rank(list: StreamExtractor[], title: { type: 'movie' | 'tv'; language?: string }): StreamExtractor[] {
+    return list
+      .map((e, index) => ({ e, index, score: this.plannedMs(e, title), trust: trustRank(e) }))
+      .sort((a, b) => a.score - b.score || a.trust - b.trust || a.index - b.index)
+      .map(x => x.e);
+  }
+
+  private getOrderedExtractors(params: { type: 'movie' | 'tv'; language?: string; preferredServerId?: string }): StreamExtractor[] {
+    const enabled = this.getAllExtractors();
+    if (params.preferredServerId) {
+      const preferred = enabled.find(e => e.id === params.preferredServerId);
+      const rest = enabled.filter(e => e.id !== params.preferredServerId);
       return preferred ? [preferred, ...rest] : enabled;
     }
-    const primaryId = isRegional
-      ? 'movierulz'
-      : (type === 'movie' ? 'vega' : 'flixeo');
-    // Fastest and most reliable first, learned from real lookups. The title's natural
-    // provider gets a head start so it is still preferred while nothing is known.
-    return this.stats.rank(
-      this.extractors.filter(e => isProviderEnabled(e.id)),
-      id => (id === primaryId ? PRIMARY_BIAS_MS : 0) + (getProviderOverride(id)?.bias ?? 0)
-    );
+    return this.rank(enabled, params);
+  }
+
+  /** How long the cheap providers run alone (see CHEAP_HEAD_START_*). */
+  private cheapHeadStartMs(cheap: StreamExtractor[], title: { type: 'movie' | 'tv'; language?: string }): number {
+    const times = cheap.map(e => Math.max(0, this.plannedMs(e, title))).sort((a, b) => a - b);
+    const typical = times[Math.min(1, times.length - 1)] ?? CHEAP_HEAD_START_MAX_MS;
+    return Math.round(Math.min(CHEAP_HEAD_START_MAX_MS, Math.max(CHEAP_HEAD_START_MIN_MS, typical * 1.5)));
   }
 
   async resolveAllStreams(params: {
@@ -158,6 +171,8 @@ export class ExtractorRegistry {
     season?: number;
     episode?: number;
     title?: string;
+    originalTitle?: string;
+    year?: number;
     language?: string;
     directOnly?: boolean;
     allowSniff?: boolean;
@@ -174,8 +189,7 @@ export class ExtractorRegistry {
     // Embed/iframe pages are never returned: only direct streams (or sniffed ones) can be played.
     const directOnly = true;
     const canSniff = directOnly && params.allowSniff !== false;
-    const isRegional = this.isRegionalTitle(params.title, params.language);
-    const ordered = this.getOrderedExtractors(params.type, params.preferredServerId, isRegional);
+    const ordered = this.getOrderedExtractors(params);
     const excluded = new Set(params.exclude ?? []);
     const notExcluded = ordered.filter(e => !excluded.has(e.id));
     const usable = notExcluded.length > 0 ? notExcluded : ordered;
@@ -187,12 +201,12 @@ export class ExtractorRegistry {
     // turn: if it still works it wins alone, and if it does not, the others are already running
     // instead of starting only after its whole attempt (extract + sniff) has timed out.
     const useLastGood = !params.fresh && !params.preferredServerId && Boolean(goodId) && active.some(e => e.id === goodId);
-    // The Kunai tier leads unless the user picked a server or another provider worked for this title last time.
-    const primaries = active.filter(e => e.tier === 'primary');
-    const useTier = !params.preferredServerId && !useLastGood && primaries.length > 0 && primaries.length < active.length;
+    // The cheap providers lead unless the user picked a server or another provider worked for this title last time.
+    const cheap = active.filter(e => isCheap(e));
+    const useTier = !params.preferredServerId && !useLastGood && cheap.length > 0 && cheap.length < active.length;
     const useHeadStart = useLastGood || useTier;
-    const headIds = new Set(useLastGood ? [goodId as string] : useTier ? primaries.map(e => e.id) : []);
-    const headStartMs = useLastGood ? LAST_GOOD_HEAD_START_MS : PRIMARY_HEAD_START_MS;
+    const headIds = new Set(useLastGood ? [goodId as string] : useTier ? cheap.map(e => e.id) : []);
+    const headStartMs = useLastGood ? LAST_GOOD_HEAD_START_MS : this.cheapHeadStartMs(cheap, params);
     const raceList = useHeadStart
       ? [...active.filter(e => headIds.has(e.id)), ...active.filter(e => !headIds.has(e.id))]
       : active;
@@ -218,6 +232,8 @@ export class ExtractorRegistry {
       let deadline: ReturnType<typeof setTimeout> | undefined;
 
       const abortController = new AbortController();
+      // A speculative lookup's requests yield to the user's own (see hostLimiter.ts).
+      if (params.sniffBackground) markBackground(abortController.signal);
       const external = params.signal;
       const onExternalAbort = () => finish();
 
@@ -315,41 +331,54 @@ export class ExtractorRegistry {
 
       const run = (extractor: StreamExtractor) => {
         let timer: ReturnType<typeof setTimeout> | undefined;
-        const timeout = new Promise<null>(r => { timer = setTimeout(() => r(null), PROVIDER_TIMEOUT_MS); });
+        const limitMs = manifestOf(extractor).costHint === 'multi-hop' ? MULTI_HOP_TIMEOUT_MS : PROVIDER_TIMEOUT_MS;
+        const timeout = new Promise<null>(r => { timer = setTimeout(() => r(null), limitMs); });
 
         const startedAt = Date.now();
-        const attempt = (async () => extractor.extract({ ...params, signal: abortController.signal }))();
+        const callParams: ExtractParams = { ...params, signal: abortController.signal };
+        // Providers that report every server/lane they found hand all of them over (alternates for
+        // the player); the rest give their single best.
+        const attempt = (async (): Promise<ExtractedStream[]> => {
+          if (extractor.extractAll) return extractor.extractAll(callParams);
+          const one = await extractor.extract(callParams);
+          return one ? [one] : [];
+        })();
         Promise.race([attempt, timeout])
           .catch(() => null)
-          .then(stream => {
+          .then(result => {
             if (timer) clearTimeout(timer);
             const elapsed = Date.now() - startedAt;
+            const streams = (result ?? []).filter(st => st && st.url && st.url.trim().length > 0);
+            const directs = streams.filter(st => !st.isFallbackEmbed);
             recordTiming({
               phase: 'extract', ms: elapsed, serverId: extractor.id, titleId: params.id, title: params.title,
-              outcome: !stream || !stream.url ? (elapsed >= PROVIDER_TIMEOUT_MS - 50 ? 'timeout' : 'none') : stream.isFallbackEmbed ? 'embed' : 'direct'
+              outcome: streams.length === 0 ? (elapsed >= limitMs - 50 ? 'timeout' : 'none') : directs.length > 0 ? 'direct' : 'embed'
             });
             if (done) return;
 
-            if (stream && stream.url && stream.url.trim().length > 0) {
+            if (streams.length === 0) {
+              this.recordResult(extractor.id, false);
+              return;
+            }
+            if (directs.length > 0) this.recordResult(extractor.id, true, elapsed);
+            const ttl = manifestOf(extractor).linkTtlMs;
+            for (const stream of streams) {
               const tagged = {
                 ...stream,
                 serverId: stream.serverId || extractor.id,
                 serverName: stream.serverName || extractor.name,
-                ...(extractor.tier === 'primary' && stream.revalidateAfterMs === undefined ? { revalidateAfterMs: KUNAI_REVALIDATE_MS } : {})
+                ...(ttl !== undefined && stream.revalidateAfterMs === undefined ? { revalidateAfterMs: ttl } : {})
               };
               if (!tagged.isFallbackEmbed) {
-                this.recordResult(extractor.id, true, elapsed);
                 found.push(tagged);
-                finishSoon();
               } else {
+                // An embed page is neither a success nor a failure until it is sniffed (or cannot be here:
+                // a background prefetch, or the web).
                 params.onEmbed?.(tagged);
                 if (canSniff) enqueue(tagged);
               }
-              // else: an embed page that cannot be sniffed here (a background prefetch, or the web).
-              // It says nothing about the provider's health, so it is neither a success nor a failure.
-            } else {
-              this.recordResult(extractor.id, false);
             }
+            if (directs.length > 0) finishSoon();
           })
           .finally(() => {
             pendingExtract--;
@@ -434,37 +463,13 @@ export class ExtractorRegistry {
       if (goodStream) return goodStream;
     }
 
-    const isRegional = this.isRegionalTitle(params.title, params.language, params.languageMode);
-    const primaryId = isRegional
-      ? 'movierulz'
-      : (params.type === 'movie' ? 'vega' : 'flixeo');
-
-    // 1. The Kunai direct-API providers, in their own order
-    for (const id of KUNAI_ORDER) {
-      const kunaiDirect = all.find(s => !s.isFallbackEmbed && s.serverId === id);
-      if (kunaiDirect) return kunaiDirect;
-    }
-
-    // 2. The legacy provider that suits the title
-    const primaryDirect = all.find(s => !s.isFallbackEmbed && s.serverId === primaryId);
-    if (primaryDirect) return primaryDirect;
-
-    // 3. Any direct media stream across providers
-    const directStream = all.find(s => !s.isFallbackEmbed);
-    if (directStream) return directStream;
-
-    // 4. Primary provider stream (Vega / Flixeo for general, Movierulz for Regional)
-    const primaryStream = all.find(s => s.serverId === primaryId);
-    if (primaryStream) return primaryStream;
-
-    // 5. Clean stream preference: Vega -> Flixeo -> CineHype -> Movierulz
-    const cleanStream =
-      all.find(s => s.serverId === 'vega') ||
-      all.find(s => s.serverId === 'flixeo') ||
-      all.find(s => s.serverId === 'cinehype') ||
-      all.find(s => s.serverId === 'movierulz');
-
-    return cleanStream ?? all[0] ?? null;
+    // The same ranking that ordered the race picks the stream (no separate hard-coded order).
+    const byId = new Map(this.extractors.map(e => [e.id, e]));
+    const score = (s: ExtractedStream) => {
+      const e = s.serverId ? byId.get(s.serverId) : undefined;
+      return e ? this.plannedMs(e, params) : Number.MAX_SAFE_INTEGER;
+    };
+    return [...all].sort((a, b) => score(a) - score(b))[0] ?? null;
   }
 }
 

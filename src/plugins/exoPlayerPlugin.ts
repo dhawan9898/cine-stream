@@ -51,6 +51,21 @@ export interface ReloadRequestedEvent extends EpisodeEvent {
   positionMs: number;
 }
 
+// The player gave up on a stream and switched to one of the alternates it was handed, by itself.
+export interface ServerSwitchedEvent extends EpisodeEvent {
+  failedServerId?: string;
+  serverId?: string;
+  url: string;
+}
+
+// Another server's stream for the same title, for local failover (see AlternateStream).
+export interface PlayerAlternate {
+  url: string;
+  headers?: Record<string, string>;
+  serverId?: string;
+  serverName?: string;
+}
+
 export type PlayOptions = Parameters<ExoPlayerPluginInterface['play']>[0];
 
 export interface ExoPlayerPluginInterface {
@@ -81,6 +96,10 @@ export interface ExoPlayerPluginInterface {
     mode?: string;
     // The stream is a download: read it from the offline store.
     offline?: boolean;
+    // The server this stream came from, and backups on other servers: on a dead stream the player
+    // switches to the next one itself instead of asking the app for a new lookup.
+    serverId?: string;
+    alternates?: PlayerAlternate[];
   }): Promise<{ success: boolean }>;
 
   setNextEpisode(options: PlayOptions & { afterEpisode: string }): Promise<void>;
@@ -114,6 +133,7 @@ export interface ExoPlayerPluginInterface {
   addListener(eventName: 'reloadRequested', fn: (e: ReloadRequestedEvent) => void): Promise<PluginListenerHandle>;
   addListener(eventName: 'nextEpisodeStarted', fn: (e: NextEpisodeStartedEvent) => void): Promise<PluginListenerHandle>;
   addListener(eventName: 'progressUpdate', fn: (e: ProgressUpdateEvent) => void): Promise<PluginListenerHandle>;
+  addListener(eventName: 'serverSwitched', fn: (e: ServerSwitchedEvent) => void): Promise<PluginListenerHandle>;
 }
 
 export const ExoPlayerPlugin = registerPlugin<ExoPlayerPluginInterface>('ExoPlayerPlugin');

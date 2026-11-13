@@ -6,13 +6,15 @@
 // (window.masterPlaylist), so when the page can be fetched the stream is read straight from it with
 // no WebView; when it cannot (a challenge page), the page is sniffed, starting at once (embedUrl).
 import { BaseExtractor } from './baseExtractor.ts';
-import type { ExtractedStream } from './types.ts';
+import type { ExtractedStream, SourceManifest } from './types.ts';
 
 export class FlixeoExtractor extends BaseExtractor {
   // The id stays 'flixeo' so the speed and health learned so far keep applying.
   id = 'flixeo';
   name = 'Flixeo Server';
   mainUrl = 'https://vixsrc.to';
+  // Embed page sniffed in a WebView; the long-standing first choice for series.
+  manifest = { idKind: 'tmdb', costHint: 'sniff', priorMs: 6000, strongFor: { kinds: ['tv'] }, trust: 'scraper' } satisfies SourceManifest;
 
   embedUrl(params: { id: number; type: 'movie' | 'tv'; season?: number; episode?: number }): string {
     const { id, type, season = 1, episode = 1 } = params;

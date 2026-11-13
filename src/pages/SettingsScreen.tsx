@@ -1,6 +1,7 @@
 // SettingsScreen.tsx - Appearance, haptics, playback and data settings.
 import React, { useState } from 'react';
-import { SkipForward, Gauge, Trash2, Database, Vibrate, Droplets, Zap, Bookmark, ChevronRight, ChevronDown } from 'lucide-react';
+import { SkipForward, Gauge, Trash2, Database, Vibrate, Droplets, Zap, Bookmark, ChevronRight, ChevronDown, Server, KeyRound } from 'lucide-react';
+import { JellyfinSource } from '../providers/sources/jellyfin.ts';
 import { CategoryPicker } from 'streamkit/ui/CategoryPicker.tsx';
 import { clearWatchHistory, clearBookmarks, getBookmarks, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
@@ -95,6 +96,21 @@ export const SettingsScreen: React.FC = () => {
   const [timings, setTimings] = useState(() => summarize());
   const [reportCopied, setReportCopied] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [jfUrl, setJfUrl] = useState(() => getUserPreferences().jellyfinUrl ?? '');
+  const [jfKey, setJfKey] = useState(() => getUserPreferences().jellyfinApiKey ?? '');
+  const [jfStatus, setJfStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [jfTesting, setJfTesting] = useState(false);
+
+  const saveJellyfin = () => {
+    update({ jellyfinUrl: jfUrl.trim(), jellyfinApiKey: jfKey.trim() });
+    setJfStatus(null);
+  };
+  const testJellyfin = async () => {
+    saveJellyfin();
+    setJfTesting(true);
+    setJfStatus(await new JellyfinSource().testConnection());
+    setJfTesting(false);
+  };
 
   const update = (patch: Partial<typeof prefs>) => {
     saveUserPreferences(patch);
@@ -197,6 +213,55 @@ export const SettingsScreen: React.FC = () => {
             </div>
             <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
               <LangRow title="Subtitles" hint="Turned on automatically when available" offLabel="Off" value={prefs.subtitleLanguage} onChange={code => update({ subtitleLanguage: code })} />
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <SectionLabel>Sources</SectionLabel>
+          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
+            <Row
+              icon={<KeyRound size={18} />}
+              title="FlixHQ Decrypt Service"
+              text="Turns FlixHQ links into streams through a third-party service (as lobster does): faster, but that service sees every link you play. Off: the app finds the stream itself, a few seconds slower."
+              onClick={() => update({ flixhqDecryptApi: !prefs.flixhqDecryptApi })}
+              trailing={<div className={`toggle-switch ${prefs.flixhqDecryptApi ? 'on' : ''}`}><div className="knob" /></div>}
+            />
+            <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                <IconBox><Server size={18} /></IconBox>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>Your Jellyfin Server</h4>
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    Plays titles from your own library first. Use its https:// address (Android blocks plain http) and an API key from Dashboard &gt; API Keys.
+                  </p>
+                </div>
+              </div>
+              <input
+                type="url" inputMode="url" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+                placeholder="https://jellyfin.example.com" value={jfUrl}
+                onChange={e => setJfUrl(e.target.value)} onBlur={saveJellyfin}
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated, rgba(255,255,255,0.06))', color: 'var(--text-primary)', fontSize: '14px' }}
+              />
+              <input
+                type="password" autoCapitalize="off" autoCorrect="off" spellCheck={false}
+                placeholder="API key" value={jfKey}
+                onChange={e => setJfKey(e.target.value)} onBlur={saveJellyfin}
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated, rgba(255,255,255,0.06))', color: 'var(--text-primary)', fontSize: '14px' }}
+              />
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <button
+                  onClick={() => { hapticLight(); void testJellyfin(); }}
+                  disabled={jfTesting}
+                  className="interactive glass-pill chip"
+                  style={{ padding: '8px 18px', borderRadius: 'var(--radius-sm)', fontSize: '13px', fontWeight: 700 }}
+                >
+                  {jfTesting ? 'Testing…' : 'Test Connection'}
+                </button>
+                {jfStatus && (
+                  <span style={{ fontSize: '12px', color: jfStatus.ok ? 'var(--text-secondary)' : 'var(--accent-danger)' }}>{jfStatus.message}</span>
+                )}
+              </div>
             </div>
           </div>
         </section>

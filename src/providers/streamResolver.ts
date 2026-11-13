@@ -6,7 +6,7 @@ import {
 } from './streamStore.ts';
 import { extractorRegistry } from './extractors/extractorRegistry.ts';
 import { fetchSubtitles } from './subtitleService.ts';
-import type { ExtractedStream, ExtractorSubtitle } from './extractors/types.ts';
+import type { AlternateStream, ExtractedStream, ExtractorSubtitle } from './extractors/types.ts';
 import { Priority, StreamScheduler } from './streamScheduler.ts';
 import { recordTiming } from './streamTimings.ts';
 import { checkLink } from './streamRevalidator.ts';
@@ -22,6 +22,9 @@ export interface StreamParams {
   languageMode?: string;
   language?: string;
   title?: string;
+  // For search-based sources (FlixHQ, Jellyfin): a second search key and the year, to match the right title.
+  originalTitle?: string;
+  year?: number;
   preferredServerId?: string;
   // Background prefetch: never launch the web-view sniffer, unless `speculative`.
   prefetch?: boolean;
@@ -46,6 +49,25 @@ export interface ResolvedStream extends ExtractedStream {
   language?: string;
   title?: string;
   availableServers?: Array<{ serverId: string; serverName: string; isFallbackEmbed?: boolean }>;
+  /** Other working streams for the same title, best first: the player fails over to them itself. */
+  alternates?: AlternateStream[];
+}
+
+// Alternates handed to the player at most.
+const MAX_ALTERNATES = 4;
+
+/**
+ * Up to MAX_ALTERNATES other direct streams, best first, other servers before other lanes of the same one
+ * (a dead server usually takes all its lanes with it).
+ */
+export function pickAlternates(chosen: ExtractedStream, all: ExtractedStream[]): AlternateStream[] {
+  const seen = new Set([chosen.url]);
+  const candidates = all.filter(s => s.url && !s.isFallbackEmbed && !seen.has(s.url) && (seen.add(s.url), true));
+  const otherServers = candidates.filter(s => s.serverId !== chosen.serverId);
+  const sameServer = candidates.filter(s => s.serverId === chosen.serverId);
+  return [...otherServers, ...sameServer].slice(0, MAX_ALTERNATES).map(s => ({
+    url: s.url, format: s.format, headers: s.headers, serverId: s.serverId, serverName: s.serverName
+  }));
 }
 
 // One in-flight or recent lookup per key, shared by everyone who asks for it. A lookup is
@@ -209,6 +231,8 @@ async function resolveUncachedInner(params: StreamParams, hit: { cached: boolean
       season: params.season,
       episode: params.episode,
       title: params.title,
+      originalTitle: params.originalTitle,
+      year: params.year,
       language: params.language,
       allowSniff: !params.prefetch || Boolean(params.speculative),
       sniffBackground: Boolean(params.prefetch),
@@ -337,6 +361,9 @@ async function resolveUncachedInner(params: StreamParams, hit: { cached: boolean
   ]);
   addExternal(result, early ?? []);
 
+  const alternates = pickAlternates(result, allStreams);
+  if (alternates.length > 0) result.alternates = alternates;
+
   // Saved permanently: it is only replaced by a newer lookup, or flagged dead when it stops
   // working (see streamStore / streamRevalidator). Embed pages found on the way are kept too.
   const uniqueEmbeds = [...foundEmbeds, ...savedEmbeds].filter((e, i, a) => a.findIndex(x => x.url === e.url) === i);
@@ -351,6 +378,7 @@ async function resolveUncachedInner(params: StreamParams, hit: { cached: boolean
     if (otherKey === cacheKey) continue;
     const copy: ResolvedStream = {
       ...other,
+      alternates: pickAlternates(other, allStreams),
       id: params.id, type: params.type, season: params.season, episode: params.episode,
       title: params.title, language: params.language, availableServers,
       subtitles: result.subtitles ? [...result.subtitles] : other.subtitles

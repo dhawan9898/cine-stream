@@ -91,6 +91,8 @@ public class ExoPlayerPlugin extends Plugin {
         boolean hasDub = call.getBoolean("hasDub", true);
         String spriteVtt = call.getString("spriteVtt");
         boolean offline = call.getBoolean("offline", false);
+        JSArray alternates = call.getArray("alternates");
+        String serverId = call.getString("serverId");
 
         Intent intent = new Intent(getContext(), ExoPlayerActivity.class);
         intent.putExtra("url", url);
@@ -108,6 +110,9 @@ public class ExoPlayerPlugin extends Plugin {
         intent.putExtra("dataSaver", Boolean.TRUE.equals(call.getBoolean("dataSaver", false)));
         intent.putExtra("isFallback", isFallback);
         intent.putExtra("offline", offline);
+        // Backups on other servers: the player fails over to them by itself (see ExoPlayerActivity).
+        intent.putExtra("alternates", alternates != null ? alternates.toString() : null);
+        intent.putExtra("serverId", serverId);
         intent.putExtra("autoSkipIntro", autoSkipIntro);
         intent.putExtra("autoPlayNext", autoPlayNext);
         intent.putExtra("hasDub", hasDub);
@@ -760,6 +765,18 @@ public class ExoPlayerPlugin extends Plugin {
     // The native player is the only place playback position actually lives -
     // JS (and its watch-history storage) only finds out by being told,
     // periodically, the same way the other in-player actions are reported.
+    // The player switched to an alternate stream by itself; the app records which server failed.
+    static void notifyServerSwitched(String title, String episode, String failedServerId, String serverId, String url) {
+        if (activeInstance == null) return;
+        JSObject data = new JSObject();
+        data.put("title", title);
+        data.put("episode", episode);
+        if (failedServerId != null) data.put("failedServerId", failedServerId);
+        if (serverId != null) data.put("serverId", serverId);
+        data.put("url", url);
+        activeInstance.notifyListeners("serverSwitched", data);
+    }
+
     static void notifyProgressUpdate(String title, String episode, String mode, long positionMs, long durationMs) {
         if (activeInstance == null) return;
         JSObject data = new JSObject();

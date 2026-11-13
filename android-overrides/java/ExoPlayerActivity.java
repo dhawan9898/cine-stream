@@ -246,6 +246,71 @@ public class ExoPlayerActivity extends AppCompatActivity {
     private String pendingVideoUrl;
     private String pendingReferer;
     private String pendingHeadersJson;
+
+    // Backups for the current title on other servers, best first, handed over with the stream. A dead
+    // stream switches to the next one right here - no round trip through the app (whose WebView may be
+    // throttled behind the player) and no new lookup. The app's lookup is the fallback once they run out.
+    private static final class Alternate {
+        final String url;
+        final String headersJson;
+        final String referer;
+        final String serverId;
+
+        Alternate(String url, String headersJson, String referer, String serverId) {
+            this.url = url;
+            this.headersJson = headersJson;
+            this.referer = referer;
+            this.serverId = serverId;
+        }
+    }
+    private final java.util.List<Alternate> alternates = new java.util.ArrayList<>();
+    private String currentServerId;
+
+    private void parseAlternates(String json) {
+        alternates.clear();
+        if (json == null || json.isEmpty()) return;
+        try {
+            JSONArray arr = new JSONArray(json);
+            for (int i = 0; i < arr.length(); i++) {
+                JSONObject o = arr.optJSONObject(i);
+                if (o == null) continue;
+                String url = o.optString("url", "");
+                if (url.isEmpty()) continue;
+                JSONObject headers = o.optJSONObject("headers");
+                String referer = headers != null ? headers.optString("Referer", headers.optString("referer", "")) : "";
+                alternates.add(new Alternate(url, headers != null ? headers.toString() : null, referer,
+                        o.has("serverId") ? o.optString("serverId") : null));
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Ignoring malformed alternates", e);
+        }
+    }
+
+    /** Plays the next alternate from where playback was. False when there is none left. */
+    private boolean tryNextAlternate() {
+        if (offlinePlayback || alternates.isEmpty()) return false;
+        Alternate next = alternates.remove(0);
+        long resumeAt = lastKnownPositionMs;
+        if (player != null) resumeAt = Math.max(resumeAt, player.getCurrentPosition());
+        String failed = currentServerId;
+        Log.w(TAG, "Switching to alternate stream on " + next.serverId + " (" + alternates.size() + " left)");
+        releasePlayer();
+        errorOverlay.setVisibility(View.GONE);
+        // Renditions and languages belonged to the stream that failed.
+        qualityOptions.clear();
+        currentQualityLabel = null;
+        audioVariants.clear();
+        currentAudioUrl = next.url;
+        pendingVideoUrl = next.url;
+        pendingReferer = next.referer;
+        pendingHeadersJson = next.headersJson;
+        currentServerId = next.serverId;
+        autoRetryCount = 0;
+        lastKnownPositionMs = resumeAt;
+        initializePlayer(next.url, next.referer, pendingSubtitlesJson, Math.max(0L, resumeAt), !activityStopped);
+        ExoPlayerPlugin.notifyServerSwitched(animeTitle, episodeNumber, failed, next.serverId, next.url);
+        return true;
+    }
     // "S1:" for a series episode, empty for a movie.
     private String seasonPrefix = "";
     private String pendingSubtitlesJson;
@@ -563,6 +628,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
             showLoadingState();
             return;
         }
+        parseAlternates(intent.getStringExtra("alternates"));
+        currentServerId = intent.getStringExtra("serverId");
         handler.removeCallbacks(loadingWatchdog);
         awaitingStream = false;
 
@@ -2251,6 +2318,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
     // app skips servers that failed). False when the reload budget for this episode is used up, so the
     // caller shows the error instead. `giveUp` runs when neither the native lookup nor the app can help.
     private boolean failoverToAnotherServer(final Runnable giveUp) {
+        // A backup handed over with the stream comes first: it is ready now.
+        if (tryNextAlternate()) return true;
         final String key = episodeNumber + "|" + currentMode;
         if (offlinePlayback || reloadsFor(key) >= MAX_SERVER_RELOADS) return false;
         Log.w(TAG, "Re-resolving episode " + key + " on another server (" + (reloadsFor(key) + 1) + "/" + MAX_SERVER_RELOADS + ")");
@@ -2627,6 +2696,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
                     final String mode = currentMode;
                     final String title = animeTitle;
                     final String reloadKey = number + "|" + mode;
+                    if (tryNextAlternate()) return;
                     if (reloadsFor(reloadKey) < MAX_SERVER_RELOADS) {
                         releasePlayer();
                         errorOverlay.setVisibility(View.GONE);

@@ -135,6 +135,11 @@ export class ProviderStats {
     this.save();
   }
 
+  /** Whether anything has been learned about this provider yet. */
+  measured(id: string): boolean {
+    return (this.stats[id]?.samples ?? 0) > 0;
+  }
+
   /** Expected ms until this provider delivers a stream: slower and flakier ranks worse. */
   expectedMs(id: string): number {
     const s = this.stats[id];

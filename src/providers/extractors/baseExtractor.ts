@@ -1,11 +1,18 @@
 // baseExtractor.ts - Base class providing HTTP helper functions for stream extractors
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
-import type { StreamExtractor, ExtractedStream, ExtractorSubtitle, StreamFormat } from './types.ts';
+import type { StreamExtractor, ExtractedStream, ExtractorSubtitle, SourceManifest, StreamFormat } from './types.ts';
+import { hostLimiter, isBackground, retryAfterMs } from './hostLimiter.ts';
 import { discover, pickBest, type FoundStream } from './streamDiscovery.ts';
 
 // Per-request limit; a provider's whole lookup is capped by the registry anyway.
 const DEFAULT_HTTP_TIMEOUT_MS = 5000;
 const PROBE_TIMEOUT_MS = 3500;
+
+function headerOf(headers: Record<string, string> | undefined, name: string): string | undefined {
+  if (!headers) return undefined;
+  const key = Object.keys(headers).find(k => k.toLowerCase() === name);
+  return key ? headers[key] : undefined;
+}
 
 function combineSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
   if (typeof AbortSignal.any === 'function') return AbortSignal.any([a, b]);
@@ -42,6 +49,7 @@ export abstract class BaseExtractor implements StreamExtractor {
   abstract id: string;
   abstract name: string;
   abstract mainUrl: string;
+  declare manifest?: SourceManifest;
 
   /** Applies a provider override from the remote config (a new host, mirror list). */
   applyConfig(override: { mainUrl?: string; mirrors?: string[] }): void {
@@ -66,6 +74,8 @@ export abstract class BaseExtractor implements StreamExtractor {
       'Accept-Language': 'en-US,en;q=0.9',
       ...headers
     };
+    // One budget per host for every provider (see hostLimiter.ts); throws at once when closed.
+    await hostLimiter.acquire(url, { signal: options.signal, background: isBackground(options.signal) });
 
     if (Capacitor.isNativePlatform()) {
       const response = await CapacitorHttp.get({
@@ -77,6 +87,7 @@ export abstract class BaseExtractor implements StreamExtractor {
       if (response.status >= 200 && response.status < 300) {
         return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
       }
+      if (response.status === 429) hostLimiter.penalize(url, retryAfterMs(headerOf(response.headers, 'retry-after')));
       throw new Error(`HTTP ${response.status}`);
     }
 
@@ -85,6 +96,32 @@ export abstract class BaseExtractor implements StreamExtractor {
     const timeout = AbortSignal.timeout(timeoutMs);
     const signal = options.signal ? combineSignals(options.signal, timeout) : timeout;
     const res = await fetch(url, { headers: mergedHeaders, signal });
+    if (res.status === 429) hostLimiter.penalize(url, retryAfterMs(res.headers.get('retry-after')));
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.text();
+  }
+
+  /** POSTs JSON and returns the answer's text (same budget, timeout and abort rules as httpGet). */
+  protected async httpPostJson(
+    url: string,
+    body: unknown,
+    headers: Record<string, string> = {},
+    options: { signal?: AbortSignal; timeoutMs?: number } = {}
+  ): Promise<string> {
+    if (options.signal?.aborted) throw new Error('Request aborted');
+    const timeoutMs = options.timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
+    const mergedHeaders = { 'User-Agent': this.defaultUserAgent, 'Content-Type': 'application/json', Accept: 'application/json', ...headers };
+    await hostLimiter.acquire(url, { signal: options.signal, background: isBackground(options.signal) });
+    if (Capacitor.isNativePlatform()) {
+      const response = await CapacitorHttp.post({ url, headers: mergedHeaders, data: body, connectTimeout: timeoutMs, readTimeout: timeoutMs });
+      if (response.status === 429) hostLimiter.penalize(url, retryAfterMs(headerOf(response.headers, 'retry-after')));
+      if (response.status < 200 || response.status >= 300) throw new Error(`HTTP ${response.status}`);
+      return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
+    }
+    const timeout = AbortSignal.timeout(timeoutMs);
+    const signal = options.signal ? combineSignals(options.signal, timeout) : timeout;
+    const res = await fetch(url, { method: 'POST', headers: mergedHeaders, body: JSON.stringify(body), signal });
+    if (res.status === 429) hostLimiter.penalize(url, retryAfterMs(res.headers.get('retry-after')));
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.text();
   }
@@ -98,8 +135,10 @@ export abstract class BaseExtractor implements StreamExtractor {
     if (options.signal?.aborted) throw new Error('Request aborted');
     const timeoutMs = options.timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
     const mergedHeaders = { 'User-Agent': this.defaultUserAgent, ...headers };
+    await hostLimiter.acquire(url, { signal: options.signal, background: isBackground(options.signal) });
     if (Capacitor.isNativePlatform()) {
       const response = await CapacitorHttp.get({ url, headers: mergedHeaders, responseType: 'arraybuffer', connectTimeout: timeoutMs, readTimeout: timeoutMs });
+      if (response.status === 429) hostLimiter.penalize(url, retryAfterMs(headerOf(response.headers, 'retry-after')));
       if (response.status < 200 || response.status >= 300) throw new Error(`HTTP ${response.status}`);
       const data = response.data as unknown;
       if (typeof data === 'string') return Uint8Array.from(atob(data), c => c.charCodeAt(0));
@@ -108,6 +147,7 @@ export abstract class BaseExtractor implements StreamExtractor {
     const timeout = AbortSignal.timeout(timeoutMs);
     const signal = options.signal ? combineSignals(options.signal, timeout) : timeout;
     const res = await fetch(url, { headers: mergedHeaders, signal });
+    if (res.status === 429) hostLimiter.penalize(url, retryAfterMs(res.headers.get('retry-after')));
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return new Uint8Array(await res.arrayBuffer());
   }
@@ -119,8 +159,12 @@ export abstract class BaseExtractor implements StreamExtractor {
    * link would end the lookup on a stream that cannot play. So the playlist is fetched with the headers
    * the player will send, and for HLS the first real segment is fetched too and must hold video data.
    * Network trouble counts as "not playable": the next lane or provider is tried instead.
+   *
+   * The segment fetch (two more round trips on the way to Play) only runs when `deep` - by default
+   * when the provider's manifest says it hands out placeholder lanes (deepProbe). Otherwise the
+   * playlist check is enough: playing a link is its own probe, and the player fails over fast.
    */
-  protected async probe(stream: { url: string; format: StreamFormat; headers?: Record<string, string> }, signal?: AbortSignal): Promise<boolean> {
+  protected async probe(stream: { url: string; format: StreamFormat; headers?: Record<string, string> }, signal?: AbortSignal, deep = this.manifest?.deepProbe ?? false): Promise<boolean> {
     if (signal?.aborted) return false;
     try {
       if (stream.format === 'mp4') {
@@ -130,6 +174,7 @@ export abstract class BaseExtractor implements StreamExtractor {
       const body = await this.httpGet(stream.url, { ...stream.headers, Accept: '*/*' }, { signal, timeoutMs: PROBE_TIMEOUT_MS });
       if (stream.format === 'dash') return body.includes('<MPD');
       if (!body.trimStart().startsWith('#EXTM3U')) return false;
+      if (!deep) return true;
 
       // Master playlist: continue into its first rendition's media playlist.
       let mediaUrl = stream.url;
