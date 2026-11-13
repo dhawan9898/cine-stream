@@ -316,12 +316,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       return () => { active = false; };
     }
 
+    // Leaving this episode (closing, picking another) cancels its lookup so its sniffers and
+    // requests stop competing with the one now wanted. A re-run of this effect for the same
+    // episode re-attaches to the same lookup instead (see resolveStream).
+    const lookup = new AbortController();
+
     // The lookup has its own deadlines, but whatever happens inside it the screen must end in either a
     // stream or an error with Retry - never an endless loading page.
     withTimeout(
       resolveStream(
         { id: media.id, type: media.mediaType, season, episode, languageMode: langMode, language: media.language, title: media.title, preferredServerId: selectedServerId, exclude: failedServers() },
-        { fresh: attempt > 0 }
+        { fresh: attempt > 0, signal: lookup.signal }
       ),
       LOOKUP_GUARD_MS,
       'Finding a stream took too long. Try again or pick another server.'
@@ -375,7 +380,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         }
       })
       .catch(err => {
-        if (!active) return;
+        if (!active || lookup.signal.aborted) return;
         const message = err instanceof Error ? err.message : 'Failed to resolve streaming data.';
         setLoading(false);
         setError(message);
@@ -386,6 +391,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     return () => {
       active = false;
+      lookup.abort();
     };
   }, [
     media.id,

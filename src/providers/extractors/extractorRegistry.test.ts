@@ -185,3 +185,31 @@ test('the best two embeds are sniffed side by side from the start', async () => 
   assert.equal(started.length, 2);
   assert.ok(started.every(t => t < 100), `both sniffs started immediately: ${started}`);
 });
+
+test('an external abort ends the race at once and aborts every running extractor', async () => {
+  const reg = new ExtractorRegistry(false);
+  let seen: AbortSignal | undefined;
+  const hanging: StreamExtractor = {
+    id: 'hang', name: 'hang', mainUrl: 'https://hang',
+    extract(p: { signal?: AbortSignal }) { seen = p.signal; return delay(5000, direct('https://hang/a.m3u8')); }
+  } as StreamExtractor;
+  reg.register(hanging);
+  const ctl = new AbortController();
+  const t0 = Date.now();
+  const pending = reg.resolveAllStreams({ ...params, signal: ctl.signal });
+  setTimeout(() => ctl.abort(), 50);
+  const out = await pending;
+  assert.ok(Date.now() - t0 < 1000, 'abort should not wait for the provider deadline');
+  assert.deepEqual(out, []);
+  assert.equal(seen?.aborted, true, 'the extractor is told to stop');
+});
+
+test('an already aborted signal starts nothing', async () => {
+  const reg = new ExtractorRegistry(false);
+  const e = fake('x', async () => direct('https://x/a.m3u8'));
+  reg.register(e);
+  const ctl = new AbortController();
+  ctl.abort();
+  assert.deepEqual(await reg.resolveAllStreams({ ...params, signal: ctl.signal }), []);
+  assert.equal(e.calls, 0);
+});

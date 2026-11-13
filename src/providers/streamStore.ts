@@ -27,10 +27,14 @@ export interface StreamRecord<T extends { url: string } = ExtractedStream> {
   status: LinkStatus;
 }
 
-/** Most links kept. Past it the least useful ones go: dead links first, then the longest unchecked. */
-export const MAX_STREAM_RECORDS = 10_000;
+/**
+ * Most links kept. Past it the least useful ones go: dead links first, then the longest unchecked.
+ * Every record is read into memory when the app opens and the first Play waits for that, while most
+ * links (signed, tokenized) expire within hours anyway - so a few thousand is plenty. Was 10,000.
+ */
+export const MAX_STREAM_RECORDS = 2_000;
 /** Evicted in batches, so the sort runs once per batch rather than on every save. */
-const EVICT_BATCH = 200;
+const EVICT_BATCH = 100;
 const DB_NAME = 'cinestream-streams';
 const STORE = 'streams';
 

@@ -48,8 +48,92 @@ export interface ResolvedStream extends ExtractedStream {
   availableServers?: Array<{ serverId: string; serverName: string; isFallbackEmbed?: boolean }>;
 }
 
-const memoryCache = new Map<string, { at: number; prefetch: boolean; speculative?: boolean; promise: Promise<ResolvedStream> }>();
+// One in-flight or recent lookup per key, shared by everyone who asks for it. A lookup is
+// cancelled (its sniffers and requests freed) once every caller that passed a signal has
+// gone and nobody without one (a prefetch) is relying on it.
+interface MemoryEntry {
+  at: number;
+  prefetch: boolean;
+  speculative?: boolean;
+  promise: Promise<ResolvedStream>;
+  ctl: AbortController;
+  holders: number;
+  pinned: boolean;
+  settled: boolean;
+}
+const memoryCache = new Map<string, MemoryEntry>();
 const REUSE_MS = 30 * 60 * 1000; // 30 minutes in-memory
+// Settled lookups kept in memory at most (the persistent store has the rest).
+const MEMORY_MAX = 150;
+// A caller that leaves and comes straight back (an effect re-running) keeps the same lookup.
+const RELEASE_GRACE_MS = 300;
+
+const abortError = () => {
+  const err = new Error('Stream lookup cancelled');
+  err.name = 'AbortError';
+  return err;
+};
+
+function pruneMemoryCache(now = Date.now()): void {
+  for (const [k, e] of memoryCache) {
+    if (e.settled && now - e.at > REUSE_MS) memoryCache.delete(k);
+  }
+  if (memoryCache.size > MEMORY_MAX) {
+    // Map iteration is insertion order: oldest first. Lookups still running are kept.
+    for (const [k, e] of memoryCache) {
+      if (memoryCache.size <= MEMORY_MAX) break;
+      if (e.settled) memoryCache.delete(k);
+    }
+  }
+  for (const [k, until] of negative) {
+    if (until <= now) negative.delete(k);
+  }
+}
+
+function startEntry(key: string, flags: { prefetch: boolean; speculative?: boolean }, run: (signal: AbortSignal) => Promise<ResolvedStream>): MemoryEntry {
+  const ctl = new AbortController();
+  const entry: MemoryEntry = { at: Date.now(), ...flags, ctl, holders: 0, pinned: false, settled: false, promise: run(ctl.signal) };
+  entry.promise.then(
+    () => { entry.settled = true; },
+    () => { entry.settled = true; if (memoryCache.get(key) === entry) memoryCache.delete(key); }
+  );
+  memoryCache.set(key, entry);
+  pruneMemoryCache();
+  return entry;
+}
+
+/** Hands `entry`'s result to one caller; `signal` lets that caller leave (see MemoryEntry). */
+function attach(key: string, entry: MemoryEntry, signal?: AbortSignal): Promise<ResolvedStream> {
+  if (!signal) {
+    entry.pinned = true;
+    return entry.promise.then(s => ({ ...s }));
+  }
+  if (signal.aborted) return Promise.reject(abortError());
+  entry.holders++;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    entry.holders--;
+  };
+  return new Promise<ResolvedStream>((resolve, reject) => {
+    const onAbort = () => {
+      reject(abortError());
+      setTimeout(() => {
+        release();
+        if (entry.holders <= 0 && !entry.pinned && !entry.settled) {
+          entry.ctl.abort();
+          if (memoryCache.get(key) === entry) memoryCache.delete(key);
+        }
+      }, RELEASE_GRACE_MS);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    entry.promise.then(
+      s => { signal.removeEventListener('abort', onAbort); release(); resolve({ ...s }); },
+      e => { signal.removeEventListener('abort', onAbort); release(); reject(e); }
+    );
+  });
+}
 const CACHE_VERSION = 'v11';
 // How long a ready stream waits for the (optional) external subtitle lookup.
 const SUBTITLE_GRACE_MS = 300;
@@ -83,25 +167,27 @@ async function reviveFromEmbeds(_params: StreamParams, embeds: ExtractedStream[]
 }
 
 // Times the whole lookup, from request to a stream the player can use.
-async function resolveUncached(params: StreamParams): Promise<ResolvedStream> {
+async function resolveUncached(params: StreamParams, signal?: AbortSignal): Promise<ResolvedStream> {
   const startedAt = Date.now();
   const hit = { cached: false };
   const note = (outcome: 'ok' | 'fail' | 'cache', serverId?: string) => recordTiming({
     phase: 'lookup', ms: Date.now() - startedAt, outcome, serverId, titleId: params.id, title: params.title, background: Boolean(params.prefetch)
   });
   try {
-    const result = await resolveUncachedInner(params, hit);
+    const result = await resolveUncachedInner(params, hit, signal);
     negative.delete(keyOf(params));
     note(hit.cached ? 'cache' : 'ok', result.serverId);
     return result;
   } catch (err) {
+    // Nobody wanted it any more: that says nothing about the title or its providers.
+    if (signal?.aborted) throw abortError();
     note('fail');
     negative.set(keyOf(params), Date.now() + NEGATIVE_MS);
     throw err;
   }
 }
 
-async function resolveUncachedInner(params: StreamParams, hit: { cached: boolean }): Promise<ResolvedStream> {
+async function resolveUncachedInner(params: StreamParams, hit: { cached: boolean }, signal?: AbortSignal): Promise<ResolvedStream> {
   const cacheKey = keyOf(params);
   await streamStoreReady;
   // A retry after a failure must not hand back the same cached (dead) link.
@@ -129,11 +215,14 @@ async function resolveUncachedInner(params: StreamParams, hit: { cached: boolean
       fresh: params.fresh,
       preferredServerId: params.preferredServerId,
       exclude: params.exclude,
+      signal,
       onEmbed: embed => { if (!foundEmbeds.some(e => e.url === embed.url)) foundEmbeds.push(embed); }
     });
   } catch (err) {
     console.warn('[StreamResolver] Extraction resolution error:', err);
   }
+
+  if (signal?.aborted) throw abortError();
 
   const registered = extractorRegistry.getAllExtractors();
   const serverMap = new Map<string, { serverId: string; serverName: string; isFallbackEmbed?: boolean }>();
@@ -173,11 +262,13 @@ async function resolveUncachedInner(params: StreamParams, hit: { cached: boolean
     if (preferredExtractor) {
       try {
         const ctl = new AbortController();
-        const timer = setTimeout(() => ctl.abort(), 6000);
+        const onAbort = () => ctl.abort();
+        signal?.addEventListener('abort', onAbort, { once: true });
+        let timer: ReturnType<typeof setTimeout> | undefined;
         const direct = await Promise.race([
           preferredExtractor.extract({ ...params, signal: ctl.signal }),
-          new Promise<null>(r => setTimeout(() => r(null), 6000))
-        ]).finally(() => clearTimeout(timer));
+          new Promise<null>(r => { timer = setTimeout(() => { ctl.abort(); r(null); }, 6000); })
+        ]).finally(() => { clearTimeout(timer); signal?.removeEventListener('abort', onAbort); });
         // An embed page is never playable: only a direct stream is accepted.
         if (direct && direct.url && !direct.isFallbackEmbed) {
           selectedStream = {
@@ -216,6 +307,7 @@ async function resolveUncachedInner(params: StreamParams, hit: { cached: boolean
     // The providers already had their whole deadline (and sniffed these same pages): past a certain
     // point another round of sniffing only makes the person wait longer for the same "no stream".
     const spentMs = Date.now() - lookupStartedAt;
+    if (signal?.aborted) throw abortError();
     const revived = spentMs > REVIVE_BUDGET_MS ? null : await reviveFromEmbeds(params, [...foundEmbeds, ...savedEmbeds], params.prefetch);
     if (revived) {
       allStreams.push(revived);
@@ -290,6 +382,9 @@ const REVIVE_BUDGET_MS = 8_000;
 const VALIDATE_AFTER_MS = 15 * 60 * 1000;
 // ...but the check never holds playback up for longer than this.
 const VALIDATE_CAP_MS = 600;
+// Saved alternatives (other servers) checked at once when the saved link is dead, and their cap.
+const ALT_CHECK_MAX = 3;
+const ALT_CHECK_CAP_MS = 1500;
 
 /**
  * Confirms a saved stream still answers. If not, it is flagged dead and the next best saved
@@ -306,15 +401,27 @@ async function validateSaved(params: StreamParams, key: string, record: StreamRe
   }
   markStreamDead(key);
   memoryCache.delete(key);
-  // Other servers' links saved by the same lookup, best first, skipping any known dead.
+  // Other servers' links saved by the same lookup, best first, skipping any known dead. They are
+  // checked side by side under one short cap (one after another, each could take ~8 s and Play
+  // waited for all of them); a check that runs out of time counts as "could not judge" (usable).
   const servers = (record.value as ResolvedStream).availableServers ?? [];
-  for (const s of servers) {
-    if (s.serverId === (record.value as ResolvedStream).serverId) continue;
-    const altKey = keyOf({ ...params, preferredServerId: s.serverId });
-    const alt = getStreamRecord<ResolvedStream>(altKey);
-    if (!alt || alt.status === 'dead' || !alt.value.url) continue;
-    if ((await checkLink(alt)) === false) { markStreamDead(altKey); continue; }
-    markStreamChecked(altKey, true);
+  const alts = servers
+    .filter(s => s.serverId !== (record.value as ResolvedStream).serverId)
+    .map(s => {
+      const altKey = keyOf({ ...params, preferredServerId: s.serverId });
+      return { altKey, alt: getStreamRecord<ResolvedStream>(altKey) };
+    })
+    .filter((a): a is { altKey: string; alt: StreamRecord<ResolvedStream> } => Boolean(a.alt && a.alt.status !== 'dead' && a.alt.value.url))
+    .slice(0, ALT_CHECK_MAX);
+  if (alts.length === 0) return null;
+  const verdicts = await Promise.all(alts.map(({ alt }) => Promise.race([
+    checkLink(alt),
+    new Promise<undefined>(r => setTimeout(() => r(undefined), ALT_CHECK_CAP_MS))
+  ])));
+  for (let i = 0; i < alts.length; i++) {
+    const { altKey, alt } = alts[i];
+    if (verdicts[i] === false) { markStreamDead(altKey); continue; }
+    markStreamChecked(altKey, verdicts[i]);
     // The title's own entry now points at the working server, so the next Play is instant.
     if (!params.preferredServerId) putStream(key, { ...alt.value }, [], paramsForStore(params));
     return { ...alt.value };
@@ -322,7 +429,11 @@ async function validateSaved(params: StreamParams, key: string, record: StreamRe
   return null;
 }
 
-export function resolveStream(params: StreamParams, options: { fresh?: boolean } = {}): Promise<ResolvedStream> {
+/**
+ * The stream for `params`. Pass `signal` when the caller may stop caring (the player closed, another
+ * episode was picked): once every such caller has left, the lookup itself is cancelled.
+ */
+export function resolveStream(params: StreamParams, options: { fresh?: boolean; signal?: AbortSignal } = {}): Promise<ResolvedStream> {
   const key = keyOf(params);
 
   // The user asked for this very lookup: it must not also wait in the background queue.
@@ -356,25 +467,23 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean }
       // A background prefetch never uses the web-view sniffer, so if it came
       // up empty a real playback request must try again with the full pipeline.
       if (existing.prefetch && !params.prefetch) {
-        const retry = existing.promise.catch(() => resolveUncached({ ...params, prefetch: false }));
-        const entry = { at: Date.now(), prefetch: false, promise: retry };
-        memoryCache.set(key, entry);
-        retry.catch(() => { if (memoryCache.get(key) === entry) memoryCache.delete(key); });
-        return retry.then(s => ({ ...s }));
+        const prior = existing.promise;
+        const entry = startEntry(key, { prefetch: false }, signal => prior.catch(() => resolveUncached({ ...params, prefetch: false }, signal)));
+        return attach(key, entry, options.signal);
       }
-      return existing.promise.then(s => ({ ...s }));
+      return attach(key, existing, options.signal);
     }
   }
 
-  const entry = { at: Date.now(), prefetch: Boolean(params.prefetch), speculative: Boolean(params.speculative), promise: resolveUncached(options.fresh ? { ...params, fresh: true } : params) };
-  memoryCache.set(key, entry);
-  entry.promise.catch(() => {
-    if (memoryCache.get(key) === entry) memoryCache.delete(key);
-  });
+  const entry = startEntry(
+    key,
+    { prefetch: Boolean(params.prefetch), speculative: Boolean(params.speculative) },
+    signal => resolveUncached(options.fresh ? { ...params, fresh: true } : params, signal)
+  );
   // A lookup the user is waiting on: background prefetching yields to it.
   if (!params.prefetch) scheduler.trackUrgent(entry.promise);
 
-  return entry.promise.then(s => ({ ...s }));
+  return attach(key, entry, options.signal);
 }
 
 // Background lookups wait here, most important first (see streamScheduler.ts).

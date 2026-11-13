@@ -61,7 +61,7 @@ test('checkLink cannot judge a link while offline', async () => {
 
 test('over the cap, dead links go first, then the least recently checked', async () => {
   const { enforceStreamCap, MAX_STREAM_RECORDS } = await import('./streamStore.ts');
-  assert.equal(MAX_STREAM_RECORDS, 10_000);
+  assert.equal(MAX_STREAM_RECORDS, 2_000);
   for (const r of allStreamRecords()) markStreamDead(r.key); // start from a known state
   allStreamRecords().forEach(r => { (r as { status: string }).status = 'alive'; });
   const base = allStreamRecords().length;

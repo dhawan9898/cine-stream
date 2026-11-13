@@ -168,6 +168,8 @@ export class ExtractorRegistry {
     onEmbed?: (embed: ExtractedStream) => void;
     // The lookup is speculative (nobody is waiting): sniffs yield to anything the user does.
     sniffBackground?: boolean;
+    // Nobody wants the result any more: stop every extractor and sniff and return what was found.
+    signal?: AbortSignal;
   }): Promise<ExtractedStream[]> {
     // Embed/iframe pages are never returned: only direct streams (or sniffed ones) can be played.
     const directOnly = true;
@@ -216,10 +218,13 @@ export class ExtractorRegistry {
       let deadline: ReturnType<typeof setTimeout> | undefined;
 
       const abortController = new AbortController();
+      const external = params.signal;
+      const onExternalAbort = () => finish();
 
       const finish = () => {
         if (done) return;
         done = true;
+        external?.removeEventListener('abort', onExternalAbort);
         abortController.abort();
         if (grace) clearTimeout(grace);
         if (deadline) clearTimeout(deadline);
@@ -367,7 +372,8 @@ export class ExtractorRegistry {
       };
 
       deadline = setTimeout(finish, RESOLVE_DEADLINE_MS);
-      if (raceList.length === 0) { finish(); return; }
+      if (raceList.length === 0 || external?.aborted) { finish(); return; }
+      external?.addEventListener('abort', onExternalAbort, { once: true });
 
       if (useHeadStart) {
         const head = raceList.slice(0, headCount);
