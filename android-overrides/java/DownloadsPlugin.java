@@ -86,7 +86,7 @@ public class DownloadsPlugin extends Plugin {
     private void prepareAndQueue(PluginCall call, String id, String url, String referer, java.util.Map<String, String> headers, int maxHeight, JSArray savedSubs) {
         try {
             MediaDownloads dl = MediaDownloads.get(getContext());
-            dl.applyHeaders(referer, headers);
+            final java.util.Map<String, String> streamHeaders = MediaDownloads.streamHeaders(referer, headers);
             MediaItem.Builder item = new MediaItem.Builder().setUri(Uri.parse(url));
             String lower = url.toLowerCase(java.util.Locale.US);
             if (lower.contains(".mpd")) item.setMimeType(MimeTypes.APPLICATION_MPD);
@@ -99,11 +99,11 @@ public class DownloadsPlugin extends Plugin {
                             .setMaxVideoSize(Integer.MAX_VALUE, Math.max(144, maxHeight))
                             .build();
             DownloadHelper helper = DownloadHelper.forMediaItem(
-                    item.build(), params, new DefaultRenderersFactory(getContext()), dl.applyHeaders(referer, headers));
+                    item.build(), params, new DefaultRenderersFactory(getContext()), MediaDownloads.buildHttp(streamHeaders));
             helper.prepare(new DownloadHelper.Callback() {
                 @Override
                 public void onPrepared(@NonNull DownloadHelper h) {
-                    DownloadRequest request = h.getDownloadRequest(id, null);
+                    DownloadRequest request = h.getDownloadRequest(id, MediaDownloads.headersData(streamHeaders));
                     h.release();
                     dl.manager().addDownload(request);
                     JSObject ret = new JSObject();

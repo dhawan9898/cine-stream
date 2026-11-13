@@ -107,6 +107,19 @@ public class ExoPlayerActivity extends AppCompatActivity {
         }
         return diskCache;
     }
+    private static androidx.media3.exoplayer.upstream.DefaultBandwidthMeter bandwidthMeter;
+
+    // One bandwidth meter for every player instance: the next episode, a retry or a
+    // quality switch starts at the throughput already measured instead of going
+    // back to the modest initial guess and climbing up over ~20 s again.
+    private static synchronized androidx.media3.exoplayer.upstream.DefaultBandwidthMeter getBandwidthMeter(android.content.Context appCtx) {
+        if (bandwidthMeter == null) {
+            bandwidthMeter = new androidx.media3.exoplayer.upstream.DefaultBandwidthMeter.Builder(appCtx)
+                    .setInitialBitrateEstimate(INITIAL_BITRATE_ESTIMATE_BPS)
+                    .build();
+        }
+        return bandwidthMeter;
+    }
     // A stalled CDN connection is abandoned after this long and the load
     // retried (was 45 s - the player sat "buffering" that whole time).
     private static final int CONNECT_TIMEOUT_MS = 8_000;
@@ -563,6 +576,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
         btnSkipOutro.setVisibility(View.GONE);
         skipTimesFetched = false;
         subtitleSelectionInitialized = false;
+        malformedResniffs = 0;
 
         // Quality choices (when there's a real one) live in the Audio &
         // Subtitles panel, like the rest of Netflix's track selection.
@@ -604,6 +618,11 @@ public class ExoPlayerActivity extends AppCompatActivity {
     private WebView sniffingWebView;
     private final java.util.concurrent.atomic.AtomicBoolean isSniffing =
             new java.util.concurrent.atomic.AtomicBoolean(false);
+    // Main thread only. Bumped by every sniff start.
+    private int sniffSession = 0;
+    // Malformed-manifest re-sniffs for the current intent (reset by loadFromIntent).
+    private int malformedResniffs = 0;
+    private static final int MAX_MALFORMED_RESNIFFS = 1;
 
     private static final String[] AD_HOSTS = new String[] {
         "doubleclick.net", "googlesyndication.com", "googleadservices.com",
@@ -650,9 +669,12 @@ public class ExoPlayerActivity extends AppCompatActivity {
     private void startStreamSniffer(String embedUrl, String referer, String subtitlesJson, long startPositionMs, boolean playWhenReady) {
         stopStreamSniffer();
         isSniffing.set(true);
+        // This sniff's own id: the timeout below must not end a later sniff.
+        final int session = ++sniffSession;
         showLoadingState();
 
         handler.post(() -> {
+            if (session != sniffSession || !isSniffing.get()) return;
             try {
                 sniffingWebView = new WebView(ExoPlayerActivity.this);
                 WebSettings webSettings = sniffingWebView.getSettings();
@@ -697,7 +719,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
 
                 // Fast timeout fallback after 2.5s
                 handler.postDelayed(() -> {
-                    if (isSniffing.compareAndSet(true, false)) {
+                    if (session == sniffSession && isSniffing.compareAndSet(true, false)) {
                         Log.w(TAG, "Stream sniffing timed out for: " + embedUrl);
                         stopStreamSniffer();
                         showEmbedWebView(embedUrl, referer);
@@ -722,7 +744,9 @@ public class ExoPlayerActivity extends AppCompatActivity {
                     embedWebContainer = findViewById(R.id.embed_web_container);
                 }
                 if (embedWebContainer != null) {
-                    embedWebContainer.removeAllViews();
+                    destroyEmbedWebView();
+                    final java.util.concurrent.atomic.AtomicBoolean handedOff =
+                            new java.util.concurrent.atomic.AtomicBoolean(false);
                     embedWebView = new WebView(ExoPlayerActivity.this);
                     WebSettings webSettings = embedWebView.getSettings();
                     webSettings.setJavaScriptEnabled(true);
@@ -753,13 +777,23 @@ public class ExoPlayerActivity extends AppCompatActivity {
                                 if (isAdUrl(reqUrl)) {
                                     return new WebResourceResponse("text/plain", "UTF-8", new java.io.ByteArrayInputStream("".getBytes()));
                                 }
-                                if (isDirectVideoUrl(reqUrl) && !reqUrl.equalsIgnoreCase(embedUrl)) {
+                                // Only the first media request is the stream; the page's own
+                                // player then asks for variants and every segment, which must
+                                // not each start (and leak) another ExoPlayer.
+                                if (isDirectVideoUrl(reqUrl) && !reqUrl.equalsIgnoreCase(embedUrl)
+                                        && handedOff.compareAndSet(false, true)) {
                                     Log.i(TAG, "Embed WebView sniffed direct stream: " + reqUrl);
                                     String extractedReferer = request.getRequestHeaders() != null ? request.getRequestHeaders().get("Referer") : referer;
                                     handler.post(() -> {
+                                        if (isDestroyed()) return;
+                                        // The page's own player would keep playing and downloading
+                                        // behind ours: tear it down.
+                                        destroyEmbedWebView();
                                         if (embedWebContainer != null) embedWebContainer.setVisibility(View.GONE);
                                         initializePlayer(reqUrl, extractedReferer != null ? extractedReferer : referer, pendingSubtitlesJson, Math.max(0L, lastKnownPositionMs), true);
                                     });
+                                    // Don't let the page fetch the stream itself.
+                                    return new WebResourceResponse("text/plain", "UTF-8", new java.io.ByteArrayInputStream(new byte[0]));
                                 }
                             }
                             return super.shouldInterceptRequest(view, request);
@@ -792,6 +826,18 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 showPlaybackError("Unable to load video stream.");
             }
         });
+    }
+
+    // Main thread only.
+    private void destroyEmbedWebView() {
+        if (embedWebContainer != null) embedWebContainer.removeAllViews();
+        if (embedWebView != null) {
+            try {
+                embedWebView.stopLoading();
+                embedWebView.destroy();
+            } catch (Exception ignored) {}
+            embedWebView = null;
+        }
     }
 
     private void stopStreamSniffer() {
@@ -2432,10 +2478,16 @@ public class ExoPlayerActivity extends AppCompatActivity {
         // reported it - a fresh instance (retry, or a URL-based quality
         // switch) needs to re-resolve it from scratch rather than keep
         // pointing at a TrackGroup from the old one.
+        // Exactly one player at a time: a caller that did not release the old
+        // one (sniffer hand-off, error recovery) must not leave it running with
+        // its decoders, threads and audio.
+        if (player != null) {
+            player.release();
+            player = null;
+        }
         handler.removeCallbacks(startupWatchdog);
         if (!offlinePlayback) handler.postDelayed(startupWatchdog, STARTUP_STALL_MS);
         useAdaptiveQualityMenu = false;
-        videoQualityOptions.clear();
         videoQualityOptions.clear();
         currentVideoTrackIndex = -1;
 
@@ -2486,10 +2538,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
         // measured: opening a 1080p master at ExoPlayer's optimistic default
         // estimate makes the first segment slow to arrive on ordinary
         // connections, which is most of the wait before the picture shows.
-        androidx.media3.exoplayer.upstream.DefaultBandwidthMeter bandwidthMeter =
-                new androidx.media3.exoplayer.upstream.DefaultBandwidthMeter.Builder(this)
-                        .setInitialBitrateEstimate(INITIAL_BITRATE_ESTIMATE_BPS)
-                        .build();
+        androidx.media3.exoplayer.upstream.DefaultBandwidthMeter meter = getBandwidthMeter(getApplicationContext());
 
         androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection.Factory abr =
                 new androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection.Factory(
@@ -2498,7 +2547,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 .setMediaSourceFactory(mediaSourceFactory)
                 .setTrackSelector(new DefaultTrackSelector(this, abr))
                 .setLoadControl(loadControl)
-                .setBandwidthMeter(bandwidthMeter)
+                .setBandwidthMeter(meter)
                 .setAudioAttributes(audioAttributes, true)
                 .setHandleAudioBecomingNoisy(true)
                 .build();
@@ -2563,7 +2612,13 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 String errMessage = error != null ? error.getMessage() : "";
                 if (errMessage != null && (errMessage.contains("EXTM3U") || errMessage.contains("ParserException") || errMessage.contains("containsMalformed"))) {
                     Log.w(TAG, "Malformed HLS manifest or HTML response, re-resolving episode...");
-                    if (!isSniffing.get() && pendingVideoUrl != null) {
+                    // Re-sniffing only helps when what we were given is an embed page (it may
+                    // yield a different, working manifest) - once per stream. A direct
+                    // manifest that is malformed goes to another server instead.
+                    if (!isSniffing.get() && pendingVideoUrl != null && !isDirectVideoUrl(pendingVideoUrl)
+                            && malformedResniffs < MAX_MALFORMED_RESNIFFS) {
+                        malformedResniffs++;
+                        releasePlayer();
                         startStreamSniffer(pendingVideoUrl, pendingReferer, pendingSubtitlesJson, Math.max(0L, lastKnownPositionMs), true);
                         return;
                     }
@@ -3178,6 +3233,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
             chromeVisible = false;
             postPlayContainer.setVisibility(View.GONE);
             unlockContainer.setVisibility(View.GONE);
+            // Entering PiP can be reported twice: never register a second receiver.
+            if (pipReceiver != null) return;
             pipReceiver = new android.content.BroadcastReceiver() {
                 @Override
                 public void onReceive(Context context, Intent intent) {
@@ -3198,6 +3255,16 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 pipReceiver = null;
             }
             if (!activityStopped) setControlsVisible(true);
+        }
+    }
+
+    // Memory pressure: give back the image caches (both refill on demand).
+    @Override
+    public void onTrimMemory(int level) {
+        super.onTrimMemory(level);
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            thumbCache.evictAll();
+            if (sprites != null) sprites.trim();
         }
     }
 
@@ -3230,13 +3297,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
             pipReceiver = null;
         }
         stopStreamSniffer();
-        if (embedWebView != null) {
-            try {
-                embedWebView.stopLoading();
-                embedWebView.destroy();
-            } catch (Exception ignored) {}
-            embedWebView = null;
-        }
+        destroyEmbedWebView();
         super.onDestroy();
         if (isFinishing()) ExoPlayerPlugin.notifyPlayerClosed();
         if (currentActivity != null && currentActivity.get() == this) currentActivity = null;

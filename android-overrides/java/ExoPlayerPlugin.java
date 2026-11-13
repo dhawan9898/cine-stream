@@ -234,10 +234,53 @@ public class ExoPlayerPlugin extends Plugin {
         SniffView(WebView web) { this.web = web; }
     }
 
+    // Set once this plugin instance is torn down (its Activity is gone): WebViews it built hold that
+    // Activity, so none may go back to the shared pool afterwards.
+    private boolean closed = false;
+
+    // Memory pressure: the idle WebViews are the biggest thing we can give back (rebuilt on demand).
+    private final android.content.ComponentCallbacks2 memoryCallbacks = new android.content.ComponentCallbacks2() {
+        @Override
+        public void onTrimMemory(int level) {
+            if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) runOnMain(ExoPlayerPlugin::destroyIdleSniffers);
+        }
+
+        @Override
+        public void onConfigurationChanged(@androidx.annotation.NonNull android.content.res.Configuration newConfig) { }
+
+        @Override
+        public void onLowMemory() {
+            runOnMain(ExoPlayerPlugin::destroyIdleSniffers);
+        }
+    };
+
+    // Main thread only.
+    private static void destroyIdleSniffers() {
+        SniffView sv;
+        while ((sv = idleSniffers.poll()) != null) destroySniffer(sv.web);
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        closed = true;
+        try { getContext().getApplicationContext().unregisterComponentCallbacks(memoryCallbacks); } catch (Exception ignored) { }
+        runOnMain(() -> {
+            // Answer everyone still waiting and free the WebViews of this (dying) Activity.
+            for (SniffJob job : new java.util.ArrayList<>(sniffJobs.values())) {
+                if (job.owner() == this) job.cancel();
+            }
+            destroyIdleSniffers();
+        });
+        if (activeInstance == this) activeInstance = null;
+        super.handleOnDestroy();
+    }
+
     @Override
     public void load() {
+        try { getContext().getApplicationContext().registerComponentCallbacks(memoryCallbacks); } catch (Exception ignored) { }
         // Have one WebView ready before the first lookup, without competing with app start-up.
         MAIN.postDelayed(() -> {
+            if (closed) return;
             try {
                 if (idleSniffers.isEmpty()) idleSniffers.add(newSniffView());
                 scheduleSniffTrim();
@@ -245,6 +288,7 @@ public class ExoPlayerPlugin extends Plugin {
         }, 1500);
         // A second one a little later: the first lookup sniffs two providers at once.
         MAIN.postDelayed(() -> {
+            if (closed) return;
             try {
                 if (idleSniffers.size() < 2 && sniffJobs.isEmpty()) idleSniffers.add(newSniffView());
             } catch (Exception ignored) {}
@@ -322,7 +366,7 @@ public class ExoPlayerPlugin extends Plugin {
             destroySniffer(sv.web);
             return;
         }
-        if (idleSniffers.size() < SNIFF_POOL_MAX) {
+        if (!closed && idleSniffers.size() < SNIFF_POOL_MAX) {
             idleSniffers.add(sv);
             scheduleSniffTrim();
         } else {
@@ -334,8 +378,7 @@ public class ExoPlayerPlugin extends Plugin {
     private void scheduleSniffTrim() {
         MAIN.postDelayed(() -> {
             if (System.currentTimeMillis() - sniffLastUsed < SNIFF_IDLE_RELEASE_MS && sniffLastUsed != 0) return;
-            SniffView sv;
-            while ((sv = idleSniffers.poll()) != null) destroySniffer(sv.web);
+            destroyIdleSniffers();
         }, SNIFF_IDLE_RELEASE_MS + 1000);
     }
 
@@ -366,6 +409,8 @@ public class ExoPlayerPlugin extends Plugin {
         String mp4Candidate;
         Map<String, String> mp4Headers;
         final Runnable onTimeout = () -> { if (!done.get()) finishWithBestGuess(); };
+
+        ExoPlayerPlugin owner() { return ExoPlayerPlugin.this; }
 
         SniffJob(String id, String pageUrl, String referer, int timeoutMs, boolean background, PluginCall call) {
             this.id = id;
