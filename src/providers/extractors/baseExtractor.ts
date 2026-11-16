@@ -166,6 +166,8 @@ export abstract class BaseExtractor implements StreamExtractor {
    */
   protected async probe(stream: { url: string; format: StreamFormat; headers?: Record<string, string> }, signal?: AbortSignal, deep = this.manifest?.deepProbe ?? false): Promise<boolean> {
     if (signal?.aborted) return false;
+    // Reject preview clips, samples, and trailers so full movies are never cut off early
+    if (/preview|_preview|preview\.m3u8|_trailer|trailer\.m3u8/i.test(stream.url)) return false;
     try {
       if (stream.format === 'mp4') {
         await this.httpGet(stream.url, { ...stream.headers, Range: 'bytes=0-1' }, { signal, timeoutMs: PROBE_TIMEOUT_MS });

@@ -194,7 +194,7 @@ export async function startDownload(media: DownloadedMedia, season?: number, epi
       const resolved = await resolveStream(
         { id: media.id, type: media.mediaType, season, episode, language: media.language, title: media.title, fresh: true }
       );
-      const url = pickAudio(resolved, prefs.audioLanguage).url;
+      const url = pickAudio(resolved, prefs.audioLanguage || media.language || '').url;
       if (resolved.isFallbackEmbed || !isDownloadable(url)) {
         throw new Error('This title only has an embedded player right now, which can\'t be downloaded.');
       }

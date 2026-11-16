@@ -20,8 +20,15 @@ export function subtitlesForPlayer(subs: ExtractorSubtitle[] | undefined, prefer
 
 /** The language file matching the preferred audio, or the stream as resolved. */
 export function pickAudio(stream: ExtractedStream, preferredLang: string): { url: string; qualities: ExtractedStream['qualities'] } {
-  const wanted = preferredLang ? LANGUAGE_NAMES[preferredLang.toLowerCase()] : undefined;
-  const audio = wanted ? stream.audios?.find(a => a.label === wanted || a.language === wanted) : undefined;
+  const code = (preferredLang || '').toLowerCase().trim();
+  const wanted = code ? (LANGUAGE_NAMES[code]?.toLowerCase() || code) : undefined;
+  const audio = wanted
+    ? stream.audios?.find(a => {
+        const lbl = (a.label || '').toLowerCase();
+        const lng = (a.language || '').toLowerCase();
+        return lbl === wanted || lng === code || lng === wanted || lbl.startsWith(wanted);
+      })
+    : undefined;
   return audio
     ? { url: audio.url, qualities: audio.qualities }
     : { url: stream.url, qualities: stream.qualities };

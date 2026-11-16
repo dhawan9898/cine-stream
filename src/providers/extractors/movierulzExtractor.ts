@@ -151,14 +151,17 @@ export class MovierulzExtractor extends BaseExtractor {
 
     const set = buildVariantSet(settled.filter((v): v is ResolvedVariant => v !== null), languageCode);
     if (set) {
-      return {
+      const found: ExtractedStream = {
         url: set.primary.url,
-        format: MEDIA_EXT.test(set.primary.url) && /\.mpd/i.test(set.primary.url) ? 'dash' : /\.(mp4|mkv|webm)(\?|$)/i.test(set.primary.url) ? 'mp4' : 'hls',
+        format: MEDIA_EXT.test(set.primary.url) && /\.mpd/i.test(set.primary.url) ? 'dash' : /\.(mp4|mkv)(\?|$)/i.test(set.primary.url) ? 'mp4' : 'hls',
         quality: set.primary.hint.quality,
         headers: { Referer: referer, 'User-Agent': this.defaultUserAgent },
         qualities: set.qualities.length > 1 ? set.qualities : undefined,
         audios: set.audios.length > 1 ? set.audios : undefined
       };
+      if (await this.probe(found, signal)) {
+        return found;
+      }
     }
 
     return await this.resolveFromPage(referer, { referer, maxDepth: 1, maxPages: 2, signal, timeoutMs: CANDIDATE_TIMEOUT_MS });

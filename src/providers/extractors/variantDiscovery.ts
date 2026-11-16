@@ -46,6 +46,7 @@ export function extractCandidates(html: string, baseUrl: string): Candidate[] {
   const add = (raw: string, context: string) => {
     const url = absolutize(unescapeText(raw), baseUrl);
     if (!url || !/^https?:/i.test(url) || !HOST_RE.test(url)) return;
+    if (/(?:site\.webm|logo\.(?:mp4|webm)|intro\.(?:mp4|webm)|placeholder|banner|\/assets\/)/i.test(url)) return;
     const hint = { ...hintOf(url), ...Object.fromEntries(Object.entries(hintOf(context)).filter(([, v]) => v)) } as Hint;
     const prev = found.get(url);
     if (!prev || (!prev.hint.language && hint.language) || (!prev.hint.quality && hint.quality)) found.set(url, { url, hint: { ...prev?.hint, ...hint } });

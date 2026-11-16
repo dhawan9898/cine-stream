@@ -419,7 +419,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         // On native Android, launch native Media3 Netflix ExoPlayer
         if (isNative) {
           const prefs = getUserPreferences();
-          const audio = applyPreferredQuality(pickAudio(res, prefs.audioLanguage), prefs.defaultQuality);
+          const targetAudioLang = prefs.audioLanguage || media.language || undefined;
+          const audio = applyPreferredQuality(pickAudio(res, targetAudioLang || ''), prefs.defaultQuality);
           openNativeExoPlayer({
             url: audio.url,
             title: media.title,
@@ -429,7 +430,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             headers: res.headers,
             mode: langMode,
             subtitles: subtitlesForPlayer(res.subtitles, prefs.subtitleLanguage),
-            preferredAudio: prefs.audioLanguage || undefined,
+            preferredAudio: targetAudioLang,
             dataSaver: prefs.dataSaver,
             qualities: audio.qualities?.map(q => ({ quality: q.quality, url: q.url })),
             audios: res.audios?.map(a => ({
@@ -488,14 +489,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const webSource = useMemo<StreamSource | null>(() => {
     if (!source || !isDirectVideoUrl(source.url)) return null;
+    const prefs = getUserPreferences();
+    const targetAudioLang = prefs.audioLanguage || media.language || undefined;
+    const audio = applyPreferredQuality(pickAudio(source, targetAudioLang || ''), prefs.defaultQuality);
     return {
-      streamUrl: source.url,
+      streamUrl: audio.url,
       quality: source.quality ?? '1080p',
       referer: source.headers?.Referer ?? '',
       headers: source.headers,
-      subtitles: subtitlesForPlayer(source.subtitles, getUserPreferences().subtitleLanguage)
+      subtitles: subtitlesForPlayer(source.subtitles, prefs.subtitleLanguage)
     };
-  }, [source]);
+  }, [source, media.language]);
 
   const webEpisodes = useMemo<PlayerEpisode[]>(
     () => episodes.map(e => ({ id: String(e.id), number: String(e.episodeNumber), title: e.name })),
