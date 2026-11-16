@@ -1149,15 +1149,6 @@ public class ExoPlayerActivity extends AppCompatActivity {
         nextEpisodeFill.setPivotX(0f);
         nextEpisodeFill.setScaleX(0f);
 
-        TextView nextLabel = findViewById(R.id.next_episode_label);
-        android.graphics.drawable.Drawable playIcon = getDrawable(R.drawable.ic_play);
-        if (nextLabel != null && playIcon != null) {
-            playIcon = playIcon.mutate();
-            playIcon.setTint(Color.WHITE);
-            int size = Math.round(14 * density);
-            playIcon.setBounds(0, 0, size, size);
-            nextLabel.setCompoundDrawablesRelative(playIcon, null, null, null);
-        }
 
         GradientDrawable unlockBg = new GradientDrawable();
         unlockBg.setShape(GradientDrawable.OVAL);
@@ -3354,6 +3345,24 @@ public class ExoPlayerActivity extends AppCompatActivity {
         activityStopped = false;
     }
 
+    // The app is told the player closed the moment it starts closing, not when Android gets round to
+    // destroying it: that can be seconds later, and until then the app still showed its own "player
+    // open" page underneath, so leaving took a second Back.
+    private boolean closedNotified = false;
+
+    private void notifyClosedOnce() {
+        if (closedNotified) return;
+        closedNotified = true;
+        ExoPlayerPlugin.notifyPlayerClosed();
+    }
+
+    @Override
+    public void finish() {
+        reportProgressNow(); // the app stops listening once it hears "closed"
+        notifyClosedOnce();
+        super.finish();
+    }
+
     @Override
     protected void onStop() {
         super.onStop();
@@ -3379,7 +3388,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
         stopStreamSniffer();
         destroyEmbedWebView();
         super.onDestroy();
-        if (isFinishing()) ExoPlayerPlugin.notifyPlayerClosed();
+        if (isFinishing()) notifyClosedOnce();
         if (currentActivity != null && currentActivity.get() == this) currentActivity = null;
         handler.removeCallbacksAndMessages(null);
         if (sprites != null) {

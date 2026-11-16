@@ -19,6 +19,14 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(DownloadsPlugin.class);
         super.onCreate(savedInstanceState);
 
+        // Keep the WebView's renderer at full priority (and, through KeepAliveWebView, its page
+        // "visible"): the native player sits on top of it for a whole episode and still relies on
+        // the app's JavaScript (next episode, server failover, watch history).
+        if (getBridge() != null && getBridge().getWebView() != null
+                && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            getBridge().getWebView().setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
+        }
+
         // Disable ad popups and window hijacks
         if (getBridge() != null && getBridge().getWebView() != null) {
             getBridge().getWebView().getSettings().setSupportMultipleWindows(false);

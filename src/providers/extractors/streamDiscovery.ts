@@ -140,6 +140,8 @@ export function discover(body: string, baseUrl: string): Discovery {
 
   const scan = (text: string) => {
     for (const m of text.matchAll(MEDIA_RE)) {
+      // A bare "Movie.720p.ESub.mp4" is the file's name in the page title or a caption, not an address.
+      if (!m[0].includes('/') && /\.(mp4|webm|mkv)$/i.test(m[0])) continue;
       if (/\.(m3u8|mpd|mp4|webm|mkv)(\?|$)/i.test(m[0])) addStream(m[0]);
     }
     for (const m of text.matchAll(SUB_RE)) {
