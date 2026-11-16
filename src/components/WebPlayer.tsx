@@ -29,6 +29,7 @@ export interface StreamSource {
   referer: string;
   headers?: Record<string, string>;
   qualities?: { quality: string; url: string }[];
+  audios?: { label: string; url: string; qualities?: { quality: string; url: string }[] }[];
   isFallback?: boolean;
   intro?: SkipInterval;
   outro?: SkipInterval;
@@ -143,6 +144,7 @@ export const WebPlayer: React.FC<WebPlayerProps> = ({
   const [showControls, setShowControls] = useState<boolean>(true);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [selectedQuality, setSelectedQuality] = useState<string>(streamSource.quality || '1080p');
+  const [selectedAudio, setSelectedAudio] = useState<string | null>(() => streamSource.audios?.[0]?.label ?? null);
   const [showAudioPanel, setShowAudioPanel] = useState<boolean>(false);
   const [showSpeedPanel, setShowSpeedPanel] = useState<boolean>(false);
   const [showEpisodeMenu, setShowEpisodeMenu] = useState<boolean>(false);
@@ -629,6 +631,45 @@ export const WebPlayer: React.FC<WebPlayerProps> = ({
           setStreamError('This quality failed to load.');
         }
       });
+      hls.loadSource(newUrl);
+      hls.attachMedia(video);
+      hlsRef.current = hls;
+      hls.once(Hls.Events.MANIFEST_PARSED, resume);
+    } else {
+      video.src = newUrl;
+      video.addEventListener('loadedmetadata', resume, { once: true });
+    }
+  };
+
+  const switchAudio = (audioItem: { label: string; url: string; qualities?: { quality: string; url: string }[] }) => {
+    const video = videoRef.current;
+    if (!video || !audioItem.url) return;
+
+    setSelectedAudio(audioItem.label);
+    const prevTime = video.currentTime;
+    const wasPlaying = !video.paused;
+    const newUrl = resolvePlayableUrl(audioItem.url, streamSource.referer);
+    const isNewMp4 = newUrl.includes('.mp4') || !newUrl.includes('.m3u8');
+
+    const resume = () => {
+      video.currentTime = prevTime;
+      video.playbackRate = playbackRate;
+      if (wasPlaying) video.play().catch(() => {});
+    };
+
+    if (isNewMp4) {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+      video.src = newUrl;
+      video.addEventListener('loadedmetadata', resume, { once: true });
+      video.load();
+    } else if (hlsRef.current) {
+      hlsRef.current.loadSource(newUrl);
+      hlsRef.current.once(Hls.Events.MANIFEST_PARSED, resume);
+    } else if (Hls.isSupported()) {
+      const hls = createHls(streamSource.referer);
       hls.loadSource(newUrl);
       hls.attachMedia(video);
       hlsRef.current = hls;
@@ -1200,6 +1241,21 @@ export const WebPlayer: React.FC<WebPlayerProps> = ({
                 </button>
               ))}
             </div>
+            {streamSource.audios && streamSource.audios.length > 1 && (
+              <div className="nf-column">
+                <h3>Audio Track</h3>
+                {streamSource.audios.map((item) => (
+                  <button
+                    key={item.label}
+                    onClick={() => switchAudio(item)}
+                    className={`nf-option ${selectedAudio === item.label ? 'active' : ''}`}
+                  >
+                    <span className="nf-check">{selectedAudio === item.label && <Check size={18} />}</span>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
             {hasQualityChoice && (
               <div className="nf-column">
                 <h3>Video Quality</h3>

@@ -15,6 +15,7 @@ import com.getcapacitor.BridgeWebViewClient;
 public class MainActivity extends BridgeActivity {
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        CrashLog.install(getApplicationContext(), "CineStream", "2.0.1");
         registerPlugin(ExoPlayerPlugin.class);
         registerPlugin(DownloadsPlugin.class);
         super.onCreate(savedInstanceState);

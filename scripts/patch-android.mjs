@@ -48,6 +48,11 @@ export function patchManifest(xml) {
       ? out.replace('</manifest>', `    ${INSTALL_PACKAGES_PERMISSION}\n</manifest>`)
       : out;
   }
+  // Restrict cleartext HTTP to localhost / self-hosted servers
+  out = out.replace('android:usesCleartextTraffic="true"', 'android:networkSecurityConfig="@xml/network_security_config"');
+  if (!out.includes('android:networkSecurityConfig') && out.includes('<application')) {
+    out = out.replace('<application', '<application android:networkSecurityConfig="@xml/network_security_config"');
+  }
   return out;
 }
 

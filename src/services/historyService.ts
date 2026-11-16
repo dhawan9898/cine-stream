@@ -311,3 +311,67 @@ export function clearBookmarks(): void {
     notify();
   } catch {}
 }
+
+export interface BackupData {
+  version: number;
+  app: 'CineStream';
+  exportedAt: number;
+  history: WatchHistoryItem[];
+  bookmarks: MediaItem[];
+  preferences?: Partial<UserPreferences>;
+  episodeLog?: EpisodeLog;
+}
+
+export function exportBackup(): string {
+  const data: BackupData = {
+    version: 1,
+    app: 'CineStream',
+    exportedAt: Date.now(),
+    history: getWatchHistory(),
+    bookmarks: getBookmarks(),
+    preferences: getUserPreferences(),
+    episodeLog: readEpisodeLog()
+  };
+  return JSON.stringify(data, null, 2);
+}
+
+export function importBackup(jsonStr: string): boolean {
+  try {
+    const data = JSON.parse(jsonStr) as Partial<BackupData>;
+    if (!data || typeof data !== 'object') return false;
+    if (data.app && data.app !== 'CineStream') {
+      throw new Error(`Invalid backup file: created by ${data.app}`);
+    }
+
+    if (Array.isArray(data.history)) {
+      const valid = data.history.filter(isHistoryItem);
+      cachedHistory = valid;
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(valid));
+    }
+
+    if (Array.isArray(data.bookmarks)) {
+      const valid = data.bookmarks.filter(isMediaItem);
+      cachedBookmarks = valid;
+      localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(valid));
+    }
+
+    if (data.preferences && typeof data.preferences === 'object') {
+      const current = getUserPreferences();
+      const updated = { ...current, ...data.preferences };
+      cachedPrefs = updated;
+      localStorage.setItem(PREFS_KEY, JSON.stringify(updated));
+    }
+
+    if (data.episodeLog && typeof data.episodeLog === 'object') {
+      cachedEpisodeLog = data.episodeLog;
+      localStorage.setItem(EPISODE_LOG_KEY, JSON.stringify(data.episodeLog));
+    }
+
+    notify();
+    return true;
+  } catch (err) {
+    console.error('Failed to import backup:', err);
+    throw err;
+  }
+}
+

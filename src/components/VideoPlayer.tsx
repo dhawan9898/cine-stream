@@ -98,6 +98,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const reloadResumeMsRef = useRef<number | null>(null);
   // Tracks when ExoPlayerActivity already started a prefetched next episode on its own
   const nativePrefetchStartedEpRef = useRef<number | null>(null);
+  // Stores the prefetched stream so the correct server is attributed if it fails or starts
+  const prefetchedSourceRef = useRef<{ episode: number; source: ResolvedStream } | null>(null);
 
   // Immediately open native ExoPlayer window when mounted on Android
   useEffect(() => {
@@ -262,8 +264,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           // The stream failed: forget it (so it is not served from the cache again),
           // skip that server, and look the title up again on the others.
           const L = latestRef.current;
-          markServerFailed(sourceRef.current?.serverId, L.contentKey);
-          forgetStream({ id: L.media.id, type: L.media.mediaType, season: L.season, episode: L.episode, languageMode: L.langMode, language: L.media.language, title: L.media.title, preferredServerId: L.selectedServerId });
+          const reqEp = parseInt(e.episode, 10);
+          const isPrefetched = !isNaN(reqEp) && prefetchedSourceRef.current?.episode === reqEp;
+          const failedServer = isPrefetched ? prefetchedSourceRef.current?.source.serverId : sourceRef.current?.serverId;
+          const failedKey = (!isNaN(reqEp) && reqEp !== L.episode)
+            ? `${L.media.mediaType}|${L.media.id}|${L.season}|${reqEp}`
+            : L.contentKey;
+          markServerFailed(failedServer, failedKey);
+          forgetStream({ id: L.media.id, type: L.media.mediaType, season: L.season, episode: !isNaN(reqEp) ? reqEp : L.episode, languageMode: L.langMode, language: L.media.language, title: L.media.title, preferredServerId: L.selectedServerId });
           setSelectedServerId(undefined);
           setAttempt(n => n + 1);
         });
@@ -302,6 +310,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     resolveStream({ id: media.id, type: media.mediaType, season, episode: nextEpNum, language: media.language, title: media.title, ...searchKeys, preferredServerId: selectedServerId })
       .then(nextRes => {
         if (!nextRes?.url) return;
+        prefetchedSourceRef.current = { episode: nextEpNum, source: nextRes };
         const prefs = getUserPreferences();
         ExoPlayerPlugin.setNextEpisode({
           afterEpisode: String(currentEp),
@@ -329,6 +338,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     // don't re-trigger play(); just prefetch the episode after it.
     if (isNative && nativePrefetchStartedEpRef.current === episode) {
       nativePrefetchStartedEpRef.current = null;
+      if (prefetchedSourceRef.current?.episode === episode) {
+        sourceRef.current = prefetchedSourceRef.current.source;
+        setSource(prefetchedSourceRef.current.source);
+      }
       prefetchNativeNextEpisode(episode);
       return;
     }
@@ -498,6 +511,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return {
       streamUrl: audio.url,
       quality: source.quality ?? '1080p',
+      qualities: audio.qualities || source.qualities,
+      audios: source.audios,
       referer: source.headers?.Referer ?? '',
       headers: source.headers,
       subtitles: subtitlesForPlayer(source.subtitles, prefs.subtitleLanguage)

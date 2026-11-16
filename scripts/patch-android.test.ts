@@ -24,6 +24,12 @@ test('manifest gets the network-state permission once (downloads pause offline)'
   assert.equal(patchManifest(out).match(/ACCESS_NETWORK_STATE/g)?.length, 1);
 });
 
+test('manifest restricts cleartext traffic to network_security_config', () => {
+  const out = patchManifest('<manifest>\n    <application android:usesCleartextTraffic="true">\n        <activity android:name=".MainActivity" />\n    </application>\n</manifest>');
+  assert.match(out, /android:networkSecurityConfig="@xml\/network_security_config"/);
+  assert.ok(!out.includes('android:usesCleartextTraffic="true"'));
+});
+
 test('manifest without </application> fails loudly', () => {
   assert.throws(() => patchManifest('<manifest/>'), /no <\/application>/);
 });
