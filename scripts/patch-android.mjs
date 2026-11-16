@@ -21,6 +21,7 @@ export function parseArgs(argv) {
 }
 
 const NETWORK_STATE_PERMISSION = '<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />';
+const INSTALL_PACKAGES_PERMISSION = '<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />';
 
 export function patchManifest(xml) {
   if (xml.includes('android:name=".ExoPlayerActivity"')) return xml; // already patched
@@ -39,6 +40,12 @@ export function patchManifest(xml) {
   if (!out.includes('android.permission.ACCESS_NETWORK_STATE')) {
     out = out.includes('</manifest>')
       ? out.replace('</manifest>', `    ${NETWORK_STATE_PERMISSION}\n</manifest>`)
+      : out;
+  }
+  // In-app update installation
+  if (!out.includes('android.permission.REQUEST_INSTALL_PACKAGES')) {
+    out = out.includes('</manifest>')
+      ? out.replace('</manifest>', `    ${INSTALL_PACKAGES_PERMISSION}\n</manifest>`)
       : out;
   }
   return out;

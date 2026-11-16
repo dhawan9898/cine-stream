@@ -1,6 +1,6 @@
 // VideoPlayer.tsx - Background stream resolution engine with dual ExoPlayer/WebPlayer (direct streams only, never iframes)
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, WifiOff, PlayCircle, Download } from 'lucide-react';
 import { StreamLoading } from './StreamLoading.tsx';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { getTVSeasonEpisodes, type MediaItem, type EpisodeItem } from '../providers/cineHypeCore.ts';
@@ -505,50 +505,104 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   // Error View
   if (error) {
+    const isSlowNetwork = (typeof navigator !== 'undefined' && !navigator.onLine) || /took too long|timeout|network|failed to fetch|offline/i.test(error);
+    const completed = findCompletedDownload(media.mediaType, media.id, isSeries ? season : undefined, isSeries ? episode : undefined);
+
+    const playOffline = () => {
+      if (!completed) return;
+      if (isNative) {
+        openNativeExoPlayer({
+          url: completed.streamUrl,
+          title: media.title,
+          episode: isSeries ? String(episode) : '1',
+          seasonPrefix: isSeries ? `S${season}:` : '',
+          referer: completed.referer,
+          headers: completed.headers,
+          subtitles: completed.subtitles.map(s => ({ src: s.src, label: s.label, default: s.default })),
+          isFallback: false
+        });
+      } else {
+        setSource({
+          id: media.id,
+          type: media.mediaType,
+          url: completed.streamUrl,
+          format: 'hls',
+          isFallbackEmbed: false,
+          serverId: 'offline',
+          serverName: 'Downloaded'
+        });
+        setError(null);
+      }
+    };
+
     return (
-      <div className="player-state" role="alert" style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', gap: '16px' }}>
+      <div className="player-state" role="alert" style={{ position: 'fixed', inset: 0, background: '#000', zIndex: 9999, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#fff', gap: '16px', padding: '24px' }}>
         <button onClick={onBack} className="interactive nf-icon-btn" aria-label="Back" style={{ position: 'absolute', top: 'calc(16px + var(--safe-top))', left: '16px' }}>
           <ArrowLeft size={28} color="#fff" />
         </button>
-        <h3 style={{ fontSize: '20px', fontWeight: 800 }}>Couldn't start playback</h3>
-        <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)', textAlign: 'center', maxWidth: '400px' }}>{error}</p>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button
-            className="interactive btn-primary"
-            onClick={() => {
-              setError(null);
-              setLoading(true);
-              setAttempt(n => n + 1);
-            }}
-            style={{ padding: '10px 24px' }}
-          >
-            Retry
-          </button>
-          {source?.serverId && (
+
+        {isSlowNetwork ? (
+          <>
+            <WifiOff size={44} color="#f59e0b" style={{ marginBottom: '4px' }} />
+            <h3 style={{ fontSize: '20px', fontWeight: 800 }}>Slow or Offline Network</h3>
+            <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)', textAlign: 'center', maxWidth: '420px', lineHeight: 1.4 }}>
+              Connection to streaming servers timed out. Check your network or play your downloaded content offline.
+            </p>
+          </>
+        ) : (
+          <>
+            <h3 style={{ fontSize: '20px', fontWeight: 800 }}>Couldn't start playback</h3>
+            <p style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)', textAlign: 'center', maxWidth: '400px' }}>{error}</p>
+          </>
+        )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', maxWidth: '340px', marginTop: '10px' }}>
+          {completed && (
+            <button
+              className="interactive btn-primary"
+              onClick={playOffline}
+              style={{ width: '100%', padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+            >
+              <PlayCircle size={18} />
+              Play Downloaded Copy (Offline)
+            </button>
+          )}
+
+          <div style={{ display: 'flex', gap: '10px' }}>
             <button
               className="interactive btn-secondary"
               onClick={() => {
-                // Skip the server that just failed and look the title up on the others.
-                markServerFailed(source.serverId);
-                setSelectedServerId(undefined);
                 setError(null);
                 setLoading(true);
                 setAttempt(n => n + 1);
               }}
-              style={{ padding: '10px 24px', background: 'rgba(255,255,255,0.2)' }}
+              style={{ flex: 1, padding: '10px 16px', background: 'rgba(255,255,255,0.2)' }}
             >
-              Try Next Server
+              Retry
             </button>
-          )}
+            {source?.serverId && (
+              <button
+                className="interactive btn-secondary"
+                onClick={() => {
+                  markServerFailed(source.serverId);
+                  setSelectedServerId(undefined);
+                  setError(null);
+                  setLoading(true);
+                  setAttempt(n => n + 1);
+                }}
+                style={{ flex: 1, padding: '10px 16px', background: 'rgba(255,255,255,0.2)' }}
+              >
+                Next Server
+              </button>
+            )}
+          </div>
+
           <button
             className="interactive btn-secondary"
-            onClick={() => {
-              const details = `CineStream playback report\n${media.title} (${media.mediaType} ${media.id})${isSeries ? ` S${season}E${episode}` : ''}\nServer: ${source?.serverId ?? selectedServerId ?? 'auto'}\nError: ${error}`;
-              navigator.clipboard?.writeText(details).then(() => setReportCopied(true)).catch(() => {});
-            }}
-            style={{ padding: '10px 24px', background: 'rgba(255,255,255,0.2)' }}
+            onClick={onBack}
+            style={{ width: '100%', padding: '10px', background: 'transparent', border: '1px solid rgba(255,255,255,0.2)' }}
           >
-            {reportCopied ? 'Copied' : 'Copy Details'}
+            Back to Title
           </button>
         </div>
       </div>

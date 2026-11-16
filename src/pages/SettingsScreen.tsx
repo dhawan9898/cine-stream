@@ -1,6 +1,6 @@
 // SettingsScreen.tsx - Appearance, haptics, playback and data settings.
 import React, { useState } from 'react';
-import { SkipForward, Gauge, Trash2, Database, Vibrate, Droplets, Zap, Bookmark, ChevronRight, ChevronDown, Server, KeyRound } from 'lucide-react';
+import { SkipForward, Gauge, Trash2, Database, Vibrate, Droplets, Zap, Bookmark, ChevronRight, ChevronDown, Server, KeyRound, RefreshCw, DownloadCloud, ArrowDownCircle } from 'lucide-react';
 import { JellyfinSource } from '../providers/sources/jellyfin.ts';
 import { CategoryPicker } from 'streamkit/ui/CategoryPicker.tsx';
 import { clearWatchHistory, clearBookmarks, getBookmarks, getUserPreferences, saveUserPreferences, getWatchHistory } from '../services/historyService.ts';
@@ -11,6 +11,7 @@ import { clearTimings, formatTimingReport, summarize } from '../providers/stream
 import { ConfirmModal } from 'streamkit/ui/ConfirmModal.tsx';
 import { getGlassStyle, setGlassStyle } from '../services/glassService.ts';
 import { getHapticSettings, saveHapticSettings, hapticLight, hapticMedium, hapticSelection, hapticToggle, type HapticIntensity } from '../services/hapticsService.ts';
+import { checkForUpdate, installUpdate, type UpdateInfo } from '../services/updateService.ts';
 
 const THEMES: { id: Theme; label: string }[] = [
   { id: 'dark', label: 'Dark' },
@@ -100,6 +101,46 @@ export const SettingsScreen: React.FC = () => {
   const [jfKey, setJfKey] = useState(() => getUserPreferences().jellyfinApiKey ?? '');
   const [jfStatus, setJfStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [jfTesting, setJfTesting] = useState(false);
+
+  // In-app updater
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateDownloading, setUpdateDownloading] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<number | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
+
+  const handleCheckUpdate = async () => {
+    setUpdateChecking(true);
+    setUpdateStatus(null);
+    try {
+      const info = await checkForUpdate('dhawan9898/cine-stream');
+      if (info) {
+        setUpdateInfo(info);
+        setUpdateStatus(`Update available: v${info.version}`);
+      } else {
+        setUpdateInfo(null);
+        setUpdateStatus('CineStream is already up to date.');
+      }
+    } catch (err: any) {
+      setUpdateStatus(`Could not check for updates: ${err?.message || 'Network error'}`);
+    } finally {
+      setUpdateChecking(false);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    if (!updateInfo) return;
+    setUpdateDownloading(true);
+    setUpdateProgress(0);
+    try {
+      await installUpdate(updateInfo.apkUrl, pct => setUpdateProgress(pct));
+      setUpdateStatus('Update downloaded. Opening installer...');
+    } catch (err: any) {
+      setUpdateStatus(`Update failed: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setUpdateDownloading(false);
+    }
+  };
 
   const saveJellyfin = () => {
     update({ jellyfinUrl: jfUrl.trim(), jellyfinApiKey: jfKey.trim() });
@@ -408,6 +449,73 @@ export const SettingsScreen: React.FC = () => {
             </div>
           </div>
           )}
+        </section>
+
+        {/* App Updates Section */}
+        <section style={{ marginBottom: '28px' }}>
+          <SectionLabel>App Updates</SectionLabel>
+          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', padding: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+              <div>
+                <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>CineStream</h4>
+                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  Installed: v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '2.0.1'}
+                </p>
+              </div>
+              <button
+                className="interactive seg-pill"
+                disabled={updateChecking || updateDownloading}
+                onClick={() => { hapticLight(); handleCheckUpdate(); }}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <RefreshCw size={14} className={updateChecking ? 'animate-spin' : ''} />
+                {updateChecking ? 'Checking...' : 'Check for Updates'}
+              </button>
+            </div>
+
+            {updateStatus && (
+              <p style={{ fontSize: '12px', color: updateInfo ? 'var(--accent-primary)' : 'var(--text-secondary)', marginBottom: '8px' }}>
+                {updateStatus}
+              </p>
+            )}
+
+            {updateInfo && (
+              <div style={{ marginTop: '12px', padding: '12px', borderRadius: 'var(--radius-md)', background: 'var(--accent-soft)', border: '1px solid var(--accent-primary)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--accent-primary)' }}>
+                    New Version: v{updateInfo.version}
+                  </span>
+                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    {updateInfo.publishedAt ? new Date(updateInfo.publishedAt).toLocaleDateString() : ''}
+                  </span>
+                </div>
+                {updateInfo.releaseNotes && (
+                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px', maxHeight: '80px', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
+                    {updateInfo.releaseNotes}
+                  </p>
+                )}
+                {updateProgress !== null && (
+                  <div style={{ marginTop: '8px' }}>
+                    <div style={{ height: '4px', background: 'rgba(255,255,255,0.2)', borderRadius: '2px', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${updateProgress}%`, background: 'var(--accent-primary)', transition: 'width 0.2s' }} />
+                    </div>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
+                      Downloading APK: {updateProgress.toFixed(0)}%
+                    </span>
+                  </div>
+                )}
+                <button
+                  className="interactive btn-primary"
+                  disabled={updateDownloading}
+                  onClick={() => { hapticLight(); handleInstallUpdate(); }}
+                  style={{ width: '100%', marginTop: '10px', padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                >
+                  <DownloadCloud size={16} />
+                  {updateDownloading ? 'Downloading & Installing...' : 'Download & Install Update'}
+                </button>
+              </div>
+            )}
+          </div>
         </section>
 
       </div>

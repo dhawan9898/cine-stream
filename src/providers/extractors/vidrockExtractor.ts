@@ -30,7 +30,7 @@ export class VidRockExtractor extends BaseExtractor {
   name = 'VidRock';
   mainUrl = ORIGIN;
   // Each request gets a different CDN lane; some serve placeholder images as segments.
-  manifest = { idKind: 'tmdb', costHint: 'api', priorMs: 1800, linkTtlMs: 2 * 60 * 1000, deepProbe: true, trust: 'api' } satisfies SourceManifest;
+  manifest = { idKind: 'tmdb', costHint: 'api', priorMs: 800, linkTtlMs: 2 * 60 * 1000, deepProbe: true, trust: 'api' } satisfies SourceManifest;
 
   async extract(params: { id: number; type: 'movie' | 'tv'; season?: number; episode?: number; signal?: AbortSignal }): Promise<ExtractedStream | null> {
     const { id, type, season = 1, episode = 1, signal } = params;
