@@ -32,3 +32,9 @@ dist-ssr
 /android/
 *.apk
 *.aab
+
+# Release signing key: kept in repository secrets, never committed
+signing/
+*.jks
+*.p12
+*.keystore

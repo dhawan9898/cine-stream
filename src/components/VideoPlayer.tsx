@@ -256,6 +256,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         });
         const h6 = await ExoPlayerPlugin.addListener('reloadRequested', (e) => {
           reloadResumeMsRef.current = e.positionMs > 0 ? e.positionMs : null;
+          // The player wants a new stream. If it had just started a prefetched episode itself, the lookup
+          // below would otherwise be skipped as "already playing" and the player would wait for nothing.
+          nativePrefetchStartedEpRef.current = null;
           // The stream failed: forget it (so it is not served from the cache again),
           // skip that server, and look the title up again on the others.
           const L = latestRef.current;

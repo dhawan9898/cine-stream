@@ -92,12 +92,11 @@ npm run dev
 
 ### Release signing
 
-CI signs every release with one key so builds install over each other. Set the repository secrets
-`KEYSTORE_BASE64` (`base64 -w0 release.p12`), `KEYSTORE_PASSWORD` and, if it is not `cinestream`, `KEY_ALIAS`.
-Until they are set the workflow falls back to `signing/release.p12`, which is committed (with its password in
-the workflow history), so anyone with the repository can sign an APK that installs over yours. After the
-secrets are set, create a new key and move to it with the next release (Android requires an uninstall once when the
-signing key changes), then remove `signing/` from the repository.
+CI signs every release with one key so builds install over each other. The key is kept in the repository
+secrets `KEYSTORE_BASE64` (`base64 -w0 release.p12`), `KEYSTORE_PASSWORD` and `KEY_ALIAS`; the build fails if they
+are missing. The keystore is not in the repository any more, but it was committed in the past and is still in
+the git history, so treat it as known: to be safe, create a new key and move to it (Android requires an uninstall
+once when the signing key changes). Keep your own copy of the keystore - a secret cannot be read back.
 
 ### Checking providers
 

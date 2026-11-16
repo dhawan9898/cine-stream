@@ -76,6 +76,9 @@ jobs:
         env:
           APP_VERSION: ${{ env.VERSION }}
           VITE_TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          # Provider kill switch / new addresses without a release: edit provider-config.json on main
+          # (see src/providers/providerConfig.ts for the format).
+          VITE_PROVIDER_CONFIG_URL: https://raw.githubusercontent.com/${{ github.repository }}/main/provider-config.json
 
       # The android/ project is not committed: generate it, sync the web
       # assets, then apply the version and the native Jetpack Media3 ExoPlayer
@@ -102,24 +105,21 @@ jobs:
         run: ./gradlew assembleRelease --stacktrace
 
       # Android refuses unsigned APKs ("App not installed"). Every build must carry the same signature
-      # so it installs over the previous version. The key comes from repository secrets when they are set
-      # (KEYSTORE_BASE64 = base64 of the .p12, KEYSTORE_PASSWORD, optional KEY_ALIAS); until then the
-      # keystore committed at signing/release.p12 is used - which anyone with repo access can sign with,
-      # so move to the secrets (see README, "Release signing").
+      # so it installs over the previous version. The key comes from repository secrets
+      # (KEYSTORE_BASE64 = base64 of the .p12, KEYSTORE_PASSWORD, optional KEY_ALIAS) and is never
+      # committed (see README, "Release signing").
       - name: Align and Sign APK
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KS_PASS" ]; then
-            KS="$RUNNER_TEMP/release.p12"
-            echo "$KEYSTORE_BASE64" | base64 -d > "$KS"
-          else
-            echo "::warning::Signing with the keystore committed in the repository. Set the KEYSTORE_BASE64 and KEYSTORE_PASSWORD secrets."
-            KS=signing/release.p12
-            export KS_PASS=cinestream-app-key
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KS_PASS" ]; then
+            echo "::error::The KEYSTORE_BASE64 and KEYSTORE_PASSWORD secrets are not set: the release cannot be signed."
+            exit 1
           fi
+          KS="$RUNNER_TEMP/release.p12"
+          echo "$KEYSTORE_BASE64" | base64 -d > "$KS"
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           UNSIGNED=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
           mkdir -p build-output
