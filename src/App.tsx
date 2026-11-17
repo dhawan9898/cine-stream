@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback, useRef, useSyncExternalStore, lazy, Suspense } from 'react';
 import { Home, Search, Library, Settings, DownloadCloud, Sparkles, X } from 'lucide-react';
 import { HomeScreen } from './pages/HomeScreen.tsx';
-import { checkForUpdate, type UpdateInfo } from './services/updateService.ts';
+import { checkForUpdate, fetchReleaseNotes, type UpdateInfo } from './services/updateService.ts';
 import { ErrorBoundary } from 'streamkit/ui/ErrorBoundary.tsx';
 import { Dock, type DockTab } from 'streamkit/ui/Dock.tsx';
 import type { MediaItem, EpisodeItem } from './providers/cineHypeCore.ts';
@@ -69,6 +69,7 @@ export const App: React.FC = () => {
   const [availableUpdate, setAvailableUpdate] = useState<UpdateInfo | null>(null);
   const [showUpdateBanner, setShowUpdateBanner] = useState(true);
   const [showWhatsNew, setShowWhatsNew] = useState(false);
+  const [whatsNewNotes, setWhatsNewNotes] = useState<string | null>(null);
   const currentVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '2.0.1';
 
   useEffect(() => {
@@ -83,6 +84,7 @@ export const App: React.FC = () => {
       localStorage.setItem('cinestream_last_seen_version', currentVersion);
     } else if (lastVersion !== currentVersion) {
       setShowWhatsNew(true);
+      fetchReleaseNotes(currentVersion).then(setWhatsNewNotes);
     }
   }, [currentVersion]);
 
@@ -406,8 +408,8 @@ export const App: React.FC = () => {
                   What's New in v{currentVersion}
                 </h3>
               </div>
-              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: '18px' }}>
-                CineStream has been updated with verified APK downloads, crash reporting in Settings, backup and restore, and enhanced multi-language stream handling.
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: '18px', whiteSpace: 'pre-wrap', maxHeight: '45vh', overflowY: 'auto' }}>
+                {whatsNewNotes ?? 'This version includes fixes and improvements.'}
               </p>
               <button
                 onClick={dismissWhatsNew}

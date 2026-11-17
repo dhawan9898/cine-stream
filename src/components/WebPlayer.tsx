@@ -144,7 +144,8 @@ export const WebPlayer: React.FC<WebPlayerProps> = ({
   const [showControls, setShowControls] = useState<boolean>(true);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [selectedQuality, setSelectedQuality] = useState<string>(streamSource.quality || '1080p');
-  const [selectedAudio, setSelectedAudio] = useState<string | null>(() => streamSource.audios?.[0]?.label ?? null);
+  const [selectedAudio, setSelectedAudio] = useState<string | null>(() =>
+    (streamSource.audios?.find(a => a.url === streamSource.streamUrl) ?? streamSource.audios?.[0])?.label ?? null);
   const [showAudioPanel, setShowAudioPanel] = useState<boolean>(false);
   const [showSpeedPanel, setShowSpeedPanel] = useState<boolean>(false);
   const [showEpisodeMenu, setShowEpisodeMenu] = useState<boolean>(false);

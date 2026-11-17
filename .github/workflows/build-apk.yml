@@ -78,6 +78,10 @@ jobs:
           VITE_TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           # Provider kill switch / new addresses without a release: edit provider-config.json on main
           # (see src/providers/providerConfig.ts for the format).
+          # Sign-in and sync (see supabase/schema.sql). Both values are public by design; without
+          # them the account section stays hidden.
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
           VITE_PROVIDER_CONFIG_URL: https://raw.githubusercontent.com/${{ github.repository }}/main/provider-config.json
 
       # The android/ project is not committed: generate it, sync the web

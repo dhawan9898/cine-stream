@@ -4,6 +4,8 @@ import { SkipForward, Gauge, Trash2, Database, Vibrate, Droplets, Zap, Bookmark,
 import { JellyfinSource } from '../providers/sources/jellyfin.ts';
 import { CategoryPicker } from 'streamkit/ui/CategoryPicker.tsx';
 import { clearWatchHistory, clearBookmarks, getBookmarks, getUserPreferences, saveUserPreferences, getWatchHistory, exportBackup, importBackup } from '../services/historyService.ts';
+import { Capacitor } from '@capacitor/core';
+import { CloudAccountCard } from '../components/CloudAccountCard.tsx';
 import { DownloadsPlugin } from '../plugins/downloadsPlugin.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../services/persistentCache.ts';
@@ -152,20 +154,26 @@ export const SettingsScreen: React.FC = () => {
     } catch {}
   };
 
-  const handleExportBackup = () => {
+  const handleExportBackup = async () => {
     try {
       const json = exportBackup();
-      const blob = new Blob([json], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `cinestream-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setBackupStatus('Backup exported successfully');
-      setTimeout(() => setBackupStatus(null), 3000);
-    } catch (err: any) {
-      setBackupStatus(`Export failed: ${err?.message || 'Error'}`);
+      const name = `cinestream-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      if (Capacitor.isNativePlatform()) {
+        // A file link clicked inside the app's WebView saves nothing: the file is written natively.
+        const { location } = await DownloadsPlugin.saveTextFile({ name, text: json });
+        setBackupStatus(`Backup saved to ${location}`);
+      } else {
+        const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(url);
+        setBackupStatus('Backup exported');
+      }
+      setTimeout(() => setBackupStatus(null), 6000);
+    } catch (err) {
+      setBackupStatus(`Export failed: ${err instanceof Error ? err.message : 'Error'}`);
     }
   };
 
@@ -480,6 +488,8 @@ export const SettingsScreen: React.FC = () => {
             )}
           </div>
         </section>
+
+        <CloudAccountCard />
 
         {crashReport && (
           <section>

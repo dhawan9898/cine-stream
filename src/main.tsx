@@ -11,6 +11,7 @@ import { refreshSavedStream } from './providers/streamResolver.ts';
 import { startStreamRevalidator } from './providers/streamRevalidator.ts';
 import { initSpeculation } from './providers/speculation.ts';
 import { loadProviderConfig } from './providers/providerConfig.ts';
+import { startCloudSync } from './services/cloudAccount.ts';
 
 // Keep stray async failures (e.g. blocked autoplay, dropped requests) from surfacing as crashes.
 window.addEventListener('unhandledrejection', (e) => {
@@ -26,6 +27,8 @@ startStreamRevalidator(refreshSavedStream);
 initSpeculation();
 // Provider kill switch / host overrides: the saved copy applies at once, a fresh one downloads in the background.
 void loadProviderConfig();
+// Signed in: bring history, My List and settings in line with the other devices.
+startCloudSync();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
