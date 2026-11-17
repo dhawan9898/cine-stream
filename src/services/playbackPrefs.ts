@@ -24,6 +24,8 @@ export function pickAudio(stream: ExtractedStream, preferredLang: string): { url
   const wanted = code ? (LANGUAGE_NAMES[code]?.toLowerCase() || code) : undefined;
   const audio = wanted
     ? stream.audios?.find(a => {
+        // Another provider's copy (often lower quality) is only switched to by hand.
+        if (a.otherSource) return false;
         const lbl = (a.label || '').toLowerCase();
         const lng = (a.language || '').toLowerCase();
         return lbl === wanted || lng === code || lng === wanted || lbl.startsWith(wanted);

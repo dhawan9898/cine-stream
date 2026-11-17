@@ -43,7 +43,7 @@ test('Movierulz languages are added to the main stream with their own headers, w
   assert.equal(out.audios![0].headers, undefined);
 });
 
-test('a single-language main stream of an Indian film is "Default" when Movierulz has the title\'s language', () => {
+test('a single-language main stream is "English" for an English film, else "Default"', () => {
   const mr = stream('movierulz', { audios: ['Telugu', 'Hindi'].map(l => ({ label: l, language: l, url: `https://mr.test/${l}.m3u8` })) });
   assert.deepEqual(withExtraLanguages(stream('movy'), [mr], 'te').audios!.map(a => a.label), ['Default', 'Telugu', 'Hindi']);
   assert.deepEqual(withExtraLanguages(stream('movy'), [mr], 'en').audios!.map(a => a.label), ['English', 'Telugu', 'Hindi']);
@@ -66,21 +66,35 @@ test('the race drops a stream whose length does not fit the film', async () => {
   assert.deepEqual(out.map(s => s.serverId), ['right']);
 });
 
-test('an English title plays the sharpest stream; another stream\'s languages are added to it', async () => {
+test('quality comes first for every title; other providers\' languages are offered, never started on', async () => {
   const reg = new ExtractorRegistry(true);
-  const sharp = stream('rivestream', { height: 1080 });
   const dubbed = stream('vidrock', { url: 'https://vidrock.test/720/index.m3u8', audios: [
-    { label: 'English', language: 'English', url: 'https://vidrock.test/720/index.m3u8' },
+    { label: 'Telugu', language: 'Telugu', url: 'https://vidrock.test/720/index.m3u8' },
     { label: 'Hindi', language: 'Hindi', url: 'https://vidrock.test/hi/720/index.m3u8' }
   ], headers: { Referer: 'https://vidrock.test/' } });
-  const best = await reg.resolveBestStream({ id: 78, type: 'movie', language: 'en' }, [dubbed, sharp]);
-  assert.equal(best?.serverId, 'rivestream');
-  assert.deepEqual(best?.audios?.map(a => a.label), ['English', 'Hindi']);
-  assert.deepEqual(best?.audios?.[1].headers, { Referer: 'https://vidrock.test/' });
-  // A Telugu title keeps the stream with its languages.
-  const te = await reg.resolveBestStream({ id: 79, type: 'movie', language: 'te' }, [
-    stream('rivestream', { height: 1080 }),
-    stream('vidrock', { audios: [{ label: 'Telugu', language: 'Telugu', url: 'https://v/te' }, { label: 'Hindi', language: 'Hindi', url: 'https://v/hi' }] })
-  ]);
+  const mr = stream('movierulz', { audios: [{ label: 'Tamil', language: 'Tamil', url: 'https://mr.test/ta.m3u8' }] });
+  for (const language of ['en', 'te']) {
+    const best = await reg.resolveBestStream({ id: 78, type: 'movie', language }, [mr, dubbed, stream('movy', { height: 1080 })]);
+    assert.equal(best?.serverId, 'movy', language);
+    assert.ok(best?.audios?.filter(a => a.label !== 'Default' && a.label !== 'English').every(a => a.otherSource), language);
+    assert.ok(best?.audios?.some(a => a.label === 'Tamil'));
+  }
+  // Same quality: the stream with the title's own language wins.
+  const te = await reg.resolveBestStream({ id: 79, type: 'movie', language: 'te' }, [stream('rivestream', { height: 720 }), dubbed]);
   assert.equal(te?.serverId, 'vidrock');
+});
+
+test('playback starts on the main stream even when only another provider has the wanted language', async () => {
+  const { pickAudio } = await import('../../services/playbackPrefs.ts');
+  const main = withExtraLanguages(stream('movy', { height: 1080 }), [stream('movierulz', { audios: [{ label: 'Telugu', language: 'Telugu', url: 'https://mr.test/te.m3u8' }] })], 'te');
+  assert.equal(pickAudio(main, 'te').url, main.url);
+});
+
+test('a fast Movierulz answer does not end the race before the main providers answer', async () => {
+  const reg = new ExtractorRegistry(false);
+  const delay = <T,>(ms: number, v: T) => new Promise<T>(r => setTimeout(() => r(v), ms));
+  reg.register({ id: 'movierulz', name: 'mr', mainUrl: 'https://mr', manifest: { idKind: 'search', costHint: 'api', priorMs: 100, languagesOnly: true }, extract: async () => ({ url: 'https://mr.test/a.m3u8', format: 'hls' }) });
+  reg.register({ id: 'main', name: 'main', mainUrl: 'https://main', manifest: { idKind: 'tmdb', costHint: 'api', priorMs: 100 }, extract: () => delay(600, { url: 'https://main.test/a.m3u8', format: 'hls' as const }) });
+  const out = await reg.resolveAllStreams({ id: 5, type: 'movie', fresh: true, allowSniff: false });
+  assert.deepEqual(out.map(s => s.serverId).sort(), ['main', 'movierulz']);
 });

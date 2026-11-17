@@ -1630,9 +1630,15 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 }));
             }
         }
-        if (audioRows.size() > 1) {
-            columns.addView(buildOptionColumn("Audio", audioRows), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
+        // Always shown: with one language it is listed on its own, so it is clear what is playing.
+        if (audioRows.isEmpty()) {
+            String only = "Default";
+            for (AudioVariant variant : audioVariants) {
+                if (variant.url.equals(currentAudioUrl)) only = variant.label;
+            }
+            audioRows.add(new MenuRow(only, true, () -> { if (dialogRef[0] != null) dialogRef[0].dismiss(); }));
         }
+        columns.addView(buildOptionColumn("Audio", audioRows), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
 
         java.util.List<MenuRow> subtitleRows = new java.util.ArrayList<>();
         subtitleRows.add(new MenuRow("Off", currentSubtitleLabel == null, () -> selectSubtitle(null)));

@@ -42,6 +42,10 @@ const LAST_GOOD_HEAD_START_MS = 1200;
 const CHEAP_HEAD_START_MIN_MS = 800;
 const CHEAP_HEAD_START_MAX_MS = 3500;
 const EARLY_EXIT_GRACE_MS = 250;
+// The first stream in hand is below 1080p: the race waits this long for a sharper one.
+const QUALITY_WAIT_MS = 2000;
+// Streams still being checked when the race would end get this long to finish (see checkStream).
+const CHECK_WAIT_MS = 1500;
 // A title in a language some provider is strong for (Telugu, Tamil, Hindi... films on Movierulz): the
 // race waits this long from its start for that provider before settling for a faster stream. The
 // fast providers usually have one language only, so without the wait the Audio menu never appears.
@@ -55,10 +59,10 @@ const PRIMARY_BIAS_MS = 1500;
 const LAST_GOOD_KEY = 'cinestream_last_good_v1';
 // How long the film's runtime may take to arrive (it is usually cached from the title page).
 const RUNTIME_WAIT_MS = 2000;
-// Quality in the final pick: what a lower quality costs, in ms of expected time. A 1080p stream wins
-// over a 480p one that would answer a few seconds sooner.
-const QUALITY_PENALTY_MS: Array<[minHeight: number, ms: number]> = [[1080, 0], [720, 2500], [480, 6000], [0, 9000]];
-const UNKNOWN_QUALITY_MS = 1500;
+// The final pick ranks by quality tier first (a tier outweighs any difference in speed), then speed.
+const QUALITY_TIER_MS = 1_000_000;
+// Within a tier: the provider that worked last time, or a stream with the title's own language.
+const TIE_BONUS_MS = 1500;
 const LAST_GOOD_MAX = 300;
 
 type Sniffer = (embed: ExtractedStream, signal?: AbortSignal, background?: boolean) => Promise<ExtractedStream | null>;
@@ -101,7 +105,8 @@ export class ExtractorRegistry {
     const [facts, expected] = await Promise.all([this.inspect(stream, signal).catch(() => ({})), runtime]) as [Awaited<ReturnType<typeof inspectStream>>, number | undefined];
     if (facts.height) stream.height = facts.height;
     if (!isWrongLength(facts.minutes, expected)) return true;
-    this.recordResult(stream.serverId ?? 'unknown', false);
+    // Not counted against the provider: a wrong title is about this film (often a regional one sharing
+    // its name with another), and three of them must not switch a good provider off for every title.
     reportError('provider', `${stream.serverName ?? stream.serverId} gave a different title (${Math.round(facts.minutes!)} min, film is ${expected} min)`, {
       provider: stream.serverId, title: title.title, id: title.id
     });
@@ -368,15 +373,37 @@ export class ExtractorRegistry {
         }
         // A faster stream is here, but the provider with this title's other languages is still at
         // work: give it until STRONG_PROVIDER_WAIT_MS from the start.
+        // A language-only provider's stream (Movierulz, often from its cache in a second) never ends
+        // the race: the others are still looking for the main stream. maybeFinish ends it when
+        // everyone is done and that stream is all there is.
+        const mains = found.filter(s => !s.isFallbackEmbed && !this.languagesOnly(s));
+        if (mains.length === 0) return;
         const strongHasStream = found.some(s => !s.isFallbackEmbed && strongIds.has(s.serverId ?? ''));
         if (strongPending > 0 && !strongHasStream) {
           const wait = STRONG_PROVIDER_WAIT_MS - (Date.now() - lookupStart);
           if (wait > 0) {
-            if (!strongTimer) strongTimer = setTimeout(finish, wait);
+            if (!strongTimer) strongTimer = setTimeout(finishWhenChecked, wait);
             return;
           }
         }
-        if (!grace) grace = setTimeout(finish, EARLY_EXIT_GRACE_MS);
+        // Quality first: below 1080p, give a sharper stream a moment to arrive.
+        // (A stream whose quality is not known does not hold the race up.)
+        const sharp = mains.some(s => (streamHeight(s) ?? 1080) >= 1080);
+        if (!grace) grace = setTimeout(finishWhenChecked, sharp ? EARLY_EXIT_GRACE_MS : QUALITY_WAIT_MS);
+      };
+
+      // Streams found but still being checked are not thrown away by the end of the race.
+      let checksDeadline = 0;
+      const finishWhenChecked = () => {
+        if (done) return;
+        if (verifying > 0) {
+          checksDeadline ||= Date.now() + CHECK_WAIT_MS;
+          if (Date.now() < checksDeadline) {
+            grace = setTimeout(finishWhenChecked, 100);
+            return;
+          }
+        }
+        finish();
       };
 
       const pump = () => {
@@ -445,7 +472,9 @@ export class ExtractorRegistry {
           .catch(err => {
             // Thrown, not just "nothing found": a broken provider or site. Cancelled ones (another
             // provider already won) are not failures.
-            if (!abortController.signal.aborted && !(err instanceof Error && /abort/i.test(err.name + err.message))) {
+            // Rate limits (HTTP 429) are the site asking for a pause, which the host limiter gives it.
+            const expected = err instanceof Error && (/abort/i.test(err.name + err.message) || /\b429\b|rate limited/i.test(err.message));
+            if (!abortController.signal.aborted && !expected) {
               reportError('provider', err, { provider: extractor.id, title: params.title, id: params.id, type: params.type, season: params.season, episode: params.episode, ms: Date.now() - startedAt });
             }
             return null;
@@ -576,34 +605,24 @@ export class ExtractorRegistry {
     // language-only providers' come last.
     const extras = all.filter(s => s !== best && (s.audios?.length ?? 0) > 0)
       .sort((a, b) => Number(this.languagesOnly(a)) - Number(this.languagesOnly(b)));
-    return extras.length ? withExtraLanguages(best, extras, params.language, s => this.languagesOnly(s)) : best;
+    return extras.length ? withExtraLanguages(best, extras, params.language) : best;
   }
 
+  /**
+   * Quality first: the sharpest stream wins; within the same quality the one expected to start
+   * sooner, with a small edge for the provider that worked last time and for a stream that has the
+   * title's own language among its audio tracks.
+   */
   private pickMain(all: ExtractedStream[], params: { id: number; type: 'movie' | 'tv'; language?: string }): ExtractedStream | null {
-    // A stream that comes with the title's other languages beats a faster one with a single
-    // language, and the provider remembered from last time - first one that has the title's own
-    // language among them (the player starts in it), then any.
-    const code = (params.language ?? '').toLowerCase().split('-')[0];
-    const wanted = LANGUAGE_NAMES[code];
-    // For an English title the languages are a bonus (they are added to whichever stream plays), so a
-    // language list does not win over a sharper stream; for other titles it does (dubs matter).
-    const sharpest = Math.max(0, ...all.map(s => streamHeight(s) ?? 0));
-    const choices = all.filter(s => (s.audios?.length ?? 0) > 1 && !tooBlurry(s)
-      && (code !== 'en' || (streamHeight(s) ?? 0) >= sharpest));
-    const withOwnLanguage = wanted ? choices.find(s => s.audios!.some(a => a.language === wanted || a.label === wanted)) : undefined;
-    if (withOwnLanguage ?? choices[0]) return withOwnLanguage ?? choices[0];
-
+    const wanted = LANGUAGE_NAMES[(params.language ?? '').toLowerCase().split('-')[0]];
     const goodId = this.lastGood.get(`${params.type}:${params.id}`);
-    if (goodId) {
-      const goodStream = all.find(s => s.serverId === goodId && !tooBlurry(s));
-      if (goodStream) return goodStream;
-    }
-
-    // The same ranking that ordered the race, plus what a lower quality costs.
     const byId = new Map(this.extractors.map(e => [e.id, e]));
     const score = (s: ExtractedStream) => {
       const e = s.serverId ? byId.get(s.serverId) : undefined;
-      return (e ? this.plannedMs(e, params) : Number.MAX_SAFE_INTEGER / 2) + qualityPenaltyMs(s);
+      const speed = e ? this.plannedMs(e, params) : QUALITY_TIER_MS / 2;
+      const ownLanguage = wanted && s.audios?.some(a => a.language === wanted || a.label === wanted) ? TIE_BONUS_MS : 0;
+      const remembered = goodId && s.serverId === goodId ? TIE_BONUS_MS : 0;
+      return qualityTier(s) * QUALITY_TIER_MS + Math.min(Math.max(speed, 0), QUALITY_TIER_MS - 1) - ownLanguage - remembered;
     };
     return [...all].sort((a, b) => score(a) - score(b))[0] ?? null;
   }
@@ -615,16 +634,11 @@ function streamHeight(s: ExtractedStream): number | undefined {
     ?? heightOf(s.url.match(/[/_-](2160|1440|1080|720|576|480|360)p?(?=[/_.-])/i)?.[1]);
 }
 
-function qualityPenaltyMs(s: ExtractedStream): number {
+/** 0 = 1080p or better, 1 = 720p (or not known), 2 = 480p, 3 = less. */
+function qualityTier(s: ExtractedStream): number {
   const h = streamHeight(s);
-  if (!h) return UNKNOWN_QUALITY_MS;
-  return QUALITY_PENALTY_MS.find(([min]) => h >= min)?.[1] ?? 0;
-}
-
-/** Below 720p: not picked for its languages or for having worked last time while sharper ones exist. */
-function tooBlurry(s: ExtractedStream): boolean {
-  const h = streamHeight(s);
-  return h !== undefined && h < 720;
+  if (!h) return 1;
+  return h >= 1080 ? 0 : h >= 720 ? 1 : h >= 480 ? 2 : 3;
 }
 
 /**
@@ -635,18 +649,15 @@ function tooBlurry(s: ExtractedStream): boolean {
 export function withExtraLanguages(
   main: ExtractedStream,
   extras: ExtractedStream[],
-  titleLanguage?: string,
-  languagesOnly: (s: ExtractedStream) => boolean = s => s.serverId === 'movierulz'
+  titleLanguage?: string
 ): ExtractedStream {
-  // A main stream without a language list is taken to be in the title's language - unless the
-  // language-only provider has that language itself (an Indian film's single-language stream is
-  // often a dub): then it is just "Default" and the provider's release of it is offered too.
-  const titleName = LANGUAGE_NAMES[(titleLanguage ?? '').toLowerCase().split('-')[0]];
-  const extraHasTitleLanguage = Boolean(titleName) && extras.some(x => languagesOnly(x) && x.audios?.some(a => a.language === titleName));
+  // A main stream without a language list: an English film's is English; for other films it is
+  // "Default", as it may be a dub, and every provider's release of the title's language is offered.
+  const code = (titleLanguage ?? '').toLowerCase().split('-')[0];
   const own = main.audios?.length
     ? main.audios
-    : [titleName && !extraHasTitleLanguage
-      ? { label: titleName, language: titleName, url: main.url }
+    : [code === 'en'
+      ? { label: 'English', language: 'English', url: main.url }
       : { label: 'Default', language: '', url: main.url }];
   const audios = [...own];
   const has = (name: string) => audios.some(a => a.language.toLowerCase() === name.toLowerCase() || a.label.toLowerCase() === name.toLowerCase());
@@ -654,7 +665,8 @@ export function withExtraLanguages(
     const list = extra.audios?.length ? extra.audios : [];
     for (const a of list) {
       if (!a.language || has(a.language)) continue;
-      audios.push({ ...a, headers: a.headers ?? extra.headers });
+      // Offered in the Audio menu only: playback always starts on the main (best) stream.
+      audios.push({ ...a, headers: a.headers ?? extra.headers, otherSource: true });
     }
   }
   return audios.length > own.length ? { ...main, audios } : main;

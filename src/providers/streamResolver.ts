@@ -162,7 +162,8 @@ function attach(key: string, entry: MemoryEntry, signal?: AbortSignal): Promise<
 }
 // v13: Movierulz no longer gives the main stream when others have the title, and streams of the wrong
 // length (another film) are dropped; streams saved before may be either.
-const CACHE_VERSION = 'v13';
+// v14: the main stream is picked by quality first, and playback never starts on another provider's language.
+const CACHE_VERSION = 'v14';
 // How long a ready stream waits for the (optional) external subtitle lookup.
 const SUBTITLE_GRACE_MS = 300;
 const keyOf = (p: StreamParams) => `${CACHE_VERSION}|${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.language ?? ''}|${p.title ?? ''}|${p.preferredServerId ?? ''}`;

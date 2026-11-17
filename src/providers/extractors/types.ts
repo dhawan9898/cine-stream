@@ -21,6 +21,8 @@ export interface AudioVariant {
   qualities?: QualityVariant[];
   /** Request headers when they differ from the main stream's (a language from another provider). */
   headers?: Record<string, string>;
+  /** Another provider's release of the title in this language: a choice, never where playback starts. */
+  otherSource?: boolean;
 }
 
 export interface ExtractedStream {
