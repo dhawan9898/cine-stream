@@ -70,7 +70,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
     private static final long NEXT_EPISODE_THRESHOLD_MS = 20_000;
     private static final long NEXT_EPISODE_COUNTDOWN_MS = 10_000;
     private static final long UNLOCK_HINT_MS = 3_000;
-    private static final float[] PLAYBACK_SPEEDS = {0.5f, 0.75f, 1f, 1.25f, 1.5f};
+    private static final float[] PLAYBACK_SPEEDS = {0.5f, 0.75f, 1f, 1.25f, 1.5f, 1.75f, 2f};
     private static final long PROGRESS_REPORT_INTERVAL_MS = 5_000;
 
     // Larger than ExoPlayer's own defaults (15s/50s/2.5s/5s) - trades a
@@ -182,6 +182,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
     private boolean offlinePlayback = false;
     private TextView btnPip;
     private TextView btnAspectRatio;
+    private TextView btnQuality;
     private int aspectRatioMode = 0; // 0 = Fit, 1 = Crop, 2 = Fill
     private static final String[] ASPECT_RATIO_LABELS = new String[]{"Fit", "Crop", "Fill"};
     private static final int[] ASPECT_RATIO_MODES = new int[]{
@@ -658,6 +659,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
         // Quality choices (when there's a real one) live in the Audio &
         // Subtitles panel, like the rest of Netflix's track selection.
         parseQualities(qualitiesJson, videoUrl);
+        updateQualityButtonText();
         parseAudioVariants(intent.getStringExtra("audios"), videoUrl);
 
         // Markers served alongside the stream (provider) win; AniSkip
@@ -1093,7 +1095,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
         btnEpisodes = findViewById(R.id.btn_episodes);
         btnPip = findViewById(R.id.btn_pip);
         btnAspectRatio = findViewById(R.id.btn_aspect_ratio);
-        for (TextView btn : new TextView[]{btnPip, btnAspectRatio}) {
+        btnQuality = findViewById(R.id.btn_quality);
+        for (TextView btn : new TextView[]{btnPip, btnAspectRatio, btnQuality}) {
             if (btn == null) continue;
             android.graphics.drawable.GradientDrawable bg = new android.graphics.drawable.GradientDrawable();
             bg.setCornerRadius(4f * getResources().getDisplayMetrics().density);
@@ -1183,6 +1186,9 @@ public class ExoPlayerActivity extends AppCompatActivity {
             subtitleView.setBottomPaddingFraction(0.08f);
         }
 
+        // A light dim over the whole picture while the controls show (it fades with them): the
+        // white controls stayed unreadable over bright scenes with only the edge gradients.
+        controlsRoot.setBackgroundColor(Color.argb(80, 0, 0, 0));
         scrimTop.setBackground(edgeScrim(GradientDrawable.Orientation.TOP_BOTTOM));
         scrimBottom.setBackground(edgeScrim(GradientDrawable.Orientation.BOTTOM_TOP));
         // Chrome starts out visible, so start the skip buttons above it.
@@ -1219,7 +1225,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
         if (btnPlayPause != null) btnPlayPause.setPadding(dp(18), dp(18), dp(18), dp(18));
         if (btnBack != null) btnBack.setPadding(dp(8), dp(8), dp(8), dp(8));
         // Pills for the labelled buttons: top bar, bottom action row, skip / credits.
-        for (View v : new View[]{btnPip, btnAspectRatio}) {
+        for (View v : new View[]{btnPip, btnAspectRatio, btnQuality}) {
             if (v == null) continue;
             v.setBackground(glass(false, 22, false));
             v.setPadding(Math.max(v.getPaddingLeft(), dp(14)), Math.max(v.getPaddingTop(), dp(8)), Math.max(v.getPaddingRight(), dp(14)), Math.max(v.getPaddingBottom(), dp(8)));
@@ -1273,7 +1279,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
     }
 
     private GradientDrawable edgeScrim(GradientDrawable.Orientation orientation) {
-        return new GradientDrawable(orientation, new int[]{Color.argb(160, 0, 0, 0), Color.argb(0, 0, 0, 0)});
+        return new GradientDrawable(orientation, new int[]{Color.argb(190, 0, 0, 0), Color.argb(90, 0, 0, 0), Color.argb(0, 0, 0, 0)});
     }
 
     private void readInitialBrightness() {
@@ -1315,6 +1321,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
         btnAudioSubs.setOnClickListener(v -> highlightAction(v, () -> showAudioSubtitlesMenu(v)));
         btnEpisodes.setOnClickListener(v -> highlightAction(v, () -> showEpisodeMenu(v)));
         if (btnAspectRatio != null) btnAspectRatio.setOnClickListener(v -> toggleAspectRatio());
+        if (btnQuality != null) btnQuality.setOnClickListener(this::showQualityMenu);
+        styleQualityButton();
         if (btnPip != null) {
             btnPip.setVisibility(pipSupported() ? View.VISIBLE : View.GONE);
             btnPip.setOnClickListener(v -> enterPip());
@@ -1327,7 +1335,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
             public void onProgressChanged(SeekBar sb, int progress, boolean fromUser) {
                 if (fromUser && player != null && player.getDuration() > 0) {
                     long target = (long) ((progress / 1000.0) * player.getDuration());
-                    textRemainingTime.setText(formatTime(Math.max(player.getDuration() - target, 0)));
+                    textRemainingTime.setText(timeLabel(target, player.getDuration()));
                     updateScrub(progress, target);
                 }
             }
@@ -1570,8 +1578,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
 
     // Netflix's "Audio & Subtitles" screen: side-by-side columns. Audio is
     // the sub/dub choice (re-resolved by JS), Subtitles lists "Off" plus
-    // every track this stream really has, and a Video Quality column
-    // appears only when there's a genuine choice of renditions.
+    // every track this stream really has. Video quality has its own button
+    // (top right), as in AniStream.
     private void showAudioSubtitlesMenu(View anchor) {
         LinearLayout columns = new LinearLayout(this);
         columns.setOrientation(LinearLayout.HORIZONTAL);
@@ -1631,12 +1639,58 @@ public class ExoPlayerActivity extends AppCompatActivity {
         }
         columns.addView(buildOptionColumn("Subtitles", subtitleRows), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
 
-        java.util.List<MenuRow> qualityRows = new java.util.ArrayList<>();
+
+        dialogRef[0] = showPanel(columns, false);
+    }
+
+    // The quality button carries the quality icon beside its label ("Auto", "1080p").
+    private void styleQualityButton() {
+        if (btnQuality == null) return;
+        android.graphics.drawable.Drawable icon = getDrawable(R.drawable.ic_quality);
+        if (icon == null) return;
+        icon = icon.mutate();
+        icon.setTint(Color.WHITE);
+        icon.setBounds(0, 0, dp(16), dp(16));
+        btnQuality.setCompoundDrawablesRelative(icon, null, null, null);
+        btnQuality.setCompoundDrawablePadding(dp(6));
+    }
+
+    // The button shows what is playing: "Auto" while the player picks, else the chosen rendition.
+    private void updateQualityButtonText() {
+        if (btnQuality == null) return;
+        String label = "Auto";
         if (useAdaptiveQualityMenu) {
-            qualityRows.add(new MenuRow("Auto", currentVideoTrackIndex == -1, () -> selectVideoQuality(-1)));
             for (VideoQualityOption option : videoQualityOptions) {
-                qualityRows.add(new MenuRow(option.label, option.trackIndex == currentVideoTrackIndex,
-                        () -> selectVideoQuality(option.trackIndex)));
+                if (option.trackIndex == currentVideoTrackIndex) label = option.label;
+            }
+        } else if (currentQualityLabel != null && !currentQualityLabel.isEmpty()) {
+            label = currentQualityLabel;
+        }
+        btnQuality.setText(label);
+    }
+
+    // Video quality on its own panel (it used to be a column of Audio & Subtitles). Only real choices
+    // are listed; a stream with one rendition says so instead of offering choices that do nothing.
+    private void showQualityMenu(View anchor) {
+        LinearLayout columns = new LinearLayout(this);
+        columns.setOrientation(LinearLayout.HORIZONTAL);
+        columns.setPadding(0, dp(8), dp(40), 0);
+        columns.setGravity(Gravity.CENTER_HORIZONTAL);
+        final Dialog[] dialogRef = new Dialog[1];
+
+        java.util.List<MenuRow> qualityRows = new java.util.ArrayList<>();
+        if (useAdaptiveQualityMenu && !videoQualityOptions.isEmpty()) {
+            qualityRows.add(new MenuRow("Auto", currentVideoTrackIndex == -1, () -> {
+                selectVideoQuality(-1);
+                updateQualityButtonText();
+                if (dialogRef[0] != null) dialogRef[0].dismiss();
+            }));
+            for (VideoQualityOption option : videoQualityOptions) {
+                qualityRows.add(new MenuRow(option.label, option.trackIndex == currentVideoTrackIndex, () -> {
+                    selectVideoQuality(option.trackIndex);
+                    updateQualityButtonText();
+                    if (dialogRef[0] != null) dialogRef[0].dismiss();
+                }));
             }
         } else if (qualityOptions.size() > 1) {
             for (QualityOption option : qualityOptions) {
@@ -1644,17 +1698,15 @@ public class ExoPlayerActivity extends AppCompatActivity {
                     // Rebuilds the player - close the panel first.
                     if (dialogRef[0] != null) dialogRef[0].dismiss();
                     switchQuality(option);
+                    updateQualityButtonText();
                 }));
             }
+        } else {
+            String only = currentQualityLabel != null && !currentQualityLabel.isEmpty() ? currentQualityLabel + " (only quality)" : "Auto (only quality)";
+            qualityRows.add(new MenuRow(only, true, () -> { if (dialogRef[0] != null) dialogRef[0].dismiss(); }));
         }
-        // Always listed, so it is clear where quality is picked; a stream with a single rendition just
-        // shows "Auto" (and any resolution the stream reports) instead of the column vanishing.
-        if (qualityRows.isEmpty()) {
-            String only = currentQualityLabel != null && !currentQualityLabel.isEmpty() ? currentQualityLabel + " (only quality)" : "Auto";
-            qualityRows.add(new MenuRow(only, true, () -> { }));
-        }
-        columns.addView(buildOptionColumn("Video Quality", qualityRows), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
 
+        columns.addView(buildOptionColumn("Video Quality", qualityRows), new LinearLayout.LayoutParams(dp(240), LinearLayout.LayoutParams.MATCH_PARENT));
         dialogRef[0] = showPanel(columns, false);
     }
 
@@ -1813,18 +1865,31 @@ public class ExoPlayerActivity extends AppCompatActivity {
             for (int i = 0; i < group.length; i++) {
                 Format format = group.getTrackFormat(i);
                 n++;
-                String label = format.label;
+                String label = cleanTrackLabel(format.label);
                 if (label == null || label.isEmpty()) {
                     label = format.language != null && !format.language.isEmpty() && !"und".equals(format.language)
                             ? new java.util.Locale(format.language).getDisplayLanguage() : null;
                 }
-                if (label == null || label.isEmpty()) label = format.id != null ? format.id : "Subtitles " + n;
+                if (label == null || label.isEmpty()) label = "Subtitles " + n;
                 String unique = label;
                 for (int k = 2; used.contains(unique); k++) unique = label + " (" + k + ")";
                 used.add(unique);
                 textTracks.add(new TextTrackOption(unique, group.getMediaTrackGroup(), i));
             }
         }
+    }
+
+    // A subtitle name fit to show: release tags ("[AMZN]", "([HIDI])") removed, and null for a name
+    // that is only an id ("0:1/8219") so the language or a plain "Subtitles N" is used instead.
+    static String cleanTrackLabel(String raw) {
+        if (raw == null) return null;
+        String label = raw.replaceAll("\\(\\s*\\[[^\\]]*\\]\\s*\\)", "")
+                .replaceAll("\\[[^\\]]*\\]", "")
+                .replaceAll("\\(\\s*\\)", "")
+                .replaceAll("\\s{2,}", " ")
+                .trim();
+        if (label.isEmpty() || label.matches("[\\d\\s:/._#-]+")) return null;
+        return label;
     }
 
     // Shows the track labelled currentSubtitleLabel and nothing else, or turns
@@ -1912,6 +1977,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
             builder.addOverride(new TrackSelectionOverride(option.group, option.indexInGroup));
         }
         player.setTrackSelectionParameters(builder.build());
+        updateQualityButtonText();
     }
 
     // Checked on every onTracksChanged. Every distinct resolution ExoPlayer
@@ -1940,6 +2006,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
             videoQualityOptions.add(new VideoQualityOption(option.label, videoQualityOptions.size(), option.group, option.indexInGroup));
         }
         useAdaptiveQualityMenu = true;
+        updateQualityButtonText();
     }
 
     // Populates episodeOptions from the "episodes" intent extra - the real
@@ -1987,6 +2054,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
             java.net.HttpURLConnection c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
             c.setConnectTimeout(8000);
             c.setReadTimeout(8000);
+            // Image hosts turn away Android's default "Dalvik" agent more and more.
+            c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36");
             try (java.io.InputStream in = c.getInputStream()) {
                 android.graphics.BitmapFactory.Options o = new android.graphics.BitmapFactory.Options();
                 // Half size: the list shows them at about 136x77 dp.
@@ -1995,9 +2064,13 @@ public class ExoPlayerActivity extends AppCompatActivity {
             } finally {
                 c.disconnect();
             }
-        } catch (Exception | OutOfMemoryError ignored) {
+        } catch (Exception | OutOfMemoryError e) {
+            Log.w(TAG, "Episode thumbnail failed: " + android.net.Uri.parse(url).getHost() + " - " + e);
         }
-        if (bmp == null) return;
+        if (bmp == null) {
+            Log.w(TAG, "Episode thumbnail not decoded: " + android.net.Uri.parse(url).getHost());
+            return;
+        }
         thumbCache.put(url, bmp);
         final android.graphics.Bitmap done = bmp;
         handler.post(() -> {
@@ -2235,6 +2308,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
         player.release();
         player = null;
         initializePlayer(variant.url, pendingReferer, pendingSubtitlesJson, resumePosition, wasPlaying);
+        updateQualityButtonText();
     }
 
     private void parseAudioVariants(String audiosJson, String currentUrl) {
@@ -2927,10 +3001,13 @@ public class ExoPlayerActivity extends AppCompatActivity {
         long position = Math.max(player.getCurrentPosition(), 0);
         if (position > 0) lastKnownPositionMs = position;
         checkStall();
+        // A stall recovery rebuilds the player or moves to another server, releasing this one: the
+        // rest of this tick must not touch it (that was a crash on player.getBufferedPercentage()).
+        if (player == null || awaitingStream) return;
         if (duration > 0) {
             seekBar.setProgress((int) ((position * 1000) / duration));
             seekBar.setSecondaryProgress(player.getBufferedPercentage() * 10);
-            textRemainingTime.setText(formatTime(Math.max(duration - position, 0)));
+            textRemainingTime.setText(timeLabel(position, duration));
         }
 
         boolean shouldShowIntro = introInterval != null
@@ -3033,6 +3110,11 @@ public class ExoPlayerActivity extends AppCompatActivity {
         return null;
     }
 
+    // "12:03 / 23:16": how far in, and how long the whole is.
+    private String timeLabel(long position, long duration) {
+        return formatTime(Math.max(position, 0)) + " / " + formatTime(Math.max(duration, 0));
+    }
+
     // Netflix shows remaining time as m:ss (or h:mm:ss for long videos).
     private String formatTime(long ms) {
         long totalSeconds = ms / 1000;
@@ -3077,6 +3159,19 @@ public class ExoPlayerActivity extends AppCompatActivity {
         }
         postPlayContainer.animate().cancel();
         postPlayContainer.animate().translationY(visible ? -dp(84) : 0f).setDuration(220).start();
+        liftSubtitles(visible);
+    }
+
+    // While the controls show, subtitles sit above the seek bar and buttons instead of on top of them.
+    private void liftExtraSubtitles(int bottom) { }
+
+    private void liftSubtitles(boolean controlsShown) {
+        // The subtitle area is shortened from the bottom rather than given a bottom margin: subtitle
+        // files place most lines at an explicit "last line" position, which the margin does not move.
+        int bottom = controlsShown ? dp(104) : 0;
+        SubtitleView view = playerView != null ? playerView.getSubtitleView() : null;
+        if (view != null) view.setPadding(0, 0, 0, bottom);
+        liftExtraSubtitles(bottom);
     }
 
     private boolean controlsVisible() {

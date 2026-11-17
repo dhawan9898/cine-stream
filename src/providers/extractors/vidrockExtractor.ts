@@ -2,7 +2,7 @@
 // GET vidrock.net/api/movie/<tmdb> | tv/<tmdb>/<s>/<e> answers { <lane>: { url: <AES-256-GCM, base64url(iv|ct)>, language, type } };
 // each lane's url decrypts with a fixed key to an HLS master (or a JSON list of renditions).
 import { BaseExtractor } from './baseExtractor.ts';
-import type { ExtractedStream, QualityVariant, SourceManifest, ExtractParams } from './types.ts';
+import type { AudioVariant, ExtractedStream, QualityVariant, SourceManifest, ExtractParams } from './types.ts';
 import { KUNAI_UA, base64UrlToBytes, firstSuccess, formatOf, qualityRank } from './kunaiCommon.ts';
 import { LANGUAGE_NAMES } from './variantDiscovery.ts';
 
@@ -57,19 +57,21 @@ export class VidRockExtractor extends BaseExtractor {
 
     if (decrypted.length === 0) return null;
 
-    // Prioritize language matching params.language if present (e.g. 'te' -> 'Telugu', 'ta' -> 'Tamil')
-    const targetLang = (language || '').toLowerCase();
-    const wantedName = targetLang ? LANGUAGE_NAMES[targetLang]?.toLowerCase() : undefined;
-    if (wantedName) {
-      decrypted.sort((a, b) => {
-        const aMatch = (a.lane.language || '').toLowerCase() === wantedName ? 1 : 0;
-        const bMatch = (b.lane.language || '').toLowerCase() === wantedName ? 1 : 0;
-        return bMatch - aMatch;
-      });
+    // Lanes come in several languages (Interstellar: two English, two Tamil). Racing them all and
+    // playing whichever answered first made the language a coin toss. Each language is resolved on
+    // its own: the title's language plays, the others are offered under Audio.
+    const nameOf = (lane: Lane) => {
+      const l = (lane.language ?? '').trim();
+      return l ? l[0].toUpperCase() + l.slice(1).toLowerCase() : '';
+    };
+    const wantedName = LANGUAGE_NAMES[(language || '').toLowerCase().split('-')[0]] ?? '';
+    const byLanguage = new Map<string, Array<{ lane: Lane; url: string }>>();
+    for (const d of decrypted.slice(0, MAX_LANES)) {
+      const name = nameOf(d.lane);
+      byLanguage.set(name, [...(byLanguage.get(name) ?? []), d]);
     }
 
-    const lanesToProbe = decrypted.slice(0, MAX_LANES);
-    return firstSuccess(lanesToProbe.map(async ({ lane, url }): Promise<ExtractedStream | null> => {
+    const resolveLane = async ({ lane, url }: { lane: Lane; url: string }): Promise<ExtractedStream | null> => {
       let found: ExtractedStream | null = null;
       if (url.includes('/playlist/')) {
         // A JSON list of renditions: [{ url, resolution }]
@@ -86,6 +88,20 @@ export class VidRockExtractor extends BaseExtractor {
         found = { url, format: formatOf(url, lane.type), headers, serverId: this.id, serverName: this.name };
       }
       return (await this.probe(found, signal)) ? found : null;
-    }));
+    };
+
+    // Every language at once (each its first working lane), so this takes no longer than before.
+    const languages = [...byLanguage.keys()];
+    const results = await Promise.all(languages.map(name => firstSuccess(byLanguage.get(name)!.map(resolveLane))));
+    const working = languages.map((name, i) => ({ name, stream: results[i] })).filter((w): w is { name: string; stream: ExtractedStream } => w.stream !== null);
+    if (working.length === 0) return null;
+
+    // The title's own language first, then English, then a labelled lane over an unlabelled one.
+    const rank = (name: string) => (name && name === wantedName ? 0 : name === 'English' ? 1 : name ? 2 : 3);
+    working.sort((a, b) => rank(a.name) - rank(b.name));
+    const primary = working[0].stream;
+    const labelled = working.filter(w => w.name);
+    const audios: AudioVariant[] = labelled.map(w => ({ label: w.name, language: w.name, url: w.stream.url, qualities: w.stream.qualities }));
+    return { ...primary, audios: audios.length > 1 ? audios : undefined };
   }
 }

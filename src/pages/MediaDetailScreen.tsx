@@ -247,7 +247,7 @@ export const MediaDetailScreen: React.FC<MediaDetailScreenProps> = ({ media, onB
         <button
           onClick={() => { hapticMedium(); handlePlay(); }}
           className="interactive"
-          style={{ width: '100%', padding: '13px', borderRadius: 'var(--radius-md)', background: '#ffffff', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#000000', fontSize: '15px', fontWeight: 800, marginBottom: '12px', boxShadow: '0 8px 24px rgba(255, 255, 255, 0.18)' }}
+          style={{ width: '100%', padding: '13px', borderRadius: 'var(--radius-md)', background: '#ffffff', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', color: '#000000', fontSize: '15px', fontWeight: 800, marginBottom: '12px', boxShadow: '0 8px 24px rgba(255, 255, 255, 0.18)', position: 'relative', zIndex: 2 }}
         >
           <Play size={20} fill="#000" />
           <span>{playLabel}</span>

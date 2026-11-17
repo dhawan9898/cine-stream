@@ -1,7 +1,8 @@
 // extractorRegistry.ts - Central registry for real title-specific stream extractors
+import { LANGUAGE_NAMES } from './variantDiscovery.ts';
 import { reportError } from '../../services/errorReporter.ts';
 import type { StreamExtractor, ExtractedStream, ExtractParams } from './types.ts';
-import { isCheap, manifestOf, priorMs, strongFor, trustRank } from './manifest.ts';
+import { isCheap, manifestOf, priorMs, strongFor, strongForLanguage, trustRank } from './manifest.ts';
 import { markBackground } from './hostLimiter.ts';
 import { FlixHQSource } from '../sources/flixhq.ts';
 import { JellyfinSource } from '../sources/jellyfin.ts';
@@ -40,6 +41,10 @@ const LAST_GOOD_HEAD_START_MS = 1200;
 const CHEAP_HEAD_START_MIN_MS = 800;
 const CHEAP_HEAD_START_MAX_MS = 3500;
 const EARLY_EXIT_GRACE_MS = 250;
+// A title in a language some provider is strong for (Telugu, Tamil, Hindi... films on Movierulz): the
+// race waits this long from its start for that provider before settling for a faster stream. The
+// fast providers usually have one language only, so without the wait the Audio menu never appears.
+const STRONG_PROVIDER_WAIT_MS = 7000;
 const HEALTH_KEY = 'cinestream_provider_stats_v2';
 const FAILS_BEFORE_COOLDOWN = 3;
 const COOLDOWN_MS = 10 * 60 * 1000;
@@ -218,7 +223,11 @@ export class ExtractorRegistry {
     const cheap = active.filter(e => isCheap(e));
     const useTier = !params.preferredServerId && !useLastGood && cheap.length > 0 && cheap.length < active.length;
     const useHeadStart = useLastGood || useTier;
-    const headIds = new Set(useLastGood ? [goodId as string] : useTier ? cheap.map(e => e.id) : []);
+    // Providers strong for the title's language (they have its other language releases) start at
+    // once and are waited for (see STRONG_PROVIDER_WAIT_MS), unless the user picked a server.
+    const strongIds = new Set(params.preferredServerId ? [] : active.filter(e => strongForLanguage(e, params)).map(e => e.id));
+    let strongPending = strongIds.size;
+    const headIds = new Set([...(useLastGood ? [goodId as string] : useTier ? cheap.map(e => e.id) : []), ...(useHeadStart ? strongIds : [])]);
     const headStartMs = useLastGood ? LAST_GOOD_HEAD_START_MS : this.cheapHeadStartMs(cheap, params);
     const raceList = useHeadStart
       ? [...active.filter(e => headIds.has(e.id)), ...active.filter(e => !headIds.has(e.id))]
@@ -242,6 +251,7 @@ export class ExtractorRegistry {
       let othersStarted = !useHeadStart;
       let done = false;
       let grace: ReturnType<typeof setTimeout> | undefined;
+      let strongTimer: ReturnType<typeof setTimeout> | undefined;
       let deadline: ReturnType<typeof setTimeout> | undefined;
 
       const abortController = new AbortController();
@@ -256,6 +266,7 @@ export class ExtractorRegistry {
         external?.removeEventListener('abort', onExternalAbort);
         abortController.abort();
         if (grace) clearTimeout(grace);
+        if (strongTimer) clearTimeout(strongTimer);
         if (deadline) clearTimeout(deadline);
         if (hedgeTimer) clearTimeout(hedgeTimer);
         if (headStartTimer) clearTimeout(headStartTimer);
@@ -287,6 +298,16 @@ export class ExtractorRegistry {
         if (params.preferredServerId) {
           const hasPreferred = found.some(s => s.serverId === params.preferredServerId);
           if (!hasPreferred) return;
+        }
+        // A faster stream is here, but the provider with this title's other languages is still at
+        // work: give it until STRONG_PROVIDER_WAIT_MS from the start.
+        const strongHasStream = found.some(s => !s.isFallbackEmbed && strongIds.has(s.serverId ?? ''));
+        if (strongPending > 0 && !strongHasStream) {
+          const wait = STRONG_PROVIDER_WAIT_MS - (Date.now() - lookupStart);
+          if (wait > 0) {
+            if (!strongTimer) strongTimer = setTimeout(finish, wait);
+            return;
+          }
         }
         if (!grace) grace = setTimeout(finish, EARLY_EXIT_GRACE_MS);
       };
@@ -402,6 +423,11 @@ export class ExtractorRegistry {
           })
           .finally(() => {
             pendingExtract--;
+            if (strongIds.has(extractor.id)) {
+              strongPending--;
+              // It answered (with or without a stream): nothing more to wait for if one is in hand.
+              if (found.some(s => !s.isFallbackEmbed)) finishSoon();
+            }
             pump();
             maybeFinish();
           });
@@ -476,6 +502,14 @@ export class ExtractorRegistry {
       const preferred = all.find(s => s.serverId === params.preferredServerId);
       if (preferred) return preferred;
     }
+
+    // A stream that comes with the title's other languages beats a faster one with a single
+    // language, and the provider remembered from last time - first one that has the title's own
+    // language among them (the player starts in it), then any.
+    const wanted = LANGUAGE_NAMES[(params.language ?? '').toLowerCase().split('-')[0]];
+    const choices = all.filter(s => (s.audios?.length ?? 0) > 1);
+    const withOwnLanguage = wanted ? choices.find(s => s.audios!.some(a => a.language === wanted || a.label === wanted)) : undefined;
+    if (withOwnLanguage ?? choices[0]) return withOwnLanguage ?? choices[0];
 
     const goodId = this.lastGood.get(`${params.type}:${params.id}`);
     if (goodId) {

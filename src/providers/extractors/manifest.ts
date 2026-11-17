@@ -33,6 +33,15 @@ export function trustRank(e: Pick<StreamExtractor, 'manifest'>): number {
   return TRUST_RANK[manifestOf(e).trust ?? 'scraper'];
 }
 
+/**
+ * Whether the provider declared itself strong for this title's original language (Movierulz for
+ * Telugu, Tamil, Hindi... films): it has the original audio and the other language releases.
+ */
+export function strongForLanguage(e: Pick<StreamExtractor, 'manifest'>, title: { language?: string }): boolean {
+  const lang = (title.language ?? '').toLowerCase().split('-')[0];
+  return Boolean(lang && manifestOf(e).strongFor?.languages?.includes(lang));
+}
+
 /** Whether the provider declared itself strong for this title (its kind or original language). */
 export function strongFor(e: Pick<StreamExtractor, 'manifest'>, title: { type: 'movie' | 'tv'; language?: string }): boolean {
   const s = manifestOf(e).strongFor;

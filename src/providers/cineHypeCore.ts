@@ -530,9 +530,24 @@ export async function searchMedia(query: string, page = 1): Promise<MediaItem[]>
     include_adult: false
   });
 
-  return data.results
+  const results = data.results
     .filter(i => (i.media_type === 'movie' || i.media_type === 'tv') && (i.poster_path || i.backdrop_path))
     .map(i => mapRawToMedia(i, i.media_type === 'tv' ? 'tv' : 'movie'));
+  return rankSearchResults(results, clean);
+}
+
+/**
+ * Titles people know first, in TMDB's order; unknown ones after them; and titles nobody has rated
+ * at all only when their name is what was typed. A search used to mix obscure uploads (some with
+ * suggestive posters) in between the real results.
+ */
+export function rankSearchResults(items: MediaItem[], query: string): MediaItem[] {
+  const norm = (t: string) => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+  const q = norm(query);
+  // No vote count at all (not reported): left where TMDB put it.
+  const votes = (m: MediaItem) => m.voteCount ?? 10;
+  const kept = items.filter(m => votes(m) > 0 || norm(m.title) === q);
+  return [...kept.filter(m => votes(m) >= 10), ...kept.filter(m => votes(m) < 10)];
 }
 
 // 8. Unified discover: any mix of genre(s), language and type in one call.

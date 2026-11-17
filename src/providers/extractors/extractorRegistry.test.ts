@@ -229,3 +229,53 @@ test('an already aborted signal starts nothing', async () => {
   assert.deepEqual(await reg.resolveAllStreams({ ...params, signal: ctl.signal }), []);
   assert.equal(e.calls, 0);
 });
+
+// Strong for Telugu like Movierulz: slower, but has the other language releases.
+const regional = (run: () => Promise<ExtractedStream | null>) => Object.assign(fake('regional', run), {
+  manifest: { idKind: 'search' as const, costHint: 'multi-hop' as const, priorMs: 5000, strongFor: { languages: ['te', 'hi'] } }
+});
+const withAudios = (url: string): ExtractedStream => ({
+  url, format: 'hls', audios: [{ label: 'Telugu', language: 'Telugu', url }, { label: 'Hindi', language: 'Hindi', url: url + '?hi' }]
+});
+
+test('a Telugu title waits for the provider with its other languages and plays that stream', async () => {
+  const reg = new ExtractorRegistry(false);
+  const fast = fake('fast', () => delay(10, direct('https://fast/a.m3u8')));
+  const slow = regional(() => delay(400, withAudios('https://regional/te.m3u8')));
+  reg.register(fast); reg.register(slow);
+  const all = await reg.resolveAllStreams({ ...params, language: 'te' });
+  const best = await reg.resolveBestStream({ ...params, language: 'te' }, all);
+  assert.equal(best?.serverId, 'regional');
+  assert.equal(best?.audios?.length, 2);
+});
+
+test('the wait ends as soon as that provider comes up empty', async () => {
+  const reg = new ExtractorRegistry(false);
+  reg.register(fake('fast', () => delay(10, direct('https://fast/a.m3u8'))));
+  reg.register(regional(() => delay(300, null)));
+  const t0 = Date.now();
+  const out = await reg.resolveAllStreams({ ...params, language: 'te', id: 2 });
+  assert.ok(Date.now() - t0 < 1500, `took ${Date.now() - t0}ms`);
+  assert.equal(out[0].serverId, 'fast');
+});
+
+test('titles in other languages do not wait for it', async () => {
+  const reg = new ExtractorRegistry(false);
+  reg.register(fake('fast', () => delay(10, direct('https://fast/a.m3u8'))));
+  reg.register(regional(() => delay(3000, withAudios('https://regional/x.m3u8'))));
+  const t0 = Date.now();
+  const out = await reg.resolveAllStreams({ ...params, language: 'en', id: 3 });
+  assert.ok(Date.now() - t0 < 1500, `took ${Date.now() - t0}ms`);
+  assert.equal(out[0].serverId, 'fast');
+});
+
+test('a remembered single-language provider does not hide the other languages', async () => {
+  const reg = new ExtractorRegistry(false);
+  const fast = fake('fast', () => delay(10, direct('https://fast/a.m3u8')));
+  reg.register(fast);
+  await reg.resolveAllStreams({ ...params, language: 'te', id: 4 });
+  reg.register(regional(() => delay(200, withAudios('https://regional/te.m3u8'))));
+  const all = await reg.resolveAllStreams({ ...params, language: 'te', id: 4 });
+  const best = await reg.resolveBestStream({ ...params, language: 'te', id: 4 }, all);
+  assert.equal(best?.serverId, 'regional');
+});

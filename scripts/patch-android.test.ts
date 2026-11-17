@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 // @ts-expect-error plain .mjs build script without type declarations
-import { patchManifest, patchGradle, patchGradleProperties } from './patch-android.mjs';
+import { patchManifest, patchGradle, patchGradleProperties, patchStyles } from './patch-android.mjs';
 
 const manifest = '<manifest>\n    <application>\n        <activity android:name=".MainActivity" />\n    </application>\n</manifest>';
 const gradle = 'android {\n  defaultConfig {\n    versionCode 1\n    versionName "1.0"\n  }\n}\n';
@@ -49,4 +49,12 @@ test('gradle.properties tuning is appended once', () => {
   const once = patchGradleProperties('android.useAndroidX=true\n');
   assert.equal(patchGradleProperties(once), once);
   assert.match(once, /org\.gradle\.caching=true/);
+});
+
+test('the app theme gets the dark background, once', () => {
+  const styles = '<resources>\n    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">\n        <item name="windowActionBar">false</item>\n    </style>\n</resources>';
+  const once = patchStyles(styles);
+  assert.match(once, /AppTheme\.NoActionBar[^>]*>\s*<item name="android:windowBackground">@color\/app_background<\/item>/);
+  assert.equal(patchStyles(once), once);
+  assert.throws(() => patchStyles('<resources></resources>'), /AppTheme\.NoActionBar not found/);
 });

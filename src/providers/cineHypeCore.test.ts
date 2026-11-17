@@ -72,3 +72,10 @@ test('posterSrcSet offers w185/w342/w500 for TMDB posters and leaves other URLs 
   assert.deepEqual(core.posterSrcSet('https://example.com/p.jpg'), { src: 'https://example.com/p.jpg' });
   assert.deepEqual(core.posterSrcSet(''), { src: '' });
 });
+
+test('search: known titles first, unrated ones only when they are what was typed', async () => {
+  const { rankSearchResults } = await import('./cineHypeCore.ts');
+  const m = (title: string, voteCount: number) => ({ id: title.length, title, voteCount }) as unknown as import('./cineHypeCore.ts').MediaItem;
+  const out = rankSearchResults([m('Interstellar Wanderer', 3), m('Interstellar', 38000), m('Lolita from Interstellar Space', 0), m('Interstellar', 0), m('Inside Interstellar', 40)], 'interstellar');
+  assert.deepEqual(out.map(x => `${x.title}:${x.voteCount}`), ['Interstellar:38000', 'Inside Interstellar:40', 'Interstellar Wanderer:3', 'Interstellar:0']);
+});

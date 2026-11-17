@@ -156,7 +156,8 @@ function attach(key: string, entry: MemoryEntry, signal?: AbortSignal): Promise<
     );
   });
 }
-const CACHE_VERSION = 'v11';
+// v12: titles in a language Movierulz is strong for were saved with a faster single-language stream.
+const CACHE_VERSION = 'v12';
 // How long a ready stream waits for the (optional) external subtitle lookup.
 const SUBTITLE_GRACE_MS = 300;
 const keyOf = (p: StreamParams) => `${CACHE_VERSION}|${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.language ?? ''}|${p.title ?? ''}|${p.preferredServerId ?? ''}`;

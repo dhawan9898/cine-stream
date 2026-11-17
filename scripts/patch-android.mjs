@@ -56,6 +56,20 @@ export function patchManifest(xml) {
   return out;
 }
 
+/**
+ * The app theme gets the app's dark background: Capacitor paints the window (what shows behind the
+ * status and navigation bars) with the theme's windowBackground, white on phones in light mode.
+ */
+export function patchStyles(xml) {
+  if (xml.includes('@color/app_background')) return xml;
+  const theme = /(<style name="AppTheme\.NoActionBar"[^>]*>)/;
+  if (!theme.test(xml)) throw new Error('AppTheme.NoActionBar not found in styles.xml');
+  return xml.replace(theme, `$1
+        <item name="android:windowBackground">@color/app_background</item>
+        <item name="android:statusBarColor">@color/app_background</item>
+        <item name="android:navigationBarColor">@color/app_background</item>`);
+}
+
 export function patchGradle(gradle, version, versionCode) {
   let out = gradle;
   const codeRe = /versionCode\s+\d+/;
@@ -105,6 +119,9 @@ function main() {
 
   const manifestPath = join(root, 'app/src/main/AndroidManifest.xml');
   writeFileSync(manifestPath, patchManifest(readFileSync(manifestPath, 'utf8')));
+
+  const stylesPath = join(root, 'app/src/main/res/values/styles.xml');
+  writeFileSync(stylesPath, patchStyles(readFileSync(stylesPath, 'utf8')));
 
   const gradlePath = join(root, 'app/build.gradle');
   writeFileSync(gradlePath, patchGradle(readFileSync(gradlePath, 'utf8'), version, versionCode));

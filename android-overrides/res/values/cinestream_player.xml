@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- The app's dark background (CSS bg-main), also behind the status and navigation bars
+         (patch-android.mjs puts it in the app theme). -->
+    <color name="app_background">#0B0B0D</color>
 
     <!-- Native player window: opaque black, fullscreen, fades in/out. -->
     <style name="Theme.CineStream.Player" parent="Theme.AppCompat.NoActionBar">

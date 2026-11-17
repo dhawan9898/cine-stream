@@ -462,7 +462,8 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  padding: 24px 20px 28px 20px;
+  /* Room below the buttons for the page dots (they sat on the bottom edge of Play / Watch Now). */
+  padding: 24px 20px 46px 20px;
   background: linear-gradient(180deg, rgba(11, 11, 14, 0.05) 0%, rgba(11, 11, 14, 0.35) 45%, rgba(11, 11, 14, 0.95) 92%);
   border-radius: var(--radius-lg);
   pointer-events: none;
@@ -764,13 +765,15 @@ body {
 
 .top10-num {
   font-size: 84px;
-  font-weight: 900;
+  /* 800 is the heaviest Outfit weight bundled (900 was faked by the browser). No text outline: the
+     WebView strokes every contour of the glyph, which cut lines through the digits (the "1" looked
+     like an "ï"). A tight dark shadow keeps the white digit readable over the poster instead. */
+  font-weight: 800;
   line-height: 0.8;
-  letter-spacing: -6px;
+  letter-spacing: -2px;
   margin-right: -16px;
   color: #fff;
-  -webkit-text-stroke: 3px #000;
-  text-shadow: 0 4px 14px rgba(0,0,0,0.85);
+  text-shadow: 0 0 2px rgba(0, 0, 0, 0.95), 0 0 6px rgba(0, 0, 0, 0.7), 0 4px 14px rgba(0, 0, 0, 0.85);
   position: relative;
   z-index: 2;
   pointer-events: none;
