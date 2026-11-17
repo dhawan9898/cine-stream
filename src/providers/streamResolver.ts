@@ -1,6 +1,6 @@
 // streamResolver.ts - Background multi-source stream resolution engine for exact TMDB titles
 import { Capacitor } from '@capacitor/core';
-import type { MediaType } from './cineHypeCore.ts';
+import { getMediaDetails, type MediaType } from './cineHypeCore.ts';
 import {
   getLiveStream, getStreamRecord, markStreamChecked, markStreamDead, putStream, streamStoreReady, updateStreamValue, type StreamRecord
 } from './streamStore.ts';
@@ -11,6 +11,10 @@ import { Priority, StreamScheduler } from './streamScheduler.ts';
 import { recordTiming } from './streamTimings.ts';
 import { checkLink } from './streamRevalidator.ts';
 import { speculationAllowed } from './speculation.ts';
+
+// The film's runtime lets the registry tell a stream of another title by its length. The details are
+// usually cached already (the title page loaded them).
+extractorRegistry.setRuntimeLookup(id => getMediaDetails(id, 'movie').then(d => (d.runtime && d.runtime > 0 ? d.runtime : undefined)));
 
 export { Priority };
 
@@ -156,8 +160,9 @@ function attach(key: string, entry: MemoryEntry, signal?: AbortSignal): Promise<
     );
   });
 }
-// v12: titles in a language Movierulz is strong for were saved with a faster single-language stream.
-const CACHE_VERSION = 'v12';
+// v13: Movierulz no longer gives the main stream when others have the title, and streams of the wrong
+// length (another film) are dropped; streams saved before may be either.
+const CACHE_VERSION = 'v13';
 // How long a ready stream waits for the (optional) external subtitle lookup.
 const SUBTITLE_GRACE_MS = 300;
 const keyOf = (p: StreamParams) => `${CACHE_VERSION}|${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.language ?? ''}|${p.title ?? ''}|${p.preferredServerId ?? ''}`;

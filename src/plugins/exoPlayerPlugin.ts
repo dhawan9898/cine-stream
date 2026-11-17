@@ -16,6 +16,7 @@ export interface QualityOption {
 export interface AudioOption {
   label: string;
   url: string;
+  headers?: Record<string, string>;
   qualities?: QualityOption[];
 }
 

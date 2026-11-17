@@ -280,7 +280,10 @@ test('planner: Kunai first, then the provider that suits the title (kind / origi
   const mk = (id: string) => ({ url: `https://cdn.test/${id}.m3u8`, format: 'hls' as const, serverId: id });
   assert.equal((await reg.resolveBestStream({ id: 30, type: 'movie' }, [mk('vega'), mk('rivestream'), mk('flixhq')]))?.serverId, 'rivestream');
   assert.equal((await reg.resolveBestStream({ id: 31, type: 'movie', language: 'en' }, [mk('movierulz'), mk('vega')]))?.serverId, 'vega');
-  assert.equal((await reg.resolveBestStream({ id: 32, type: 'movie', language: 'te' }, [mk('vega'), mk('movierulz')]))?.serverId, 'movierulz');
+  // Movierulz only adds languages: the main stream comes from anyone else who has the title...
+  assert.equal((await reg.resolveBestStream({ id: 32, type: 'movie', language: 'te' }, [mk('vega'), mk('movierulz')]))?.serverId, 'vega');
+  // ...and it is the main stream only when nobody else has it.
+  assert.equal((await reg.resolveBestStream({ id: 34, type: 'movie', language: 'te' }, [mk('movierulz')]))?.serverId, 'movierulz');
   assert.equal((await reg.resolveBestStream({ id: 33, type: 'tv' }, [mk('vega'), mk('flixeo')]))?.serverId, 'flixeo');
 });
 

@@ -38,8 +38,9 @@ export class MovierulzExtractor extends BaseExtractor {
   mainUrl = 'https://www.5movierulz.dentist';
   // Older addresses forward to the current one.
   private mirrors = ['https://www.5movierulz.gratis', 'https://5movierulz.voto', 'https://www.5movierulz.camera'];
-  // Indian-language catalog found by title (several page loads): ranked ahead for those titles only.
-  manifest = { idKind: 'search', costHint: 'multi-hop', priorMs: 5000, strongFor: { languages: ['te', 'hi', 'ta', 'ml', 'kn', 'pa', 'bn'] }, trust: 'scraper' } satisfies SourceManifest;
+  // Indian-language catalog found by title (several page loads): waited for on those titles, for their
+  // other languages; the main stream comes from the other providers when they have the title.
+  manifest = { idKind: 'search', costHint: 'multi-hop', priorMs: 5000, strongFor: { languages: ['te', 'hi', 'ta', 'ml', 'kn', 'pa', 'bn'] }, trust: 'scraper', languagesOnly: true } satisfies SourceManifest;
 
   private origin: Promise<string | null> | null = null;
   private listings = new Map<string, Promise<Release[]>>();

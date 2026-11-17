@@ -1,6 +1,8 @@
-// SettingsScreen.tsx - Appearance, haptics, playback and data settings.
+// SettingsScreen.tsx - Laid out like AniStream's and Mangapill's: Appearance, Playback, Sources,
+// Downloads, Haptic Feedback, Data, About (with updates and stream diagnostics).
 import React, { useState, useEffect, useRef } from 'react';
-import { SkipForward, Gauge, Trash2, Database, Vibrate, Droplets, Zap, Bookmark, ChevronRight, ChevronDown, Server, KeyRound, RefreshCw, DownloadCloud, Bug, Upload, Download } from 'lucide-react';
+import { SkipForward, Gauge, Database, Vibrate, Droplets, Zap, Bookmark, ChevronRight, ChevronDown, Server, KeyRound, RefreshCw, DownloadCloud, Bug, Upload, Download, Clock, Captions, AudioLines, Film, Info, Activity } from 'lucide-react';
+import { SettingsSection, SettingsRow, ChoiceRow, Switch, RowValue, SettingsNote, UpdateRows } from 'streamkit/ui/Settings.tsx';
 import { JellyfinSource } from '../providers/sources/jellyfin.ts';
 import { CategoryPicker } from 'streamkit/ui/CategoryPicker.tsx';
 import { clearWatchHistory, clearBookmarks, getBookmarks, getUserPreferences, saveUserPreferences, getWatchHistory, exportBackup, importBackup } from '../services/historyService.ts';
@@ -14,7 +16,7 @@ import { clearTimings, formatTimingReport, summarize } from '../providers/stream
 import { ConfirmModal } from 'streamkit/ui/ConfirmModal.tsx';
 import { getGlassStyle, setGlassStyle } from '../services/glassService.ts';
 import { getHapticSettings, saveHapticSettings, hapticLight, hapticMedium, hapticSelection, hapticToggle, type HapticIntensity } from '../services/hapticsService.ts';
-import { checkForUpdate, installUpdate, type UpdateInfo } from '../services/updateService.ts';
+import { checkForUpdate, installUpdate } from '../services/updateService.ts';
 
 const THEMES: { id: Theme; label: string }[] = [
   { id: 'dark', label: 'Dark' },
@@ -23,27 +25,33 @@ const THEMES: { id: Theme; label: string }[] = [
   { id: 'light', label: 'Light' }
 ];
 
+const QUALITIES = [
+  { id: 'Auto', label: 'Auto' }, { id: '1080p', label: '1080p' }, { id: '720p', label: '720p' }, { id: '480p', label: '480p' }
+] as const;
+const DOWNLOAD_QUALITIES = [{ id: '1080', label: '1080p' }, { id: '720', label: '720p' }, { id: '480', label: '480p' }] as const;
+const HAPTIC_LEVELS: readonly { id: HapticIntensity; label: string }[] = [
+  { id: 'low', label: 'Low' }, { id: 'medium', label: 'Medium' }, { id: 'high', label: 'High' }
+];
+
 const PLAYBACK_LANGS: { code: string; label: string }[] = [
   { code: 'en', label: 'English' }, { code: 'hi', label: 'Hindi' }, { code: 'te', label: 'Telugu' },
   { code: 'ta', label: 'Tamil' }, { code: 'ml', label: 'Malayalam' }, { code: 'kn', label: 'Kannada' }
 ];
 
-// One row per language setting: its current value, tapping opens the list. (These used to be two
-// long rows of language chips.)
-const LangRow: React.FC<{ title: string; hint: string; offLabel: string; value: string; onChange: (code: string) => void }> = ({ title, hint, offLabel, value, onChange }) => {
+// One row per language setting: its current value; tapping opens the list.
+const LangRow: React.FC<{ icon: React.ReactNode; title: string; hint: string; offLabel: string; value: string; onChange: (code: string) => void }> = ({ icon, title, hint, offLabel, value, onChange }) => {
   const [open, setOpen] = useState(false);
   const options = [{ code: '', label: offLabel }, ...PLAYBACK_LANGS];
   const current = options.find(o => o.code === value)?.label ?? offLabel;
   return (
     <>
-      <div onClick={() => { hapticLight(); setOpen(true); }} className="interactive" role="button" style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 16px' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>{title}</h4>
-          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{hint}</p>
-        </div>
-        <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>{current}</span>
-        <ChevronRight size={16} color="var(--text-muted)" />
-      </div>
+      <SettingsRow
+        icon={icon}
+        title={title}
+        hint={hint}
+        onClick={() => { hapticLight(); setOpen(true); }}
+        trailing={<><RowValue>{current}</RowValue><ChevronRight size={16} color="var(--text-muted)" /></>}
+      />
       <CategoryPicker
         open={open}
         presentation="card"
@@ -56,36 +64,6 @@ const LangRow: React.FC<{ title: string; hint: string; offLabel: string; value: 
     </>
   );
 };
-
-const IconBox: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div style={{ width: '38px', height: '38px', borderRadius: 'var(--radius-sm)', background: 'rgba(229, 9, 20, 0.14)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-primary)', flexShrink: 0 }}>
-    {children}
-  </div>
-);
-
-const SectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <h2 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '10px' }}>
-    {children}
-  </h2>
-);
-
-const Row: React.FC<{
-  icon: React.ReactNode;
-  title: string;
-  text: string;
-  onClick: () => void;
-  trailing: React.ReactNode;
-  danger?: boolean;
-}> = ({ icon, title, text, onClick, trailing, danger }) => (
-  <div onClick={() => { hapticLight(); onClick(); }} className="interactive" style={{ display: 'flex', alignItems: 'center', gap: '14px', padding: '14px 16px' }}>
-    <IconBox>{icon}</IconBox>
-    <div style={{ flex: 1, minWidth: 0 }}>
-      <h4 style={{ fontSize: '14px', fontWeight: 700, color: danger ? 'var(--accent-danger)' : 'var(--text-primary)' }}>{title}</h4>
-      <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{text}</p>
-    </div>
-    {trailing}
-  </div>
-);
 
 export const SettingsScreen: React.FC = () => {
   const [prefs, setPrefs] = useState(getUserPreferences());
@@ -100,36 +78,11 @@ export const SettingsScreen: React.FC = () => {
   const [timings, setTimings] = useState(() => summarize());
   const [reportCopied, setReportCopied] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [showJellyfin, setShowJellyfin] = useState(false);
   const [jfUrl, setJfUrl] = useState(() => getUserPreferences().jellyfinUrl ?? '');
   const [jfKey, setJfKey] = useState(() => getUserPreferences().jellyfinApiKey ?? '');
   const [jfStatus, setJfStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [jfTesting, setJfTesting] = useState(false);
-
-  // In-app updater
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
-  const [updateChecking, setUpdateChecking] = useState(false);
-  const [updateDownloading, setUpdateDownloading] = useState(false);
-  const [updateProgress, setUpdateProgress] = useState<number | null>(null);
-  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
-
-  const handleCheckUpdate = async () => {
-    setUpdateChecking(true);
-    setUpdateStatus(null);
-    try {
-      const info = await checkForUpdate('dhawan9898/cine-stream');
-      if (info) {
-        setUpdateInfo(info);
-        setUpdateStatus(`Update available: v${info.version}`);
-      } else {
-        setUpdateInfo(null);
-        setUpdateStatus('CineStream is up to date.');
-      }
-    } catch (err: any) {
-      setUpdateStatus(`Could not check for updates: ${err?.message || 'Network error'}`);
-    } finally {
-      setUpdateChecking(false);
-    }
-  };
 
   // Crash reporting & backup
   const [crashReport, setCrashReport] = useState<string | null>(null);
@@ -198,20 +151,6 @@ export const SettingsScreen: React.FC = () => {
     e.target.value = '';
   };
 
-  const handleInstallUpdate = async () => {
-    if (!updateInfo) return;
-    setUpdateDownloading(true);
-    setUpdateProgress(0);
-    try {
-      await installUpdate(updateInfo.apkUrl, pct => setUpdateProgress(pct), updateInfo.size);
-      setUpdateStatus('Update downloaded. Opening installer...');
-    } catch (err: any) {
-      setUpdateStatus(`Update failed: ${err?.message || 'Unknown error'}`);
-    } finally {
-      setUpdateDownloading(false);
-    }
-  };
-
   const saveJellyfin = () => {
     update({ jellyfinUrl: jfUrl.trim(), jellyfinApiKey: jfKey.trim() });
     setJfStatus(null);
@@ -234,328 +173,220 @@ export const SettingsScreen: React.FC = () => {
     saveUserPreferences({ theme: t });
   };
 
+  const toggle = (on: boolean, change: () => void) => () => { hapticToggle(!on); change(); };
+  const inputStyle: React.CSSProperties = { width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated, rgba(255,255,255,0.06))', color: 'var(--text-primary)', fontSize: '14px' };
+
   return (
     <div className="screen-scroll" style={{ paddingBottom: '110px' }}>
       <div style={{
-        position: 'sticky',
-        top: 0,
-        zIndex: 30,
-        backgroundColor: 'var(--bg-main)',
-        padding: 'calc(var(--safe-top) + 16px) 20px 14px 20px',
-        borderBottom: '1px solid var(--border-subtle)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between'
+        position: 'sticky', top: 0, zIndex: 30, backgroundColor: 'var(--bg-main)',
+        padding: 'calc(var(--safe-top) + 16px) 20px 14px 20px', borderBottom: '1px solid var(--border-subtle)',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <h1 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>Settings</h1>
-        </div>
+        <h1 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>Settings</h1>
         <AccountAvatarButton />
       </div>
 
-      <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        <section>
-          <SectionLabel>Appearance</SectionLabel>
-          {/* Theme and glass style share one card, as in AniStream. */}
-          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-            <div style={{ padding: '16px' }}>
-              <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '12px' }}>Theme</h4>
-              <div className="seg-track">
-                {THEMES.map(t => (
-                  <button key={t.id} onClick={() => { hapticSelection(); changeTheme(t.id); }} className={`interactive seg-pill ${theme === t.id ? 'active' : ''}`}>
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
-              <Row
-                icon={<Droplets size={18} />}
-                title="Transparent Glass"
-                text="Floating bars, buttons and tiles turn see-through instead of blurred."
-                onClick={() => { const next = !glassClear; setGlassClear(next); setGlassStyle(next ? 'clear' : 'frosted'); }}
-                trailing={<div className={`toggle-switch ${glassClear ? 'on' : ''}`}><div className="knob" /></div>}
-              />
-            </div>
-          </div>
-        </section>
+      <div style={{ padding: '20px 16px' }}>
+        <SettingsSection title="Appearance">
+          <ChoiceRow first title="Theme" options={THEMES} value={theme} onSelect={t => { hapticSelection(); changeTheme(t); }} />
+          <SettingsRow
+            icon={<Droplets size={18} />}
+            title="Transparent Glass"
+            hint="Bars, buttons and tiles turn see-through instead of blurred"
+            onClick={toggle(glassClear, () => { const next = !glassClear; setGlassClear(next); setGlassStyle(next ? 'clear' : 'frosted'); })}
+            trailing={<Switch on={glassClear} label="Transparent Glass" />}
+          />
+        </SettingsSection>
 
-        <section>
-          <SectionLabel>Playback</SectionLabel>
-          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-            <Row
-              icon={<SkipForward size={18} />}
-              title="Autoplay Next Episode"
-              text="Continue to the next episode when one ends"
-              onClick={() => update({ autoplayNext: !prefs.autoplayNext })}
-              trailing={<div className={`toggle-switch ${prefs.autoplayNext ? 'on' : ''}`}><div className="knob" /></div>}
-            />
-            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
-              <Row
-                icon={<Gauge size={18} />}
-                title="Data Saver"
-                text="Limit video to 720p on mobile data and skip preparing streams in advance"
-                onClick={() => update({ dataSaver: !prefs.dataSaver })}
-                trailing={<div className={`toggle-switch ${prefs.dataSaver ? 'on' : ''}`}><div className="knob" /></div>}
-              />
-            </div>
-            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
-              <Row
-                icon={<Zap size={18} />}
-                title="Faster Start"
-                text="Prepares streams for the title page you open, Continue Watching and the next episode, so Play starts at once. Works on Wi-Fi and mobile data; uses a little extra data."
-                onClick={() => update({ preloadStreams: !(prefs.preloadStreams ?? true) })}
-                trailing={<div className={`toggle-switch ${(prefs.preloadStreams ?? true) ? 'on' : ''}`}><div className="knob" /></div>}
-              />
-            </div>
-            <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '14px 16px' }}>
-              <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>Default Quality</h4>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {['480p', '720p', '1080p', 'Auto'].map(q => (
-                  <button
-                    key={q}
-                    onClick={() => { hapticSelection(); update({ defaultQuality: q }); }}
-                    className={`interactive glass-pill chip ${prefs.defaultQuality === q ? 'active' : ''}`}
-                    style={{ padding: '8px 18px', borderRadius: 'var(--radius-sm)', color: prefs.defaultQuality === q ? undefined : 'var(--text-secondary)', fontSize: '13px', fontWeight: 700 }}
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
-              <LangRow title="Preferred Audio" hint="Used when a title offers several languages" offLabel="Auto" value={prefs.audioLanguage} onChange={code => update({ audioLanguage: code })} />
-            </div>
-            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
-              <LangRow title="Subtitles" hint="Turned on automatically when available" offLabel="Off" value={prefs.subtitleLanguage} onChange={code => update({ subtitleLanguage: code })} />
-            </div>
-          </div>
-        </section>
+        <SettingsSection title="Playback">
+          <ChoiceRow
+            first
+            title="Default Quality"
+            options={QUALITIES}
+            value={prefs.defaultQuality}
+            onSelect={q => { hapticSelection(); update({ defaultQuality: q }); }}
+          />
+          <LangRow icon={<AudioLines size={18} />} title="Preferred Audio" hint="Used when a title offers several languages" offLabel="Auto" value={prefs.audioLanguage} onChange={code => update({ audioLanguage: code })} />
+          <LangRow icon={<Captions size={18} />} title="Subtitles" hint="Turned on automatically when available" offLabel="Off" value={prefs.subtitleLanguage} onChange={code => update({ subtitleLanguage: code })} />
+          <SettingsRow
+            icon={<SkipForward size={18} />}
+            title="Autoplay Next Episode"
+            hint="Continue to the next episode when one ends"
+            onClick={toggle(prefs.autoplayNext, () => update({ autoplayNext: !prefs.autoplayNext }))}
+            trailing={<Switch on={prefs.autoplayNext} label="Autoplay Next Episode" />}
+          />
+          <SettingsRow
+            icon={<Zap size={18} />}
+            title="Faster Start"
+            hint="Prepares streams in advance so Play starts at once; uses a little extra data"
+            onClick={toggle(prefs.preloadStreams ?? true, () => update({ preloadStreams: !(prefs.preloadStreams ?? true) }))}
+            trailing={<Switch on={prefs.preloadStreams ?? true} label="Faster Start" />}
+          />
+          <SettingsRow
+            icon={<Gauge size={18} />}
+            title="Data Saver"
+            hint="Limit video to 720p on mobile data and skip preparing streams"
+            onClick={toggle(prefs.dataSaver, () => update({ dataSaver: !prefs.dataSaver }))}
+            trailing={<Switch on={prefs.dataSaver} label="Data Saver" />}
+          />
+        </SettingsSection>
 
-        <section>
-          <SectionLabel>Sources</SectionLabel>
-          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-            <Row
-              icon={<KeyRound size={18} />}
-              title="FlixHQ Decrypt Service"
-              text="Turns FlixHQ links into streams through a third-party service (as lobster does): faster, but that service sees every link you play. Off: the app finds the stream itself, a few seconds slower."
-              onClick={() => update({ flixhqDecryptApi: !prefs.flixhqDecryptApi })}
-              trailing={<div className={`toggle-switch ${prefs.flixhqDecryptApi ? 'on' : ''}`}><div className="knob" /></div>}
-            />
-            <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                <IconBox><Server size={18} /></IconBox>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>Your Jellyfin Server</h4>
-                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    Plays titles from your own library first. Use its https:// address (Android blocks plain http) and an API key from Dashboard &gt; API Keys.
-                  </p>
-                </div>
-              </div>
+        <SettingsSection title="Sources">
+          <SettingsRow
+            first
+            icon={<KeyRound size={18} />}
+            title="FlixHQ Decrypt Service"
+            hint="Faster FlixHQ streams through a third-party service, which sees the links you play"
+            onClick={toggle(prefs.flixhqDecryptApi, () => update({ flixhqDecryptApi: !prefs.flixhqDecryptApi }))}
+            trailing={<Switch on={prefs.flixhqDecryptApi} label="FlixHQ Decrypt Service" />}
+          />
+          <SettingsRow
+            icon={<Server size={18} />}
+            title="Your Jellyfin Server"
+            hint={prefs.jellyfinUrl ? prefs.jellyfinUrl : 'Play titles from your own library first'}
+            onClick={() => { hapticLight(); setShowJellyfin(v => !v); }}
+            trailing={showJellyfin ? <ChevronDown size={16} color="var(--text-muted)" /> : <ChevronRight size={16} color="var(--text-muted)" />}
+          />
+          {showJellyfin && (
+            <div style={{ padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                Use its https:// address (Android blocks plain http) and an API key from Dashboard &gt; API Keys.
+              </p>
               <input
                 type="url" inputMode="url" autoCapitalize="off" autoCorrect="off" spellCheck={false}
                 placeholder="https://jellyfin.example.com" value={jfUrl}
-                onChange={e => setJfUrl(e.target.value)} onBlur={saveJellyfin}
-                style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated, rgba(255,255,255,0.06))', color: 'var(--text-primary)', fontSize: '14px' }}
+                onChange={e => setJfUrl(e.target.value)} onBlur={saveJellyfin} style={inputStyle}
               />
               <input
                 type="password" autoCapitalize="off" autoCorrect="off" spellCheck={false}
                 placeholder="API key" value={jfKey}
-                onChange={e => setJfKey(e.target.value)} onBlur={saveJellyfin}
-                style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border-subtle)', background: 'var(--bg-elevated, rgba(255,255,255,0.06))', color: 'var(--text-primary)', fontSize: '14px' }}
+                onChange={e => setJfKey(e.target.value)} onBlur={saveJellyfin} style={inputStyle}
               />
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <button
-                  onClick={() => { hapticLight(); void testJellyfin(); }}
-                  disabled={jfTesting}
-                  className="interactive glass-pill chip"
-                  style={{ padding: '8px 18px', borderRadius: 'var(--radius-sm)', fontSize: '13px', fontWeight: 700 }}
-                >
+                <button onClick={() => { hapticLight(); void testJellyfin(); }} disabled={jfTesting} className="interactive seg-pill" style={{ flex: '0 0 auto', padding: '8px 16px' }}>
                   {jfTesting ? 'Testing…' : 'Test Connection'}
                 </button>
-                {jfStatus && (
-                  <span style={{ fontSize: '12px', color: jfStatus.ok ? 'var(--text-secondary)' : 'var(--accent-danger)' }}>{jfStatus.message}</span>
-                )}
+                {jfStatus && <span style={{ fontSize: '12px', color: jfStatus.ok ? 'var(--text-secondary)' : 'var(--accent-danger)' }}>{jfStatus.message}</span>}
               </div>
             </div>
-          </div>
-        </section>
+          )}
+        </SettingsSection>
 
-        <section>
-          <SectionLabel>Downloads</SectionLabel>
-          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden', padding: '16px' }}>
-            <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '4px' }}>Download Quality</h4>
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px', lineHeight: 1.35 }}>
-              Highest video quality saved for offline viewing. Lower qualities use much less storage.
-            </p>
-            <div className="seg-track">
-              {(['1080', '720', '480'] as const).map(q => (
-                <button
-                  key={q}
-                  onClick={() => { hapticSelection(); update({ downloadQuality: q }); }}
-                  className={`interactive seg-pill ${(prefs.downloadQuality || '720') === q ? 'active' : ''}`}
-                >
-                  {q}p
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
+        <SettingsSection title="Downloads">
+          <ChoiceRow
+            first
+            title="Download Quality"
+            hint="Highest quality saved for offline viewing. Lower uses much less storage."
+            options={DOWNLOAD_QUALITIES}
+            value={prefs.downloadQuality || '720'}
+            onSelect={q => { hapticSelection(); update({ downloadQuality: q }); }}
+          />
+        </SettingsSection>
 
-        <section>
-          <SectionLabel>Haptic Feedback</SectionLabel>
-          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-            <Row
-              icon={<Vibrate size={18} />}
-              title="Vibration"
-              text="Short vibrations when you tap, switch or confirm something."
-              onClick={() => { const next = !haptics.enabled; setHaptics(saveHapticSettings({ enabled: next })); hapticToggle(next); }}
-              trailing={<div className={`toggle-switch ${haptics.enabled ? 'on' : ''}`}><div className="knob" /></div>}
+        <SettingsSection title="Haptic Feedback">
+          <SettingsRow
+            first
+            icon={<Vibrate size={18} />}
+            title="Vibration"
+            hint="Short vibrations when you tap, switch or confirm"
+            onClick={() => { const next = !haptics.enabled; setHaptics(saveHapticSettings({ enabled: next })); hapticToggle(next); }}
+            trailing={<Switch on={haptics.enabled} label="Vibration" />}
+          />
+          <ChoiceRow
+            title="Intensity"
+            options={HAPTIC_LEVELS}
+            value={haptics.intensity}
+            disabled={!haptics.enabled}
+            onSelect={level => { setHaptics(saveHapticSettings({ intensity: level })); hapticMedium(); }}
+          />
+        </SettingsSection>
+
+        <SettingsSection title="Data">
+          <SettingsRow
+            first
+            icon={<Download size={18} />}
+            title="Export Backup"
+            hint="Save history, My List and settings to a file"
+            onClick={() => { hapticLight(); void handleExportBackup(); }}
+            trailing={<ChevronRight size={16} color="var(--text-muted)" />}
+          />
+          <SettingsRow
+            icon={<Upload size={18} />}
+            title="Import Backup"
+            hint="Restore from a saved backup file"
+            onClick={() => { hapticLight(); fileInputRef.current?.click(); }}
+            trailing={<ChevronRight size={16} color="var(--text-muted)" />}
+          />
+          <SettingsRow
+            icon={<Database size={18} />}
+            title="Clear Cache"
+            hint={cacheCleared ? 'Cache cleared' : 'Frees stored lists and artwork. Saved stream links are kept.'}
+            onClick={() => { hapticLight(); clearPersistedCache(); setCacheCleared(true); }}
+            trailing={<RowValue>{streamStoreSize()} links</RowValue>}
+          />
+          <SettingsRow
+            danger
+            icon={<Clock size={18} />}
+            title="Clear Watch History"
+            hint="Forgets where you stopped in every title"
+            disabled={historyCount === 0}
+            onClick={() => { hapticLight(); setConfirming(true); }}
+            trailing={<RowValue>{historyCount}</RowValue>}
+          />
+          <SettingsRow
+            danger
+            icon={<Bookmark size={18} />}
+            title="Clear My List"
+            hint="Removes every saved title"
+            disabled={bookmarkCount === 0}
+            onClick={() => { hapticLight(); setConfirmingBookmarks(true); }}
+            trailing={<RowValue>{bookmarkCount}</RowValue>}
+          />
+          {crashReport && (
+            <SettingsRow
+              danger
+              icon={<Bug size={18} />}
+              title={crashCopied ? 'Crash report copied' : 'Copy Last Crash Report'}
+              hint="The app closed unexpectedly earlier. Copies what happened for the developer."
+              onClick={() => void handleCopyClearCrash()}
             />
-            <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '14px 16px', opacity: haptics.enabled ? 1 : 0.45 }}>
-              <h4 style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '10px' }}>Intensity</h4>
-              <div className="seg-track">
-                {(['low', 'medium', 'high'] as HapticIntensity[]).map(level => (
-                  <button
-                    key={level}
-                    disabled={!haptics.enabled}
-                    onClick={() => { setHaptics(saveHapticSettings({ intensity: level })); hapticMedium(); }}
-                    className={`interactive seg-pill ${haptics.intensity === level ? 'active' : ''}`}
-                  >
-                    {level === 'low' ? 'Low' : level === 'medium' ? 'Medium' : 'High'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </section>
+          )}
+          {backupStatus && <SettingsNote>{backupStatus}</SettingsNote>}
+          <input ref={fileInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleImportFile} />
+        </SettingsSection>
 
-        <section>
-          <SectionLabel>Data</SectionLabel>
-          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', overflow: 'hidden' }}>
-            <Row
-              icon={<Database size={18} />}
-              title="Clear Cache"
-              text={cacheCleared ? 'Cache cleared' : `Frees stored lists and artwork data. ${streamStoreSize()} saved stream links are kept; they are removed only by clearing the app's data in Android App info.`}
-              onClick={() => { clearPersistedCache(); setCacheCleared(true); }}
-              trailing={<Trash2 size={18} color="var(--text-muted)" />}
-            />
-            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
-              <Row
-                icon={<Trash2 size={18} />}
-                title="Clear Watch History"
-                text={`${historyCount} ${historyCount === 1 ? 'item' : 'items'} stored`}
-                onClick={() => setConfirming(true)}
-                danger
-                trailing={<Trash2 size={18} color="var(--text-muted)" />}
-              />
-            </div>
-            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
-              <Row
-                icon={<Bookmark size={18} />}
-                title="Clear My List"
-                text={`${bookmarkCount} saved`}
-                onClick={() => setConfirmingBookmarks(true)}
-                danger
-                trailing={<Trash2 size={18} color="var(--text-muted)" />}
-              />
-            </div>
-            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
-              <Row
-                icon={<Download size={18} />}
-                title="Export Backup"
-                text="Save your watch history, watchlist, and preferences to a file."
-                onClick={handleExportBackup}
-                trailing={<ChevronRight size={16} color="var(--text-muted)" />}
-              />
-            </div>
-            <div style={{ borderTop: '1px solid var(--border-subtle)' }}>
-              <Row
-                icon={<Upload size={18} />}
-                title="Import Backup"
-                text="Restore library, history, and settings from a previously saved JSON file."
-                onClick={() => fileInputRef.current?.click()}
-                trailing={<ChevronRight size={16} color="var(--text-muted)" />}
-              />
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".json"
-                style={{ display: 'none' }}
-                onChange={handleImportFile}
-              />
-            </div>
-            {backupStatus && (
-              <div style={{ padding: '10px 16px', background: 'var(--accent-soft)', borderTop: '1px solid var(--border-subtle)', fontSize: '13px', color: 'var(--accent-primary)', fontWeight: 600 }}>
-                {backupStatus}
-              </div>
-            )}
-          </div>
-        </section>
-
-        {crashReport && (
-          <section>
-            <SectionLabel>Crash Report</SectionLabel>
-            <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', padding: '16px', border: '1px solid var(--accent-danger)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-                <Bug size={18} color="var(--accent-danger)" />
-                <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>App Crash Detected</h4>
-              </div>
-              <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: 1.4 }}>
-                The app closed unexpectedly earlier. Copies the diagnostic log to share with the developer.
-              </p>
-              <pre style={{
-                maxHeight: '120px',
-                overflowY: 'auto',
-                fontSize: '11px',
-                color: 'var(--text-muted)',
-                background: 'rgba(0,0,0,0.3)',
-                padding: '8px',
-                borderRadius: '6px',
-                marginBottom: '12px',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-all'
-              }}>
-                {crashReport}
-              </pre>
-              <button
-                className="interactive btn-primary"
-                onClick={handleCopyClearCrash}
-                style={{ width: '100%', padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: 'var(--accent-danger)' }}
-              >
-                <Bug size={16} />
-                {crashCopied ? 'Copied & Cleared!' : 'Copy & Clear Crash Report'}
-              </button>
-            </div>
-          </section>
-        )}
-
-        <section>
-          <SectionLabel>About</SectionLabel>
-          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', padding: '16px' }}>
-            <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>CineStream</h4>
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>Version {__APP_VERSION__}</p>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '10px', lineHeight: 1.5 }}>
-              Movie and TV metadata from TMDB. This product uses the TMDB API but is not endorsed or certified by TMDB.
-            </p>
-          </div>
-        </section>
-
-        {/* For reporting slow streams; most people never need it, so it starts folded. */}
-        <section>
-          <button
+        <SettingsSection title="About">
+          <SettingsRow
+            first
+            icon={<Film size={18} />}
+            title="CineStream"
+            hint="Movies and TV from many sources at once"
+            trailing={<RowValue>v{__APP_VERSION__}</RowValue>}
+          />
+          <UpdateRows
+            appName="CineStream"
+            version={__APP_VERSION__}
+            icon={<RefreshCw size={18} />}
+            installIcon={<DownloadCloud size={16} />}
+            check={() => checkForUpdate('dhawan9898/cine-stream')}
+            install={installUpdate}
+            onTap={hapticLight}
+          />
+          <SettingsRow
+            icon={<Info size={18} />}
+            title="Disclaimer"
+            hint="CineStream does not host any media. Metadata from TMDB; this product uses the TMDB API but is not endorsed or certified by TMDB."
+          />
+          <SettingsRow
+            icon={<Activity size={18} />}
+            title="Stream Diagnostics"
+            hint="How long each server takes to answer"
             onClick={() => { hapticLight(); setShowDiagnostics(v => !v); }}
-            className="interactive"
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '13px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '10px', padding: 0 }}
-          >
-            <span>Stream diagnostics</span>
-            {showDiagnostics ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-          </button>
+            trailing={showDiagnostics ? <ChevronDown size={16} color="var(--text-muted)" /> : <ChevronRight size={16} color="var(--text-muted)" />}
+          />
           {showDiagnostics && (
-          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', padding: '16px' }}>
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '10px', lineHeight: 1.4 }}>
-              Time for each server to give an embed page or stream, and to turn an embed page into a playable stream.
-            </p>
+          <div style={{ padding: '0 16px 16px' }}>
             {timings.servers.length === 0 ? (
               <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Play or browse a few titles to collect timings.</p>
             ) : timings.servers.map(s => (
@@ -590,75 +421,7 @@ export const SettingsScreen: React.FC = () => {
             </div>
           </div>
           )}
-        </section>
-
-        {/* App Updates Section */}
-        <section style={{ marginBottom: '28px' }}>
-          <SectionLabel>App Updates</SectionLabel>
-          <div className="glass-panel" style={{ borderRadius: 'var(--radius-lg)', padding: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-              <div>
-                <h4 style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>CineStream</h4>
-                <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                  Installed: v{typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '2.0.1'}
-                </p>
-              </div>
-              <button
-                className="interactive seg-pill"
-                disabled={updateChecking || updateDownloading}
-                onClick={() => { hapticLight(); handleCheckUpdate(); }}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                <RefreshCw size={14} className={updateChecking ? 'animate-spin' : ''} />
-                {updateChecking ? 'Checking...' : 'Check for Updates'}
-              </button>
-            </div>
-
-            {updateStatus && (
-              <p style={{ fontSize: '12px', color: updateInfo ? 'var(--accent-primary)' : 'var(--text-secondary)', marginBottom: '8px' }}>
-                {updateStatus}
-              </p>
-            )}
-
-            {updateInfo && (
-              <div style={{ marginTop: '12px', padding: '12px', borderRadius: 'var(--radius-md)', background: 'var(--accent-soft)', border: '1px solid var(--accent-primary)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--accent-primary)' }}>
-                    New Version: v{updateInfo.version}
-                  </span>
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    {updateInfo.publishedAt ? new Date(updateInfo.publishedAt).toLocaleDateString() : ''}
-                  </span>
-                </div>
-                {updateInfo.releaseNotes && (
-                  <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px', maxHeight: '80px', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
-                    {updateInfo.releaseNotes}
-                  </p>
-                )}
-                {updateProgress !== null && (
-                  <div style={{ marginTop: '8px' }}>
-                    <div style={{ height: '4px', background: 'rgba(255,255,255,0.2)', borderRadius: '2px', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${updateProgress}%`, background: 'var(--accent-primary)', transition: 'width 0.2s' }} />
-                    </div>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', display: 'block' }}>
-                      Downloading APK: {updateProgress.toFixed(0)}%
-                    </span>
-                  </div>
-                )}
-                <button
-                  className="interactive btn-primary"
-                  disabled={updateDownloading}
-                  onClick={() => { hapticLight(); handleInstallUpdate(); }}
-                  style={{ width: '100%', marginTop: '10px', padding: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-                >
-                  <DownloadCloud size={16} />
-                  {updateDownloading ? 'Downloading & Installing...' : 'Download & Install Update'}
-                </button>
-              </div>
-            )}
-          </div>
-        </section>
-
+        </SettingsSection>
       </div>
 
       <ConfirmModal
@@ -681,7 +444,6 @@ export const SettingsScreen: React.FC = () => {
         onConfirm={() => { clearBookmarks(); setBookmarkCount(0); setConfirmingBookmarks(false); }}
         onCancel={() => setConfirmingBookmarks(false)}
       />
-
     </div>
   );
 };

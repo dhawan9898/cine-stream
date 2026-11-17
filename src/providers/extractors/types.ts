@@ -19,12 +19,16 @@ export interface AudioVariant {
   language: string;
   url: string;
   qualities?: QualityVariant[];
+  /** Request headers when they differ from the main stream's (a language from another provider). */
+  headers?: Record<string, string>;
 }
 
 export interface ExtractedStream {
   url: string;
   format: StreamFormat;
   quality?: string;
+  /** Tallest rendition, read from the playlist when the stream was checked (see streamCheck.ts). */
+  height?: number;
   headers?: Record<string, string>;
   subtitles?: ExtractorSubtitle[];
   // Alternate renditions of this same stream (different resolution files).
@@ -61,6 +65,11 @@ export interface SourceManifest {
   deepProbe?: boolean;
   /** Tie-break between equally fast providers: self-hosted beats api beats scraper. */
   trust?: 'self-hosted' | 'api' | 'scraper';
+  /**
+   * The provider is there for the languages it has (each language a separate release): its stream is
+   * the main one only when no other provider has the title; otherwise its languages are added to it.
+   */
+  languagesOnly?: boolean;
 }
 
 /** What a title lookup knows about the title, beyond its TMDB id (used by search-based sources). */

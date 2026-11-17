@@ -438,15 +438,20 @@ public class ExoPlayerActivity extends AppCompatActivity {
 
     // Another language of the same movie, supplied by the scraper as a separate
     // stream (Movierulz multi-audio releases list one link per language).
+    // A language from another provider brings that provider's request headers.
     private static final class AudioVariant {
         final String label;
         final String url;
         final java.util.List<QualityOption> qualities;
+        final String headersJson;
+        final String referer;
 
-        AudioVariant(String label, String url, java.util.List<QualityOption> qualities) {
+        AudioVariant(String label, String url, java.util.List<QualityOption> qualities, String headersJson, String referer) {
             this.label = label;
             this.url = url;
             this.qualities = qualities;
+            this.headersJson = headersJson;
+            this.referer = referer;
         }
     }
     private final java.util.List<AudioVariant> audioVariants = new java.util.ArrayList<>();
@@ -660,6 +665,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
         // Subtitles panel, like the rest of Netflix's track selection.
         parseQualities(qualitiesJson, videoUrl);
         updateQualityButtonText();
+        // Languages without headers of their own take this stream's (set before they are read).
+        pendingReferer = referer;
         parseAudioVariants(intent.getStringExtra("audios"), videoUrl);
 
         // Markers served alongside the stream (provider) win; AniSkip
@@ -2295,6 +2302,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
         boolean wasPlaying = player.isPlaying();
         currentAudioUrl = variant.url;
         pendingVideoUrl = variant.url;
+        pendingHeadersJson = variant.headersJson;
+        pendingReferer = variant.referer;
         // Qualities offered now are the ones of this language's file.
         qualityOptions.clear();
         currentQualityLabel = null;
@@ -2332,7 +2341,15 @@ public class ExoPlayerActivity extends AppCompatActivity {
                         if (!qu.isEmpty() && !ql.isEmpty()) qualities.add(new QualityOption(ql, qu));
                     }
                 }
-                audioVariants.add(new AudioVariant(label, url, qualities));
+                // Without its own headers a language plays with the stream's.
+                String headersJson = pendingHeadersJson;
+                String referer = pendingReferer;
+                JSONObject own = obj.optJSONObject("headers");
+                if (own != null && own.length() > 0) {
+                    headersJson = own.toString();
+                    referer = own.optString("Referer", own.optString("referer", ""));
+                }
+                audioVariants.add(new AudioVariant(label, url, qualities, headersJson, referer));
             }
         } catch (Exception e) {
             Log.w(TAG, "Failed to parse audios JSON", e);

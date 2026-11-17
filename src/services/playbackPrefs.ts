@@ -19,7 +19,7 @@ export function subtitlesForPlayer(subs: ExtractorSubtitle[] | undefined, prefer
 }
 
 /** The language file matching the preferred audio, or the stream as resolved. */
-export function pickAudio(stream: ExtractedStream, preferredLang: string): { url: string; qualities: ExtractedStream['qualities'] } {
+export function pickAudio(stream: ExtractedStream, preferredLang: string): { url: string; qualities: ExtractedStream['qualities']; headers?: Record<string, string> } {
   const code = (preferredLang || '').toLowerCase().trim();
   const wanted = code ? (LANGUAGE_NAMES[code]?.toLowerCase() || code) : undefined;
   const audio = wanted
@@ -30,15 +30,15 @@ export function pickAudio(stream: ExtractedStream, preferredLang: string): { url
       })
     : undefined;
   return audio
-    ? { url: audio.url, qualities: audio.qualities }
+    ? { url: audio.url, qualities: audio.qualities, headers: audio.headers }
     : { url: stream.url, qualities: stream.qualities };
 }
 
 /** The rendition matching the "Default Quality" preference, when the stream offers it. */
 export function applyPreferredQuality(
-  picked: { url: string; qualities: ExtractedStream['qualities'] },
+  picked: { url: string; qualities: ExtractedStream['qualities']; headers?: Record<string, string> },
   defaultQuality: string
-): { url: string; qualities: ExtractedStream['qualities'] } {
+): { url: string; qualities: ExtractedStream['qualities']; headers?: Record<string, string> } {
   if (!defaultQuality || defaultQuality === 'Auto') return picked;
   const match = picked.qualities?.find(q => q.quality === defaultQuality);
   return match && match.url !== picked.url ? { ...picked, url: match.url } : picked;

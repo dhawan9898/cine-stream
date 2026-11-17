@@ -444,8 +444,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             title: media.title,
             episode: isSeries ? String(episode) : '1',
             seasonPrefix: isSeries ? `S${season}:` : '',
-            referer: res.headers?.Referer || res.headers?.referer || '',
-            headers: res.headers,
+            // A language from another provider plays with that provider's headers.
+            referer: (audio.headers ?? res.headers)?.Referer || (audio.headers ?? res.headers)?.referer || '',
+            headers: audio.headers ?? res.headers,
             mode: langMode,
             subtitles: subtitlesForPlayer(res.subtitles, prefs.subtitleLanguage),
             preferredAudio: targetAudioLang,
@@ -454,6 +455,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             audios: res.audios?.map(a => ({
               label: a.label,
               url: a.url,
+              // Languages without headers of their own play with the main stream's.
+              headers: a.headers ?? res.headers,
               qualities: a.qualities?.map(q => ({ quality: q.quality, url: q.url }))
             })),
             episodes: isSeries ? list.playerEpisodes : undefined,
