@@ -30,6 +30,7 @@ import { QuickPreview } from '../components/QuickPreview.tsx';
 import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { ErrorState } from 'streamkit/ui/ErrorState.tsx';
 import { GenrePicker } from '../components/GenrePicker.tsx';
+import { AccountAvatarButton } from '../components/AccountAvatarButton.tsx';
 import { hapticLight, hapticMedium } from '../services/hapticsService.ts';
 
 interface HomeScreenProps {
@@ -357,7 +358,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
             <span style={{ fontSize: '24px', fontWeight: 900, letterSpacing: '-0.8px', color: '#fff', textShadow: '0 2px 12px rgba(0,0,0,0.6)' }}>STREAM</span>
           </div>
 
-          {/* Action buttons (Categories and Search) */}
+          {/* Action buttons (Categories and YouTube-style Account / Login) */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
             <button
               onClick={() => { hapticLight(); openPicker(); }}
@@ -369,14 +370,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMed
               <span>Categories</span>
               <ChevronDown size={14} />
             </button>
-            <button
-              onClick={() => { hapticLight(); onOpenSearch(); }}
-              className="interactive glass-pill-dark"
-              aria-label="Search"
-              style={{ width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}
-            >
-              <SearchIcon size={17} />
-            </button>
+            <AccountAvatarButton />
           </div>
         </div>
 

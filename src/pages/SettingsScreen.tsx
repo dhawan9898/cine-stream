@@ -5,7 +5,7 @@ import { JellyfinSource } from '../providers/sources/jellyfin.ts';
 import { CategoryPicker } from 'streamkit/ui/CategoryPicker.tsx';
 import { clearWatchHistory, clearBookmarks, getBookmarks, getUserPreferences, saveUserPreferences, getWatchHistory, exportBackup, importBackup } from '../services/historyService.ts';
 import { Capacitor } from '@capacitor/core';
-import { CloudAccountCard } from '../components/CloudAccountCard.tsx';
+import { AccountAvatarButton } from '../components/AccountAvatarButton.tsx';
 import { DownloadsPlugin } from '../plugins/downloadsPlugin.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearPersistedCache } from '../services/persistentCache.ts';
@@ -122,7 +122,7 @@ export const SettingsScreen: React.FC = () => {
         setUpdateStatus(`Update available: v${info.version}`);
       } else {
         setUpdateInfo(null);
-        setUpdateStatus('CineStream is already up to date.');
+        setUpdateStatus('CineStream is up to date.');
       }
     } catch (err: any) {
       setUpdateStatus(`Could not check for updates: ${err?.message || 'Network error'}`);
@@ -242,11 +242,15 @@ export const SettingsScreen: React.FC = () => {
         zIndex: 30,
         backgroundColor: 'var(--bg-main)',
         padding: 'calc(var(--safe-top) + 16px) 20px 14px 20px',
-        borderBottom: '1px solid var(--border-subtle)'
+        borderBottom: '1px solid var(--border-subtle)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between'
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <h1 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>Settings</h1>
         </div>
+        <AccountAvatarButton />
       </div>
 
       <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
@@ -488,8 +492,6 @@ export const SettingsScreen: React.FC = () => {
             )}
           </div>
         </section>
-
-        <CloudAccountCard />
 
         {crashReport && (
           <section>
