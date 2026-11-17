@@ -1,4 +1,5 @@
 // extractorRegistry.ts - Central registry for real title-specific stream extractors
+import { reportError } from '../../services/errorReporter.ts';
 import type { StreamExtractor, ExtractedStream, ExtractParams } from './types.ts';
 import { isCheap, manifestOf, priorMs, strongFor, trustRank } from './manifest.ts';
 import { markBackground } from './hostLimiter.ts';
@@ -356,7 +357,14 @@ export class ExtractorRegistry {
           return one ? [one] : [];
         })();
         Promise.race([attempt, timeout])
-          .catch(() => null)
+          .catch(err => {
+            // Thrown, not just "nothing found": a broken provider or site. Cancelled ones (another
+            // provider already won) are not failures.
+            if (!abortController.signal.aborted && !(err instanceof Error && /abort/i.test(err.name + err.message))) {
+              reportError('provider', err, { provider: extractor.id, title: params.title, id: params.id, type: params.type, season: params.season, episode: params.episode, ms: Date.now() - startedAt });
+            }
+            return null;
+          })
           .then(result => {
             if (timer) clearTimeout(timer);
             const elapsed = Date.now() - startedAt;

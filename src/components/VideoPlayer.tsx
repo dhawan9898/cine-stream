@@ -1,4 +1,6 @@
 // VideoPlayer.tsx - Background stream resolution engine with dual ExoPlayer/WebPlayer (direct streams only, never iframes)
+import { reportError } from '../services/errorReporter.ts';
+import { getTimings } from '../providers/streamTimings.ts';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, WifiOff, PlayCircle, Download } from 'lucide-react';
 import { StreamLoading } from './StreamLoading.tsx';
@@ -469,6 +471,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       .catch(err => {
         if (!active || lookup.signal.aborted) return;
         const message = err instanceof Error ? err.message : 'Failed to resolve streaming data.';
+        // What every provider did for this title in the last minutes (from the timing log).
+        const since = Date.now() - 3 * 60_000;
+        const outcomes = getTimings()
+          .filter(t => t.titleId === media.id && t.at >= since && t.phase === 'extract')
+          .map(t => `${t.serverId}:${t.outcome}:${t.ms}ms`);
+        reportError('provider', message, {
+          title: media.title, id: media.id, type: media.mediaType, season: isSeries ? season : undefined,
+          episode: isSeries ? episode : undefined, language: media.language, mode: langMode,
+          failedServers: failedServers(), outcomes
+        });
         setLoading(false);
         setError(message);
         if (isNative) {

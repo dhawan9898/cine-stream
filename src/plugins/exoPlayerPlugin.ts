@@ -47,6 +47,19 @@ export interface ProgressUpdateEvent extends EpisodeEvent {
 }
 
 // The stream failed with an HTTP error; JS resolves it again and play()s it at positionMs.
+/** The native player hit a playback error (it fails over by itself; this is for error reporting). */
+export interface PlaybackErrorEvent {
+  title?: string;
+  episode?: string;
+  mode?: string;
+  serverId?: string;
+  /** Host of the stream that failed. */
+  host?: string;
+  /** Media3 error code name, e.g. ERROR_CODE_IO_BAD_HTTP_STATUS. */
+  code?: string;
+  message: string;
+}
+
 export interface ReloadRequestedEvent extends EpisodeEvent {
   positionMs: number;
 }
@@ -134,6 +147,7 @@ export interface ExoPlayerPluginInterface {
   addListener(eventName: 'nextEpisodeStarted', fn: (e: NextEpisodeStartedEvent) => void): Promise<PluginListenerHandle>;
   addListener(eventName: 'progressUpdate', fn: (e: ProgressUpdateEvent) => void): Promise<PluginListenerHandle>;
   addListener(eventName: 'serverSwitched', fn: (e: ServerSwitchedEvent) => void): Promise<PluginListenerHandle>;
+  addListener(eventName: 'playbackError', fn: (e: PlaybackErrorEvent) => void): Promise<PluginListenerHandle>;
 }
 
 export const ExoPlayerPlugin = registerPlugin<ExoPlayerPluginInterface>('ExoPlayerPlugin');

@@ -12,6 +12,11 @@ import { startStreamRevalidator } from './providers/streamRevalidator.ts';
 import { initSpeculation } from './providers/speculation.ts';
 import { loadProviderConfig } from './providers/providerConfig.ts';
 import { startCloudSync } from './services/cloudAccount.ts';
+import { startErrorCapture } from './services/errorCapture.ts';
+
+// Failures are sent to the app_errors table (see services/errorCapture.ts). First, so it sees
+// everything that goes wrong while the rest starts.
+startErrorCapture();
 
 // Keep stray async failures (e.g. blocked autoplay, dropped requests) from surfacing as crashes.
 window.addEventListener('unhandledrejection', (e) => {
