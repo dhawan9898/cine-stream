@@ -191,6 +191,15 @@ public class ExoPlayerActivity extends AppCompatActivity {
     private boolean enhanceAmbientOn = false;     // the fill shader owns the aspect-ratio handling
     private final Runnable enhanceRebuildRunnable = this::rebuildPlayerForEnhance;
     private VideoEnhance.AudioFx enhanceAudio;
+    private AudioSync.Delay enhanceDelay;
+    private PlaybackTuner enhanceTuner;
+    private PlaybackTuner.StatsBadge enhanceStats;
+    private boolean longPressSpeed = false;
+    private int scrollMode = 0;                  // 0 undecided, 1 brightness, 2 volume, 3 horizontal (ignored)
+    private float scrollStartBrightness = 0.5f;
+    private float scrollStartVolume = 0.5f;
+    private int enhanceTab = 0;
+    private final Runnable hideGestureRunnable = this::hideGestureIndicatorNow;
     private int aspectRatioMode = 0; // 0 = Fit, 1 = Crop, 2 = Fill
     private static final String[] ASPECT_RATIO_LABELS = new String[]{"Fit", "Crop", "Fill"};
     private static final int[] ASPECT_RATIO_MODES = new int[]{
@@ -1201,10 +1210,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
         playerView.setKeepContentOnPlayerReset(true);
         SubtitleView subtitleView = playerView.getSubtitleView();
         if (subtitleView != null) {
-            subtitleView.setStyle(new CaptionStyleCompat(Color.WHITE, Color.TRANSPARENT, Color.TRANSPARENT,
-                    CaptionStyleCompat.EDGE_TYPE_OUTLINE, Color.BLACK, null));
-            subtitleView.setFractionalTextSize(0.058f);
-            subtitleView.setBottomPaddingFraction(0.08f);
+            VideoEnhance.applySubtitleStyle(this, subtitleView);
         }
 
         // A light dim over the whole picture while the controls show (it fades with them): the
@@ -2682,6 +2688,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
         }
         handler.removeCallbacks(startupWatchdog);
         if (!offlinePlayback) handler.postDelayed(startupWatchdog, STARTUP_STALL_MS);
+        PlaybackTuner.prefetchDns(videoUrl);
         useAdaptiveQualityMenu = false;
         videoQualityOptions.clear();
         currentVideoTrackIndex = -1;
@@ -2738,7 +2745,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
         androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection.Factory abr =
                 new androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection.Factory(
                         ABR_MIN_UP_MS, ABR_MAX_DOWN_MS, ABR_RETAIN_MS, ABR_BANDWIDTH_FRACTION);
-        player = new ExoPlayer.Builder(this)
+        enhanceDelay = new AudioSync.Delay(AudioSync.getOffsetMs(this));
+        player = new ExoPlayer.Builder(this, AudioSync.factory(this, enhanceDelay))
                 .setMediaSourceFactory(mediaSourceFactory)
                 .setTrackSelector(new DefaultTrackSelector(this, abr))
                 .setLoadControl(loadControl)
@@ -2805,6 +2813,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
                         && (error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSING_FAILED
                         || error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_VIDEO_FRAME_PROCESSOR_INIT_FAILED)) {
                     VideoEnhance.disableForSession();
+                    ExoPlayerPlugin.notifyPlaybackError(animeTitle, episodeNumber, currentMode, null, pendingVideoUrl,
+                            "ENHANCE_FAILED", error.getErrorCodeName() + " | " + VideoEnhance.diagnostics(ExoPlayerActivity.this, ENHANCE_ANIME_APP, animeTitle));
                     android.widget.Toast.makeText(ExoPlayerActivity.this,
                             "Video enhancement isn't supported on this device, so it was turned off",
                             android.widget.Toast.LENGTH_LONG).show();
@@ -2813,7 +2823,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 }
                 if (error != null) {
                     ExoPlayerPlugin.notifyPlaybackError(animeTitle, episodeNumber, currentMode, currentServerId,
-                            pendingVideoUrl, error.getErrorCodeName(), describePlaybackError(error));
+                            pendingVideoUrl, error.getErrorCodeName(),
+                            describePlaybackError(error) + (enhanceEffectsOn ? " | " + VideoEnhance.diagnostics(ExoPlayerActivity.this, ENHANCE_ANIME_APP, animeTitle) : ""));
                 }
                 if (player != null) {
                     long position = player.getCurrentPosition();
@@ -3245,6 +3256,60 @@ public class ExoPlayerActivity extends AppCompatActivity {
     private void setupGestures() {
         gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override
+            public boolean onDown(MotionEvent e) {
+                scrollMode = 0;
+                return true;
+            }
+
+            // Hold anywhere: 2x speed until you let go.
+            @Override
+            public void onLongPress(MotionEvent e) {
+                if (screenLocked || player == null || longPressSpeed) return;
+                longPressSpeed = true;
+                player.setPlaybackSpeed(2f);
+                showGestureIndicator("2x speed");
+            }
+
+            // Vertical swipe: left half brightness, right half volume.
+            @Override
+            public boolean onScroll(MotionEvent e1, MotionEvent e2, float dx, float dy) {
+                if (screenLocked || longPressSpeed || e1 == null || e2 == null || playerView == null) return false;
+                float moveX = e2.getX() - e1.getX();
+                float moveUp = e1.getY() - e2.getY();
+                if (scrollMode == 0) {
+                    if (Math.abs(moveUp) > dp(18) && Math.abs(moveUp) > Math.abs(moveX) * 1.5f) {
+                        scrollMode = e1.getX() < playerView.getWidth() / 2f ? 1 : 2;
+                        scrollStartBrightness = currentBrightness;
+                        if (audioManager != null) {
+                            int max = Math.max(1, audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC));
+                            scrollStartVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC) / (float) max;
+                        }
+                    } else if (Math.abs(moveX) > dp(18)) {
+                        scrollMode = 3;
+                    } else {
+                        return false;
+                    }
+                }
+                if (scrollMode == 3) return false;
+                float fraction = moveUp / Math.max(1f, playerView.getHeight() * 0.7f);
+                if (scrollMode == 1) {
+                    currentBrightness = Math.max(0.02f, Math.min(1f, scrollStartBrightness + fraction));
+                    WindowManager.LayoutParams params = getWindow().getAttributes();
+                    params.screenBrightness = currentBrightness;
+                    getWindow().setAttributes(params);
+                    if (sliderBrightness != null) sliderBrightness.setProgress(Math.round(currentBrightness * 100));
+                    flashGesture("Brightness " + Math.round(currentBrightness * 100) + "%");
+                } else if (audioManager != null) {
+                    float v = Math.max(0f, Math.min(1f, scrollStartVolume + fraction));
+                    int max = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, Math.round(v * max), 0);
+                    if (sliderVolume != null) sliderVolume.setProgress(Math.round(v * 100));
+                    flashGesture("Volume " + Math.round(v * 100) + "%");
+                }
+                return true;
+            }
+
+            @Override
             public boolean onSingleTapConfirmed(MotionEvent e) {
                 if (screenLocked) {
                     flashUnlockButton();
@@ -3296,6 +3361,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
 
         View overlay = findViewById(R.id.gesture_overlay);
         overlay.setOnTouchListener((v, event) -> {
+            if (event.getActionMasked() == MotionEvent.ACTION_UP || event.getActionMasked() == MotionEvent.ACTION_CANCEL) endGestureHold();
             scaleGestureDetector.onTouchEvent(event);
             if (!scaleGestureDetector.isInProgress()) {
                 gestureDetector.onTouchEvent(event);
@@ -3357,6 +3423,59 @@ public class ExoPlayerActivity extends AppCompatActivity {
         }
     };
 
+    private void hideGestureIndicatorNow() {
+        if (gestureIndicator != null) gestureIndicator.setVisibility(View.GONE);
+    }
+
+    private void flashGesture(String text) {
+        showGestureIndicator(text);
+        handler.removeCallbacks(hideGestureRunnable);
+        handler.postDelayed(hideGestureRunnable, 800);
+    }
+
+    private void endGestureHold() {
+        if (longPressSpeed) {
+            longPressSpeed = false;
+            if (player != null) player.setPlaybackSpeed(playbackSpeed);
+            handler.removeCallbacks(hideGestureRunnable);
+            if (gestureIndicator != null) gestureIndicator.setVisibility(View.GONE);
+        }
+        scrollMode = 0;
+    }
+
+    // Remote controls and keyboards (TV remote, Bluetooth remote, headset buttons): arrows seek,
+    // OK / space / media keys play and pause.
+    @Override
+    public boolean onKeyDown(int keyCode, android.view.KeyEvent event) {
+        if (player != null && !screenLocked && openPanel == null) {
+            switch (keyCode) {
+                case android.view.KeyEvent.KEYCODE_DPAD_LEFT:
+                case android.view.KeyEvent.KEYCODE_MEDIA_REWIND:
+                    seekBy(-SEEK_STEP_MS);
+                    return true;
+                case android.view.KeyEvent.KEYCODE_DPAD_RIGHT:
+                case android.view.KeyEvent.KEYCODE_MEDIA_FAST_FORWARD:
+                    seekBy(SEEK_STEP_MS);
+                    return true;
+                case android.view.KeyEvent.KEYCODE_DPAD_CENTER:
+                case android.view.KeyEvent.KEYCODE_ENTER:
+                case android.view.KeyEvent.KEYCODE_SPACE:
+                case android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
+                    togglePlayPause();
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MEDIA_PLAY:
+                    player.setPlayWhenReady(true);
+                    return true;
+                case android.view.KeyEvent.KEYCODE_MEDIA_PAUSE:
+                    player.setPlayWhenReady(false);
+                    return true;
+                default:
+                    break;
+            }
+        }
+        return super.onKeyDown(keyCode, event);
+    }
+
     private void showGestureIndicator(String text) {
         if (gestureIndicator == null) return;
         gestureIndicator.setText(text);
@@ -3405,7 +3524,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
         enhanceAudio = null;
         if (player != null) {
             try {
-                final VideoEnhance.AudioFx audioFx = new VideoEnhance.AudioFx(VideoEnhance.getAudio(this, animeTitle));
+                final VideoEnhance.AudioFx audioFx = new VideoEnhance.AudioFx(VideoEnhance.getAudio(this, animeTitle), VideoEnhance.getSpatial(this, animeTitle));
                 if (audioFx.wanted()) {
                     enhanceAudio = audioFx;
                     player.addListener(new Player.Listener() {
@@ -3434,7 +3553,30 @@ public class ExoPlayerActivity extends AppCompatActivity {
                 enhanceAmbientOn = false;
             }
         }
+        try {
+            if (enhanceTuner != null) enhanceTuner.release();
+            enhanceTuner = null;
+            if (player != null) {
+                enhanceTuner = new PlaybackTuner(player, handler, enhanceLive);
+                if (enhanceStats == null) {
+                    enhanceStats = new PlaybackTuner.StatsBadge(this, (android.view.ViewGroup) findViewById(R.id.root_container));
+                }
+                enhanceStats.attach(player, () -> streamHost() + "\n" + VideoEnhance.statusLine(this, animeTitle, enhanceLive));
+                enhanceStats.setEnabled(VideoEnhance.getStats(this));
+            }
+        } catch (Throwable t) {
+            Log.w(TAG, "Playback tuner unavailable", t);
+        }
         applyAspectMode(false);
+    }
+
+    private String streamHost() {
+        try {
+            String h = android.net.Uri.parse(pendingVideoUrl).getHost();
+            return h != null ? h : "?";
+        } catch (Exception e) {
+            return "?";
+        }
     }
 
     // Fit / Crop / Fill. With the ambient fill the shader lays the picture out inside a frame shaped
@@ -3509,69 +3651,182 @@ public class ExoPlayerActivity extends AppCompatActivity {
         enhanceThermalListener = null;
     }
 
+    private void applySubtitleLook() {
+        VideoEnhance.applySubtitleStyle(this, playerView != null ? playerView.getSubtitleView() : null);
+    }
+
+    private View buildEnhanceTab(int tab) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setPadding(0, dp(4), dp(40), 0);
+        LinearLayout.LayoutParams weight = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f);
+        if (tab == 0) {
+            int sharpen = VideoEnhance.getSharpen(this, animeTitle);
+            java.util.List<MenuRow> sharp = new java.util.ArrayList<>();
+            sharp.add(new MenuRow("On (automatic)", sharpen != VideoEnhance.SHARP_OFF, () -> {
+                VideoEnhance.setSharpen(this, animeTitle, VideoEnhance.SHARP_AUTO);
+                scheduleEnhanceRebuild();
+            }));
+            sharp.add(new MenuRow("Off", sharpen == VideoEnhance.SHARP_OFF, () -> {
+                VideoEnhance.setSharpen(this, animeTitle, VideoEnhance.SHARP_OFF);
+                scheduleEnhanceRebuild();
+            }));
+            row.addView(buildOptionColumn("Sharpening", sharp), weight);
+
+            boolean ambient = VideoEnhance.getAmbient(this, animeTitle);
+            java.util.List<MenuRow> fill = new java.util.ArrayList<>();
+            fill.add(new MenuRow("Glow", ambient, () -> {
+                VideoEnhance.setAmbient(this, animeTitle, true);
+                scheduleEnhanceRebuild();
+            }));
+            fill.add(new MenuRow("Black", !ambient, () -> {
+                VideoEnhance.setAmbient(this, animeTitle, false);
+                scheduleEnhanceRebuild();
+            }));
+            row.addView(buildOptionColumn("Side bars", fill), weight);
+
+            boolean vivid = VideoEnhance.getVivid(this, animeTitle);
+            java.util.List<MenuRow> colour = new java.util.ArrayList<>();
+            colour.add(new MenuRow("Natural", !vivid, () -> {
+                VideoEnhance.setVivid(this, animeTitle, false);
+                scheduleEnhanceRebuild();
+            }));
+            colour.add(new MenuRow("Vivid", vivid, () -> {
+                VideoEnhance.setVivid(this, animeTitle, true);
+                scheduleEnhanceRebuild();
+            }));
+            row.addView(buildOptionColumn("Colour", colour), weight);
+        } else if (tab == 1) {
+            int audio = VideoEnhance.getAudio(this, animeTitle);
+            String[] names = {"Normal", "Boost", "Night", "Dialogue"};
+            java.util.List<MenuRow> audioRows = new java.util.ArrayList<>();
+            for (int i = 0; i < names.length; i++) {
+                final int mode = i;
+                audioRows.add(new MenuRow(names[i], audio == mode, () -> {
+                    VideoEnhance.setAudio(this, animeTitle, mode);
+                    scheduleEnhanceRebuild();
+                }));
+            }
+            row.addView(buildOptionColumn("Audio", audioRows), weight);
+
+            boolean spatial = VideoEnhance.getSpatial(this, animeTitle);
+            java.util.List<MenuRow> spatialRows = new java.util.ArrayList<>();
+            spatialRows.add(new MenuRow("Off", !spatial, () -> {
+                VideoEnhance.setSpatial(this, animeTitle, false);
+                scheduleEnhanceRebuild();
+            }));
+            spatialRows.add(new MenuRow("Surround", spatial, () -> {
+                VideoEnhance.setSpatial(this, animeTitle, true);
+                scheduleEnhanceRebuild();
+            }));
+            row.addView(buildOptionColumn("Spatial", spatialRows), weight);
+
+            // Wireless audio usually lags the picture; the fix is remembered per output (earbuds, wired, speaker).
+            int offset = AudioSync.getOffsetMs(this);
+            java.util.List<MenuRow> syncRows = new java.util.ArrayList<>();
+            for (int step : AudioSync.STEPS_MS) {
+                String label = step == 0 ? "In sync" : (step > 0 ? "+" : "") + step + " ms";
+                syncRows.add(new MenuRow(label, offset == step, () -> {
+                    AudioSync.setOffsetMs(this, step);
+                    if (enhanceDelay != null) enhanceDelay.setOffsetMs(step);
+                }));
+            }
+            row.addView(buildOptionColumn("Sync (" + AudioSync.route(this) + ")", syncRows), weight);
+        } else if (tab == 2) {
+            String[] sizes = {"Small", "Medium", "Large"};
+            java.util.List<MenuRow> sizeRows = new java.util.ArrayList<>();
+            for (int i = 0; i < sizes.length; i++) {
+                final int v = i;
+                sizeRows.add(new MenuRow(sizes[i], VideoEnhance.getSubSize(this) == v, () -> {
+                    VideoEnhance.setSubSize(this, v);
+                    applySubtitleLook();
+                }));
+            }
+            row.addView(buildOptionColumn("Size", sizeRows), weight);
+
+            String[] styles = {"Outline", "Box", "Shadow"};
+            java.util.List<MenuRow> styleRows = new java.util.ArrayList<>();
+            for (int i = 0; i < styles.length; i++) {
+                final int v = i;
+                styleRows.add(new MenuRow(styles[i], VideoEnhance.getSubStyle(this) == v, () -> {
+                    VideoEnhance.setSubStyle(this, v);
+                    applySubtitleLook();
+                }));
+            }
+            row.addView(buildOptionColumn("Style", styleRows), weight);
+
+            String[] positions = {"Low", "Normal", "High"};
+            java.util.List<MenuRow> posRows = new java.util.ArrayList<>();
+            for (int i = 0; i < positions.length; i++) {
+                final int v = i;
+                posRows.add(new MenuRow(positions[i], VideoEnhance.getSubPos(this) == v, () -> {
+                    VideoEnhance.setSubPos(this, v);
+                    applySubtitleLook();
+                }));
+            }
+            row.addView(buildOptionColumn("Position", posRows), weight);
+        } else {
+            boolean stats = VideoEnhance.getStats(this);
+            java.util.List<MenuRow> statRows = new java.util.ArrayList<>();
+            statRows.add(new MenuRow("Off", !stats, () -> {
+                VideoEnhance.setStats(this, false);
+                if (enhanceStats != null) enhanceStats.setEnabled(false);
+            }));
+            statRows.add(new MenuRow("On", stats, () -> {
+                VideoEnhance.setStats(this, true);
+                if (enhanceStats != null) enhanceStats.setEnabled(true);
+            }));
+            row.addView(buildOptionColumn("Stats overlay", statRows), weight);
+
+            TextView info = new TextView(this);
+            info.setText("Tip: long-press Enhance for an instant before / after.\n\n"
+                    + VideoEnhance.diagnostics(this, ENHANCE_ANIME_APP, animeTitle).replace(" ", "\n"));
+            info.setTextColor(Color.parseColor("#A3A3A3"));
+            info.setTextSize(12);
+            android.widget.ScrollView scroll = new android.widget.ScrollView(this);
+            scroll.addView(info);
+            row.addView(scroll, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 2f));
+        }
+        return row;
+    }
+
     private void showEnhanceMenu(View anchor) {
-        LinearLayout columns = new LinearLayout(this);
-        columns.setOrientation(LinearLayout.HORIZONTAL);
-        columns.setPadding(0, dp(8), dp(40), 0);
-
-        int sharpen = VideoEnhance.getSharpen(this, animeTitle);
-        // One switch: when on, the processing is picked automatically from the stream itself.
-        java.util.List<MenuRow> sharpRows = new java.util.ArrayList<>();
-        sharpRows.add(new MenuRow("On (automatic)", sharpen != VideoEnhance.SHARP_OFF, () -> {
-            VideoEnhance.setSharpen(this, animeTitle, VideoEnhance.SHARP_AUTO);
-            scheduleEnhanceRebuild();
-        }));
-        sharpRows.add(new MenuRow("Off", sharpen == VideoEnhance.SHARP_OFF, () -> {
-            VideoEnhance.setSharpen(this, animeTitle, VideoEnhance.SHARP_OFF);
-            scheduleEnhanceRebuild();
-        }));
-        columns.addView(buildOptionColumn("Sharpening", sharpRows),
-                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
-
-        boolean ambient = VideoEnhance.getAmbient(this, animeTitle);
-        java.util.List<MenuRow> fillRows = new java.util.ArrayList<>();
-        fillRows.add(new MenuRow("Glow", ambient, () -> {
-            VideoEnhance.setAmbient(this, animeTitle, true);
-            scheduleEnhanceRebuild();
-        }));
-        fillRows.add(new MenuRow("Black", !ambient, () -> {
-            VideoEnhance.setAmbient(this, animeTitle, false);
-            scheduleEnhanceRebuild();
-        }));
-        columns.addView(buildOptionColumn("Side bars", fillRows),
-                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
-
-        boolean vivid = VideoEnhance.getVivid(this, animeTitle);
-        java.util.List<MenuRow> colourRows = new java.util.ArrayList<>();
-        colourRows.add(new MenuRow("Natural", !vivid, () -> {
-            VideoEnhance.setVivid(this, animeTitle, false);
-            scheduleEnhanceRebuild();
-        }));
-        colourRows.add(new MenuRow("Vivid", vivid, () -> {
-            VideoEnhance.setVivid(this, animeTitle, true);
-            scheduleEnhanceRebuild();
-        }));
-        columns.addView(buildOptionColumn("Colour", colourRows),
-                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
-
-        int audio = VideoEnhance.getAudio(this, animeTitle);
-        java.util.List<MenuRow> audioRows = new java.util.ArrayList<>();
-        audioRows.add(new MenuRow("Normal", audio == VideoEnhance.AUDIO_NORMAL, () -> {
-            VideoEnhance.setAudio(this, animeTitle, VideoEnhance.AUDIO_NORMAL);
-            scheduleEnhanceRebuild();
-        }));
-        audioRows.add(new MenuRow("Boost", audio == VideoEnhance.AUDIO_BOOST, () -> {
-            VideoEnhance.setAudio(this, animeTitle, VideoEnhance.AUDIO_BOOST);
-            scheduleEnhanceRebuild();
-        }));
-        audioRows.add(new MenuRow("Night", audio == VideoEnhance.AUDIO_NIGHT, () -> {
-            VideoEnhance.setAudio(this, animeTitle, VideoEnhance.AUDIO_NIGHT);
-            scheduleEnhanceRebuild();
-        }));
-        columns.addView(buildOptionColumn("Audio", audioRows),
-                new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
-
-        showPanel(columns, false);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        tabs.setPadding(0, dp(2), dp(48), dp(6));
+        final android.widget.FrameLayout body = new android.widget.FrameLayout(this);
+        final String[] names = {"Picture", "Sound", "Subtitles", "Info"};
+        final TextView[] tabViews = new TextView[names.length];
+        final Runnable[] show = new Runnable[1];
+        show[0] = () -> {
+            body.removeAllViews();
+            for (int i = 0; i < tabViews.length; i++) {
+                boolean active = i == enhanceTab;
+                tabViews[i].setTextColor(active ? Color.WHITE : Color.parseColor("#A3A3A3"));
+                tabViews[i].setTypeface(null, active ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+            }
+            body.addView(buildEnhanceTab(enhanceTab), new android.widget.FrameLayout.LayoutParams(
+                    android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+        };
+        for (int i = 0; i < names.length; i++) {
+            final int index = i;
+            TextView tab = new TextView(this);
+            tab.setText(names[i]);
+            tab.setTextSize(16);
+            tab.setPadding(0, dp(6), dp(22), dp(6));
+            tab.setOnClickListener(v -> {
+                enhanceTab = index;
+                show[0].run();
+            });
+            tabViews[i] = tab;
+            tabs.addView(tab);
+        }
+        root.addView(tabs);
+        root.addView(body, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+        show[0].run();
+        showPanel(root, false);
     }
 
     private void toggleAspectRatio() {
@@ -3738,6 +3993,8 @@ public class ExoPlayerActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        if (enhanceTuner != null) enhanceTuner.release();
+        if (enhanceStats != null) enhanceStats.release();
         unregisterEnhanceThermalGuard();
         if (enhanceAudio != null) enhanceAudio.release();
         enhanceAudio = null;

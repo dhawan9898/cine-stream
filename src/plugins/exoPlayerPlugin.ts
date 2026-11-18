@@ -141,6 +141,10 @@ export interface ExoPlayerPluginInterface {
   // Shows a playback error inside the open player.
   fail(options: { message: string }): Promise<void>;
 
+  /** Enhance settings as JSON, for syncing between devices (native only). */
+  getEnhancePrefs(): Promise<{ json: string }>;
+  setEnhancePrefs(options: { json: string }): Promise<void>;
+
   addListener(eventName: 'playerClosed', fn: () => void): Promise<PluginListenerHandle>;
   addListener(eventName: 'nextEpisodeRequested', fn: (e: EpisodeEvent) => void): Promise<PluginListenerHandle>;
   addListener(eventName: 'episodeSelected', fn: (e: EpisodeSelectedEvent) => void): Promise<PluginListenerHandle>;
