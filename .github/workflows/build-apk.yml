@@ -126,7 +126,7 @@ jobs:
           bash .github/scripts/sign-apk.sh "$UNSIGNED" "build-output/CineStream-v${VERSION}.apk"
 
       - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: CineStream-v${{ env.VERSION }}
           path: build-output/CineStream-v${{ env.VERSION }}.apk
