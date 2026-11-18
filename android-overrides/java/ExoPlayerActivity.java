@@ -1342,7 +1342,20 @@ public class ExoPlayerActivity extends AppCompatActivity {
         btnAudioSubs.setOnClickListener(v -> highlightAction(v, () -> showAudioSubtitlesMenu(v)));
         btnEpisodes.setOnClickListener(v -> highlightAction(v, () -> showEpisodeMenu(v)));
         if (btnAspectRatio != null) btnAspectRatio.setOnClickListener(v -> toggleAspectRatio());
-        if (btnEnhance != null) btnEnhance.setOnClickListener(this::showEnhanceMenu);
+        if (btnEnhance != null) {
+            btnEnhance.setOnClickListener(this::showEnhanceMenu);
+            // Long-press: instant before/after, settings stay as they are.
+            btnEnhance.setOnLongClickListener(v -> {
+                boolean off = !VideoEnhance.isBypassed();
+                VideoEnhance.setBypass(off);
+                android.widget.Toast.makeText(this, off
+                        ? "Enhancement off - long-press Enhance to turn it back on"
+                        : "Enhancement on", android.widget.Toast.LENGTH_SHORT).show();
+                postEnhanceRebuild();
+                return true;
+            });
+        }
+        registerEnhanceThermalGuard();
         if (btnQuality != null) btnQuality.setOnClickListener(this::showQualityMenu);
         styleQualityButton();
         if (btnPip != null) {
@@ -3452,8 +3465,48 @@ public class ExoPlayerActivity extends AppCompatActivity {
     // Changing a setting rebuilds the player in place (same position, same play state), debounced so
     // tapping through the options costs one rebuild.
     private void scheduleEnhanceRebuild() {
+        VideoEnhance.setBypass(false);   // picking an option means "use it"
+        postEnhanceRebuild();
+    }
+
+    private void postEnhanceRebuild() {
         handler.removeCallbacks(enhanceRebuildRunnable);
         handler.postDelayed(enhanceRebuildRunnable, 450);
+    }
+
+    // A hot phone throttles the GPU and the video starts to stutter: past "severe" the effects pause
+    // by themselves (long-press Enhance or pick an option to bring them back).
+    private Object enhanceThermalListener;
+
+    private void registerEnhanceThermalGuard() {
+        if (android.os.Build.VERSION.SDK_INT < 29 || enhanceThermalListener != null) return;
+        try {
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm == null) return;
+            android.os.PowerManager.OnThermalStatusChangedListener l = status -> {
+                if (status >= android.os.PowerManager.THERMAL_STATUS_SEVERE && enhanceEffectsOn && !VideoEnhance.isBypassed()) {
+                    VideoEnhance.setBypass(true);
+                    handler.post(() -> {
+                        android.widget.Toast.makeText(this, "Phone is hot - video enhancement paused",
+                                android.widget.Toast.LENGTH_LONG).show();
+                        postEnhanceRebuild();
+                    });
+                }
+            };
+            pm.addThermalStatusListener(getMainExecutor(), l);
+            enhanceThermalListener = l;
+        } catch (Throwable t) {
+            Log.w(TAG, "Thermal guard unavailable", t);
+        }
+    }
+
+    private void unregisterEnhanceThermalGuard() {
+        if (android.os.Build.VERSION.SDK_INT < 29 || enhanceThermalListener == null) return;
+        try {
+            android.os.PowerManager pm = (android.os.PowerManager) getSystemService(Context.POWER_SERVICE);
+            if (pm != null) pm.removeThermalStatusListener((android.os.PowerManager.OnThermalStatusChangedListener) enhanceThermalListener);
+        } catch (Throwable ignored) { }
+        enhanceThermalListener = null;
     }
 
     private void showEnhanceMenu(View anchor) {
@@ -3696,6 +3749,7 @@ public class ExoPlayerActivity extends AppCompatActivity {
 
     @Override
     protected void onDestroy() {
+        unregisterEnhanceThermalGuard();
         if (enhanceAudio != null) enhanceAudio.release();
         enhanceAudio = null;
         if (openPanel != null && openPanel.isShowing()) openPanel.dismiss();
