@@ -79,7 +79,7 @@ export function patchGradle(gradle, version, versionCode) {
   out = out.replace(codeRe, `versionCode ${versionCode}`).replace(nameRe, `versionName "${version}"`);
 
   if (!out.includes('media3-exoplayer:')) {
-    const deps = ['exoplayer', 'ui', 'exoplayer-hls', 'datasource', 'common', 'exoplayer-dash', 'database']
+    const deps = ['exoplayer', 'ui', 'exoplayer-hls', 'datasource', 'common', 'exoplayer-dash', 'database', 'effect']
       .map(m => `    implementation "androidx.media3:media3-${m}:${MEDIA3}"`)
       .join('\n');
     out += `\n// CineStream native player\ndependencies {\n${deps}\n}\n`;
