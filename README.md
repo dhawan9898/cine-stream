@@ -92,11 +92,12 @@ npm run dev
 
 ### Release signing
 
-CI signs every release with one key so builds install over each other. The key is kept in the repository
-secrets `KEYSTORE_BASE64` (`base64 -w0 release.p12`), `KEYSTORE_PASSWORD` and `KEY_ALIAS`; the build fails if they
-are missing. The keystore is not in the repository any more, but it was committed in the past and is still in
-the git history, so treat it as known: to be safe, create a new key and move to it (Android requires an uninstall
-once when the signing key changes). Keep your own copy of the keystore - a secret cannot be read back.
+CI signs every release (`.github/scripts/sign-apk.sh`) from repository secrets only: `KEYSTORE_BASE64`,
+`KEYSTORE_PASSWORD`, `KEY_ALIAS` (the current key), `OLD_KEYSTORE_BASE64`, `OLD_KEYSTORE_PASSWORD`,
+`OLD_KEY_ALIAS` and `LINEAGE_BASE64` (the old key and the signed old-to-new chain); the build fails if one is
+missing. The first key was committed early on and is public, so it was rotated: the old key stays in the chain
+only so existing installs keep updating (Android 12 and older cannot see the new key); on Android 13+ the
+chain forbids going back to it. See `SECURITY.md`. Keep your own copy of the keystore - a secret cannot be read back.
 
 ### Checking providers
 

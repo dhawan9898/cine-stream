@@ -108,32 +108,22 @@ jobs:
         working-directory: android
         run: ./gradlew assembleRelease --stacktrace
 
-      # Android refuses unsigned APKs ("App not installed"). Every build must carry the same signature
-      # so it installs over the previous version. The key comes from repository secrets
-      # (KEYSTORE_BASE64 = base64 of the .p12, KEYSTORE_PASSWORD, optional KEY_ALIAS) and is never
-      # committed (see README, "Release signing").
+      # Android refuses unsigned APKs ("App not installed"). Every build carries the same signing chain
+      # (see .github/scripts/sign-apk.sh) so it installs over the previous version. The keys come from
+      # repository secrets only (KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS, OLD_KEYSTORE_BASE64,
+      # OLD_KEYSTORE_PASSWORD, OLD_KEY_ALIAS, LINEAGE_BASE64) and are never committed.
       - name: Align and Sign APK
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          OLD_KEYSTORE_BASE64: ${{ secrets.OLD_KEYSTORE_BASE64 }}
+          OLD_KEYSTORE_PASSWORD: ${{ secrets.OLD_KEYSTORE_PASSWORD }}
+          OLD_KEY_ALIAS: ${{ secrets.OLD_KEY_ALIAS }}
+          LINEAGE_BASE64: ${{ secrets.LINEAGE_BASE64 }}
         run: |
-          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KS_PASS" ]; then
-            echo "::error::The KEYSTORE_BASE64 and KEYSTORE_PASSWORD secrets are not set: the release cannot be signed."
-            exit 1
-          fi
-          KS="$RUNNER_TEMP/release.p12"
-          echo "$KEYSTORE_BASE64" | base64 -d > "$KS"
-          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           UNSIGNED=$(ls android/app/build/outputs/apk/release/*.apk | head -1)
-          mkdir -p build-output
-          "$BT/zipalign" -f -p 4 "$UNSIGNED" "$RUNNER_TEMP/aligned.apk"
-          "$BT/apksigner" sign --ks "$KS" --ks-type pkcs12 \
-            --ks-key-alias "${KEY_ALIAS:-cinestream}" --ks-pass env:KS_PASS \
-            --out "build-output/CineStream-v${VERSION}.apk" "$RUNNER_TEMP/aligned.apk"
-          rm -f "$RUNNER_TEMP/release.p12"
-          "$BT/apksigner" verify --print-certs "build-output/CineStream-v${VERSION}.apk"
-          ls -lh build-output
+          bash .github/scripts/sign-apk.sh "$UNSIGNED" "build-output/CineStream-v${VERSION}.apk"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

@@ -2,7 +2,7 @@
 // category pool (movies + TV, every language and genre) and ordered by what
 // the viewer watches; rows below the fold load when scrolled near.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, ChevronDown, Search as SearchIcon, X, RefreshCw, SlidersHorizontal } from 'lucide-react';
+import { ChevronRight, ChevronDown, X, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { clearPersistedCache } from '../services/persistentCache.ts';
 import { Priority, prefetchStream, warmStreams } from '../providers/streamResolver.ts';
 import { getTrending, getRecommendations, type MediaItem } from '../providers/cineHypeCore.ts';
@@ -37,7 +37,6 @@ interface HomeScreenProps {
   // `rect`: where the tapped artwork is, so the title page can open from it.
   onSelectMedia: (item: MediaItem, rect?: DOMRect) => void;
   onPlayMedia: (item: MediaItem, season?: number, episode?: number) => void;
-  onOpenSearch: () => void;
   onOpenSource: (source: BrowseSource) => void;
   // True while another screen covers Home (no auto-advance / polling).
   paused: boolean;
@@ -223,7 +222,7 @@ const PicksForYou: React.FC<{ seeds: WatchHistoryItem[]; watched: Set<string>; f
   return <ItemRail title="Top Picks for You" items={shown} onSelectMedia={onSelectMedia} onPreview={onPreview} />;
 };
 
-export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMedia, onOpenSearch, onOpenSource, paused }) => {
+export const HomeScreen: React.FC<HomeScreenProps> = ({ onSelectMedia, onPlayMedia, onOpenSource, paused }) => {
   const [trending, setTrending] = useState<MediaItem[]>([]);
   const [trendingError, setTrendingError] = useState(false);
   const [attempt, setAttempt] = useState(0);

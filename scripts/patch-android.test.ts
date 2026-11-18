@@ -30,6 +30,12 @@ test('manifest restricts cleartext traffic to network_security_config', () => {
   assert.ok(!out.includes('android:usesCleartextTraffic="true"'));
 });
 
+test('manifest turns Android backup off', () => {
+  const out = patchManifest('<manifest>\n    <application android:allowBackup="true">\n        <activity android:name=".MainActivity" />\n    </application>\n</manifest>');
+  assert.match(out, /android:allowBackup="false"/);
+  assert.ok(!out.includes('android:allowBackup="true"'));
+});
+
 test('manifest without </application> fails loudly', () => {
   assert.throws(() => patchManifest('<manifest/>'), /no <\/application>/);
 });

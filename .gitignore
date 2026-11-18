@@ -38,3 +38,6 @@ signing/
 *.jks
 *.p12
 *.keystore
+
+# Screenshots written by `npm run smoke`
+smoke-shots/

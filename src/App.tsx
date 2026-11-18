@@ -333,7 +333,6 @@ export const App: React.FC = () => {
             <HomeScreen
               onSelectMedia={openDetails}
               onPlayMedia={handlePlayMedia}
-              onOpenSearch={() => switchTab('search')}
               onOpenSource={openSource}
               paused={covered || tab !== 'home'}
             />

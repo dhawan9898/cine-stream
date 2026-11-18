@@ -2,7 +2,7 @@
 import { reportError } from '../services/errorReporter.ts';
 import { getTimings } from '../providers/streamTimings.ts';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, WifiOff, PlayCircle, Download } from 'lucide-react';
+import { ArrowLeft, WifiOff, PlayCircle } from 'lucide-react';
 import { StreamLoading } from './StreamLoading.tsx';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { getTVSeasonEpisodes, type MediaItem, type EpisodeItem } from '../providers/cineHypeCore.ts';
@@ -69,7 +69,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [attempt, setAttempt] = useState<number>(0);
   const [langMode] = useState<string>('sub');
   const [selectedServerId, setSelectedServerId] = useState<string | undefined>(undefined);
-  const [reportCopied, setReportCopied] = useState(false);
   // Where the stream now loaded should start (the web player reads it; native gets it with play()).
   const [startMs, setStartMs] = useState<number>(0);
   const sourceRef = useRef<ResolvedStream | null>(null);
@@ -350,7 +349,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
     setLoading(true);
     setError(null);
-    setReportCopied(false);
 
     // A retry / server switch continues from where playback got to, not from where this episode
     // was opened (progress has been saved since).

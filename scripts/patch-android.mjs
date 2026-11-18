@@ -48,6 +48,8 @@ export function patchManifest(xml) {
       ? out.replace('</manifest>', `    ${INSTALL_PACKAGES_PERMISSION}\n</manifest>`)
       : out;
   }
+  // No Android backup: it would copy the cloud sign-in session and saved server logins off the phone.
+  out = out.replace('android:allowBackup="true"', 'android:allowBackup="false"');
   // Restrict cleartext HTTP to localhost / self-hosted servers
   out = out.replace('android:usesCleartextTraffic="true"', 'android:networkSecurityConfig="@xml/network_security_config"');
   if (!out.includes('android:networkSecurityConfig') && out.includes('<application')) {
