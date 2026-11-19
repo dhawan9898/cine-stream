@@ -57,9 +57,9 @@ export function startErrorCapture(): void {
   // Uncaught errors and unhandled promise rejections anywhere in the app.
   installGlobalErrorHandlers();
   // A screen that failed to render (the "unexpected problem" page).
-  setRenderErrorListener((error, componentStack) => reportError('render', error, { componentStack }));
+  setRenderErrorListener((error: unknown, componentStack?: string) => reportError('render', error, { componentStack }));
   // Requests to the catalogue, metadata and streaming sites that failed after their retries.
-  setRequestFailureListener(f => reportError('network', describeRequest(f.url, f.status, f.message), { status: f.status, attempts: f.attempts }));
+  setRequestFailureListener((f: { url: string; status?: number; message?: string; attempts?: number }) => reportError('network', describeRequest(f.url, f.status, f.message), { status: f.status, attempts: f.attempts }));
 
   // Sync problems (each distinct message once).
   let lastSyncError: string | null = null;

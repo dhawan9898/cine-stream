@@ -189,7 +189,7 @@ export const SettingsScreen: React.FC = () => {
 
       <div style={{ padding: '20px 16px' }}>
         <SettingsSection title="Appearance">
-          <ChoiceRow first title="Theme" options={THEMES} value={theme} onSelect={t => { hapticSelection(); changeTheme(t); }} />
+          <ChoiceRow first title="Theme" options={THEMES} value={theme} onSelect={(t: Theme) => { hapticSelection(); changeTheme(t); }} />
           <SettingsRow
             icon={<Droplets size={18} />}
             title="Transparent Glass"
@@ -205,7 +205,7 @@ export const SettingsScreen: React.FC = () => {
             title="Default Quality"
             options={QUALITIES}
             value={prefs.defaultQuality}
-            onSelect={q => { hapticSelection(); update({ defaultQuality: q }); }}
+            onSelect={(q: string) => { hapticSelection(); update({ defaultQuality: q }); }}
           />
           <LangRow icon={<AudioLines size={18} />} title="Preferred Audio" hint="Used when a title offers several languages" offLabel="Auto" value={prefs.audioLanguage} onChange={code => update({ audioLanguage: code })} />
           <LangRow icon={<Captions size={18} />} title="Subtitles" hint="Turned on automatically when available" offLabel="Off" value={prefs.subtitleLanguage} onChange={code => update({ subtitleLanguage: code })} />
@@ -280,7 +280,7 @@ export const SettingsScreen: React.FC = () => {
             hint="Highest quality saved for offline viewing. Lower uses much less storage."
             options={DOWNLOAD_QUALITIES}
             value={prefs.downloadQuality || '720'}
-            onSelect={q => { hapticSelection(); update({ downloadQuality: q }); }}
+            onSelect={(q: string) => { hapticSelection(); update({ downloadQuality: q as '1080' | '720' | '480' }); }}
           />
         </SettingsSection>
 
@@ -298,7 +298,7 @@ export const SettingsScreen: React.FC = () => {
             options={HAPTIC_LEVELS}
             value={haptics.intensity}
             disabled={!haptics.enabled}
-            onSelect={level => { setHaptics(saveHapticSettings({ intensity: level })); hapticMedium(); }}
+            onSelect={(level: HapticIntensity) => { setHaptics(saveHapticSettings({ intensity: level })); hapticMedium(); }}
           />
         </SettingsSection>
 

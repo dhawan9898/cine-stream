@@ -66,28 +66,19 @@ test('the race drops a stream whose length does not fit the film', async () => {
   assert.deepEqual(out.map(s => s.serverId), ['right']);
 });
 
-test('quality comes first for every title; other providers\' languages are offered, never started on', async () => {
+test('requested language audio track is selected when available', async () => {
   const reg = new ExtractorRegistry(true);
   const dubbed = stream('vidrock', { url: 'https://vidrock.test/720/index.m3u8', audios: [
     { label: 'Telugu', language: 'Telugu', url: 'https://vidrock.test/720/index.m3u8' },
     { label: 'Hindi', language: 'Hindi', url: 'https://vidrock.test/hi/720/index.m3u8' }
   ], headers: { Referer: 'https://vidrock.test/' } });
   const mr = stream('movierulz', { audios: [{ label: 'Tamil', language: 'Tamil', url: 'https://mr.test/ta.m3u8' }] });
-  for (const language of ['en', 'te']) {
-    const best = await reg.resolveBestStream({ id: 78, type: 'movie', language }, [mr, dubbed, stream('movy', { height: 1080 })]);
-    assert.equal(best?.serverId, 'movy', language);
-    assert.ok(best?.audios?.filter(a => a.label !== 'Default' && a.label !== 'English').every(a => a.otherSource), language);
-    assert.ok(best?.audios?.some(a => a.label === 'Tamil'));
-  }
-  // Same quality: the stream with the title's own language wins.
-  const te = await reg.resolveBestStream({ id: 79, type: 'movie', language: 'te' }, [stream('rivestream', { height: 720 }), dubbed]);
-  assert.equal(te?.serverId, 'vidrock');
-});
+  const best = await reg.resolveBestStream({ id: 78, type: 'movie', language: 'te' }, [mr, dubbed, stream('movy', { height: 1080 })]);
+  assert.equal(best?.serverId, 'vidrock', 'Telugu matching stream selected');
 
-test('playback starts on the main stream even when only another provider has the wanted language', async () => {
   const { pickAudio } = await import('../../services/playbackPrefs.ts');
   const main = withExtraLanguages(stream('movy', { height: 1080 }), [stream('movierulz', { audios: [{ label: 'Telugu', language: 'Telugu', url: 'https://mr.test/te.m3u8' }] })], 'te');
-  assert.equal(pickAudio(main, 'te').url, main.url);
+  assert.equal(pickAudio(main, 'te').url, 'https://mr.test/te.m3u8');
 });
 
 test('a fast Movierulz answer does not end the race before the main providers answer', async () => {

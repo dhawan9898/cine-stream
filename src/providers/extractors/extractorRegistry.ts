@@ -12,14 +12,17 @@ import { ProviderStats } from './providerStats.ts';
 import { recordTiming } from '../streamTimings.ts';
 import { getProviderOverride, isProviderEnabled, subscribeProviderConfig, type ProviderConfig } from '../providerConfig.ts';
 import { ApiExtractor } from './apiExtractor.ts';
-import { VegaExtractor } from './vegaExtractor.ts';
 import { FlixeoExtractor } from './flixeoExtractor.ts';
-import { CineHypeExtractor } from './cinehypeExtractor.ts';
 import { MovierulzExtractor } from './movierulzExtractor.ts';
 import { VidLinkExtractor } from './vidlinkExtractor.ts';
 import { VidRockExtractor } from './vidrockExtractor.ts';
 import { RivestreamExtractor } from './rivestreamExtractor.ts';
 import { MovyExtractor } from './movyExtractor.ts';
+import { HDHub4UExtractor } from './hdhub4uExtractor.ts';
+import { DesiCinemasExtractor } from './desicinemasExtractor.ts';
+import { EinthusanExtractor } from './einthusanExtractor.ts';
+import { IsaiminiExtractor } from './isaiminiExtractor.ts';
+import { filterBestPrintStreams } from './printClassifier.ts';
 import { heightOf, inspectStream, isWrongLength } from './streamCheck.ts';
 
 const MAX_SNIFF_ATTEMPTS = 4;
@@ -145,9 +148,11 @@ export class ExtractorRegistry {
     this.register(new RivestreamExtractor());
     this.register(new MovyExtractor());
     this.register(new MovierulzExtractor());
+    this.register(new HDHub4UExtractor());
+    this.register(new DesiCinemasExtractor());
+    this.register(new EinthusanExtractor());
+    this.register(new IsaiminiExtractor());
     this.register(new FlixeoExtractor());
-    this.register(new VegaExtractor());
-    this.register(new CineHypeExtractor());
     // Ported from lobster / flix-cli (both scrape FlixHQ): title search, cached id mapping, one embed per server.
     this.register(new FlixHQSource());
     // mov-cli's jellyplex idea: the viewer's own Jellyfin server, when they set one up (Settings).
@@ -587,7 +592,8 @@ export class ExtractorRegistry {
     preferredServerId?: string;
     directOnly?: boolean;
   }, precomputed?: ExtractedStream[]): Promise<ExtractedStream | null> {
-    const all = (precomputed ?? await this.resolveAllStreams(params)).filter(s => !s.isFallbackEmbed);
+    const directStreams = (precomputed ?? await this.resolveAllStreams(params)).filter(s => !s.isFallbackEmbed);
+    const all = filterBestPrintStreams(directStreams);
     if (all.length === 0) return null;
 
     if (params.preferredServerId) {
@@ -614,15 +620,30 @@ export class ExtractorRegistry {
    * title's own language among its audio tracks.
    */
   private pickMain(all: ExtractedStream[], params: { id: number; type: 'movie' | 'tv'; language?: string }): ExtractedStream | null {
-    const wanted = LANGUAGE_NAMES[(params.language ?? '').toLowerCase().split('-')[0]];
+    const wantedCode = (params.language ?? '').toLowerCase().split('-')[0];
+    const wanted = LANGUAGE_NAMES[wantedCode] ?? '';
     const goodId = this.lastGood.get(`${params.type}:${params.id}`);
     const byId = new Map(this.extractors.map(e => [e.id, e]));
+
     const score = (s: ExtractedStream) => {
       const e = s.serverId ? byId.get(s.serverId) : undefined;
       const speed = e ? this.plannedMs(e, params) : QUALITY_TIER_MS / 2;
-      const ownLanguage = wanted && s.audios?.some(a => a.language === wanted || a.label === wanted) ? TIE_BONUS_MS : 0;
+
+      // Heavy bonus (5,000,000 pts) if stream explicitly matches requested/title language
+      const sLang = (s.audios?.[0]?.language || s.audios?.[0]?.label || '').toLowerCase();
+      const matchesLang = wanted && (
+        sLang === wanted.toLowerCase() ||
+        s.audios?.some(a => (a.language || a.label || '').toLowerCase() === wanted.toLowerCase())
+      );
+      const langBonus = matchesLang ? 5_000_000 : 0;
+
+      // Heavy penalty if title original language is English ('en') but stream comes from an Indian regional scraper
+      const isEnglishTitle = wantedCode === 'en';
+      const isRegionalScraper = Boolean(e && ['movierulz', 'hdhub4u', 'desicinemas', 'einthusan', 'isaimini'].includes(e.id));
+      const regionalPenalty = isEnglishTitle && isRegionalScraper ? 3_000_000 : 0;
+
       const remembered = goodId && s.serverId === goodId ? TIE_BONUS_MS : 0;
-      return qualityTier(s) * QUALITY_TIER_MS + Math.min(Math.max(speed, 0), QUALITY_TIER_MS - 1) - ownLanguage - remembered;
+      return qualityTier(s) * QUALITY_TIER_MS + Math.min(Math.max(speed, 0), QUALITY_TIER_MS - 1) - langBonus + regionalPenalty - remembered;
     };
     return [...all].sort((a, b) => score(a) - score(b))[0] ?? null;
   }
@@ -651,21 +672,19 @@ export function withExtraLanguages(
   extras: ExtractedStream[],
   titleLanguage?: string
 ): ExtractedStream {
-  // A main stream without a language list: an English film's is English; for other films it is
-  // "Default", as it may be a dub, and every provider's release of the title's language is offered.
   const code = (titleLanguage ?? '').toLowerCase().split('-')[0];
+  const isRegionalProvider = Boolean(main.serverId && ['movierulz', 'hdhub4u', 'desicinemas', 'einthusan', 'isaimini'].includes(main.serverId));
   const own = main.audios?.length
     ? main.audios
-    : [code === 'en'
+    : [code === 'en' && !isRegionalProvider
       ? { label: 'English', language: 'English', url: main.url }
-      : { label: 'Default', language: '', url: main.url }];
+      : { label: isRegionalProvider ? 'Hindi (Dubbed)' : 'Default', language: isRegionalProvider ? 'Hindi' : '', url: main.url }];
   const audios = [...own];
   const has = (name: string) => audios.some(a => a.language.toLowerCase() === name.toLowerCase() || a.label.toLowerCase() === name.toLowerCase());
   for (const extra of extras) {
     const list = extra.audios?.length ? extra.audios : [];
     for (const a of list) {
       if (!a.language || has(a.language)) continue;
-      // Offered in the Audio menu only: playback always starts on the main (best) stream.
       audios.push({ ...a, headers: a.headers ?? extra.headers, otherSource: true });
     }
   }

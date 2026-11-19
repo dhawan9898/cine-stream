@@ -185,16 +185,8 @@ function paramsForStore(p: StreamParams): Record<string, unknown> {
   return rest;
 }
 
-// Tries saved embed pages with the sniffer, a couple at most. Native only; a no-op elsewhere.
-async function reviveFromEmbeds(params: StreamParams, embeds: ExtractedStream[], backgroundOnly?: boolean): Promise<ExtractedStream | null> {
-  if (backgroundOnly || !Capacitor.isNativePlatform()) return null;
-  // Not the pages of servers whose stream just failed to play.
-  const excluded = new Set(params.exclude ?? []);
-  const usable = embeds.filter(e => !e.serverId || !excluded.has(e.serverId));
-  for (const embed of usable.slice(0, 2)) {
-    const stream = await extractorRegistry.sniffEmbed(embed).catch(() => null);
-    if (stream && stream.url) return { ...stream, serverId: embed.serverId, serverName: embed.serverName };
-  }
+// Embed fallback sniffing removed: all extractors in CineStream are direct stream extractors.
+async function reviveFromEmbeds(): Promise<ExtractedStream | null> {
   return null;
 }
 
@@ -336,24 +328,8 @@ async function resolveUncachedInner(params: StreamParams, hit: { cached: boolean
       availableServers
     };
   } else {
-    // Embed pages saved by earlier lookups can still be turned into a direct stream
-    // by the native sniffer (a hidden web view; the embed itself is never played).
-    // The providers already had their whole deadline (and sniffed these same pages): past a certain
-    // point another round of sniffing only makes the person wait longer for the same "no stream".
-    const spentMs = Date.now() - lookupStartedAt;
-    if (signal?.aborted) throw abortError();
-    const revived = spentMs > REVIVE_BUDGET_MS ? null : await reviveFromEmbeds(params, [...foundEmbeds, ...savedEmbeds], params.prefetch);
-    if (revived) {
-      allStreams.push(revived);
-      result = {
-        ...revived,
-        id: params.id, type: params.type, season: params.season, episode: params.episode,
-        title: params.title, language: params.language, availableServers
-      };
-    } else {
     // Never hand an embed/iframe page to the player.
     throw new Error('No working stream was found for this title right now. It may not be available yet - try again in a moment.');
-    }
   }
 
   // Subtitles the stream itself carries stay first; external ones are added

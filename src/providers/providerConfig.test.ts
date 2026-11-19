@@ -39,12 +39,12 @@ test('config validation: https only, no credentials, bounded; bad file is reject
 
 test('kill switch removes a provider from the registry; host override reaches the extractor', () => {
   const reg = new ExtractorRegistry(true);
-  assert.equal(reg.getAllExtractors().length, 9);
-  cfg.setProviderConfig({ version: 1, providers: { vega: { enabled: false } }, apiProviders: [] });
-  assert.deepEqual(reg.getAllExtractors().map(e => e.id).sort(), ['cinehype', 'flixeo', 'flixhq', 'movierulz', 'movy', 'rivestream', 'vidlink', 'vidrock']);
+  assert.equal(reg.getAllExtractors().length, 11);
+  cfg.setProviderConfig({ version: 1, providers: { flixeo: { enabled: false } }, apiProviders: [] });
+  assert.deepEqual(reg.getAllExtractors().map(e => e.id).sort(), ['desicinemas', 'einthusan', 'flixhq', 'hdhub4u', 'isaimini', 'movierulz', 'movy', 'rivestream', 'vidlink', 'vidrock']);
   cfg.setProviderConfig({ version: 2, providers: { flixeo: { mainUrl: 'https://new.flixeo.example' } }, apiProviders: [] });
   assert.equal(reg.getAllExtractors().find(e => e.id === 'flixeo')!.mainUrl, 'https://new.flixeo.example');
-  assert.equal(reg.getAllExtractors().length, 9);
+  assert.equal(reg.getAllExtractors().length, 11);
 });
 
 test('API providers from config are added, then dropped when removed', () => {
@@ -54,7 +54,7 @@ test('API providers from config are added, then dropped when removed', () => {
   assert.ok(reg.getAllExtractors().some(e => e.id === 'mine'));
   cfg.setProviderConfig({ version: 2, providers: {}, apiProviders: [] });
   assert.ok(!reg.getAllExtractors().some(e => e.id === 'mine'));
-  assert.equal(reg.getAllExtractors().length, 9);
+  assert.equal(reg.getAllExtractors().length, 11);
 });
 
 test('the API extractor returns a direct https stream from the configured path, and never an embed', async () => {

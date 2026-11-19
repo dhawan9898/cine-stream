@@ -21,8 +21,11 @@ const NOT_FOUND_TTL_MS = 3 * 60 * 60_000;
 
 // Listing of a year's releases per language ("bollywood" is Hindi, "hollywood" English originals;
 // dubbed releases are listed under the language they are dubbed in).
-const CATEGORY_OF: Record<string, string> = { te: 'telugu', ta: 'tamil', hi: 'bollywood', ml: 'malayalam', en: 'hollywood' };
-const REGIONAL_CATEGORIES = ['telugu', 'bollywood', 'tamil', 'malayalam'];
+const CATEGORY_OF: Record<string, string> = {
+  te: 'telugu', ta: 'tamil', hi: 'bollywood', ml: 'malayalam',
+  kn: 'kannada', bn: 'bengali', pa: 'punjabi', mr: 'marathi', gu: 'gujarati', en: 'hollywood'
+};
+const REGIONAL_CATEGORIES = ['telugu', 'bollywood', 'tamil', 'malayalam', 'kannada', 'bengali', 'punjabi', 'marathi', 'gujarati'];
 
 // Players whose page gives up the stream to a plain request, best first. Every language of a title is
 // taken from the same player, so one set of request headers plays all of them.
@@ -90,7 +93,7 @@ export class MovierulzExtractor extends BaseExtractor {
           return [];
         }
         // Past its last page a category shows the site's latest releases instead: other years.
-        return parseReleases(body, true).filter(r => Math.abs(r.year - year) <= 1);
+        return parseReleases(body, true, origin).filter(r => Math.abs(r.year - year) <= 1);
       })();
       this.listings.set(key, pending);
     }
@@ -142,18 +145,27 @@ export class MovierulzExtractor extends BaseExtractor {
     const origin = await this.siteOrigin(signal);
     if (!origin || signal?.aborted) return [];
 
+    // Clean search title (remove colons, dashes, extra spaces)
+    const cleanTitle = title.replace(/[:\-]/g, ' ').replace(/\s+/g, ' ').trim();
+
     // The site's own search lists every language at once, when it lets a plain request through.
-    const search = await this.get(`${origin}/search_movies?s=${encodeURIComponent(title)}`, `${origin}/`, signal, 1800);
-    let releases = search ? releasesOf(parseReleases(search), title, year) : [];
+    let search = await this.get(`${origin}/search_movies?s=${encodeURIComponent(cleanTitle)}`, `${origin}/`, signal, 1800);
+    if (!search && cleanTitle !== title) {
+      search = await this.get(`${origin}/search_movies?s=${encodeURIComponent(title)}`, `${origin}/`, signal, 1800);
+    }
+    let releases = search ? releasesOf(parseReleases(search, false, origin), title, year) : [];
+    if (releases.length === 0 && search) {
+      releases = releasesOf(parseReleases(search, false, origin), cleanTitle, year);
+    }
 
     if (releases.length === 0 && year && year >= 2015) {
       const own = CATEGORY_OF[(language ?? '').toLowerCase()];
       const first = own ? [own] : REGIONAL_CATEGORIES.slice(0, 2);
-      releases = (await Promise.all(first.map(c => this.scanCategory(origin, c, title, year, signal)))).flat();
+      releases = (await Promise.all(first.map(c => this.scanCategory(origin, c, cleanTitle, year, signal)))).flat();
       if (releases.length > 0) {
         const others = REGIONAL_CATEGORIES.filter(c => !first.includes(c));
-        const siblings = await Promise.all(others.map(c => this.findSibling(origin, c, title, year, releases[0].id, signal)));
-        releases = releasesOf([...releases, ...siblings.flat()], title, year);
+        const siblings = await Promise.all(others.map(c => this.findSibling(origin, c, cleanTitle, year, releases[0].id, signal)));
+        releases = releasesOf([...releases, ...siblings.flat()], cleanTitle, year);
       }
     }
     if (!signal?.aborted) this.found.set(key, releases, releases.length ? FOUND_TTL_MS : NOT_FOUND_TTL_MS);

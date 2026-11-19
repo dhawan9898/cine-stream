@@ -3,7 +3,6 @@
 //   /kalki-2898-ad-2024-telugu/movie-watch-online-free-3222.html
 //   /kalki-2898-ad-2024-hindi/movie-watch-online-free-3224.html
 //   /avengers-endgame-encore-2026-hdrip-telugu-dubbed-7752.html
-// Pure functions; no network access here.
 
 export interface Release {
   url: string;
@@ -16,31 +15,35 @@ export interface Release {
   language: string;
 }
 
-const LANGUAGE_IN_TAIL = /(?:^|-)(telugu|tamil|hindi|malayalam|kannada|bengali|punjabi|marathi|gujarati|english)(?:-|$)/;
-const RELEASE_URL = /^https?:\/\/[^/]+\/([a-z0-9-]+?)(?:\/movie-watch-online-free)?-(\d+)\.html$/i;
+const LANGUAGE_IN_TAIL = /(?:^|-)(telugu|tamil|hindi|malayalam|kannada|bengali|punjabi|marathi|gujarati|english)(?:-|$)/i;
 
-export function parseRelease(url: string): Release | null {
-  const m = url.match(RELEASE_URL);
+export function parseRelease(url: string, baseUrl?: string): Release | null {
+  let fullUrl = url;
+  if (!/^https?:\/\//i.test(url) && baseUrl) {
+    try { fullUrl = new URL(url, baseUrl).toString(); } catch { /* keep as is */ }
+  }
+  const cleanPath = fullUrl.replace(/^https?:\/\/[^/]+/i, '');
+  const m = cleanPath.match(/^\/([a-z0-9-]+?)(?:\/(?:movie-)?watch-online-free)?-(\d+)\.html$/i)
+    || cleanPath.match(/^\/([a-z0-9-]+?)-(\d+)\.html$/i);
   if (!m) return null;
-  // Greedy title: the year is the last one in the address ("blade-runner-2049-2017-hindi").
   const parts = m[1].toLowerCase().match(/^(.+)-((?:19|20)\d\d)-(.+)$/);
   if (!parts) return null;
   const lang = parts[3].match(LANGUAGE_IN_TAIL);
   if (!lang) return null;
+  const displayLang = lang[1][0].toUpperCase() + lang[1].slice(1).toLowerCase();
   return {
-    url,
+    url: fullUrl,
     id: parseInt(m[2], 10),
     name: parts[1],
     year: parseInt(parts[2], 10),
-    language: lang[1][0].toUpperCase() + lang[1].slice(1)
+    language: displayLang
   };
 }
 
 /**
- * The releases a page lists, in page order. A category page also shows "latest" boxes around its list;
- * with `listOnly` just the list itself is read, so the order and the id range are those of the category.
+ * The releases a page lists, in page order. Accepts both absolute and relative links.
  */
-export function parseReleases(html: string, listOnly = false): Release[] {
+export function parseReleases(html: string, listOnly = false, baseUrl?: string): Release[] {
   let body = html;
   if (listOnly) {
     const start = html.indexOf('id="list"');
@@ -48,10 +51,9 @@ export function parseReleases(html: string, listOnly = false): Release[] {
     if (start >= 0) body = html.slice(start, end > start ? end : undefined);
   }
   const found = new Map<string, Release>();
-  for (const m of body.matchAll(/href\s*=\s*["'](https?:\/\/[^"'\s]+?-\d+\.html)["']/gi)) {
-    if (found.has(m[1])) continue;
-    const release = parseRelease(m[1]);
-    if (release) found.set(m[1], release);
+  for (const m of body.matchAll(/href\s*=\s*["']([^"'\s]+?-\d+\.html)["']/gi)) {
+    const release = parseRelease(m[1], baseUrl);
+    if (release && !found.has(release.url)) found.set(release.url, release);
   }
   return [...found.values()];
 }
@@ -66,17 +68,22 @@ export function slugOf(title: string): string {
 }
 
 /**
- * The releases of one title among `releases`, one per language. An exact title match beats a partial
- * one ("pushpa-2-the-rule" also finds "pushpa-2-the-rule-reloaded", but not when the exact one is there).
+ * The releases of one title among `releases`, one per language.
  */
 export function releasesOf(releases: Release[], title: string, year?: number): Release[] {
   const slug = slugOf(title);
   if (!slug) return [];
   const sameYear = releases.filter(r => !year || Math.abs(r.year - year) <= 1);
   const exact = sameYear.filter(r => r.name === slug);
-  const loose = sameYear.filter(r => r.name.startsWith(slug + '-') || slug.startsWith(r.name + '-'));
+  const mainWords = slug.split('-').filter(w => w.length > 2).slice(0, 2).join('-');
+  const loose = sameYear.filter(r =>
+    r.name.startsWith(slug) ||
+    slug.startsWith(r.name) ||
+    (mainWords && r.name.includes(mainWords))
+  );
+  const pool = exact.length ? exact : loose;
   const perLanguage = new Map<string, Release>();
-  for (const r of exact.length ? exact : loose) if (!perLanguage.has(r.language)) perLanguage.set(r.language, r);
+  for (const r of pool) if (!perLanguage.has(r.language)) perLanguage.set(r.language, r);
   return [...perLanguage.values()];
 }
 
@@ -84,7 +91,6 @@ export function releasesOf(releases: Release[], title: string, year?: number): R
 export function streamLinks(html: string): string[] {
   const links: string[] = [];
   for (const tag of html.match(/<a\b[^>]*\bstream-link-btn\b[^>]*>/gi) ?? []) {
-    // Some pages have a stray line break inside the address.
     const href = tag.match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1].replace(/&amp;/g, '&').replace(/\s+/g, '');
     if (href && /^https?:\/\//i.test(href) && !links.includes(href)) links.push(href);
   }

@@ -1,25 +1,13 @@
-// flixeoExtractor.ts - Flixeo's player (vixsrc.to).
-//
-// flixeo.tv/movie/<id> is Flixeo's title page, not a player: it never asks for a stream, so
-// sniffing it always timed out. Flixeo's own player ("Server 1") is vixsrc.to, which this extractor
-// now uses directly. Its page carries the playlist address and a signed token inline
-// (window.masterPlaylist), so when the page can be fetched the stream is read straight from it with
-// no WebView; when it cannot (a challenge page), the page is sniffed, starting at once (embedUrl).
+// flixeoExtractor.ts - Flixeo Direct HLS Stream Extractor (vixsrc.to).
+// Static page parsing yields direct HLS playlist address and signed tokens inline (window.masterPlaylist).
 import { BaseExtractor } from './baseExtractor.ts';
 import type { ExtractedStream, SourceManifest } from './types.ts';
 
 export class FlixeoExtractor extends BaseExtractor {
-  // The id stays 'flixeo' so the speed and health learned so far keep applying.
   id = 'flixeo';
   name = 'Flixeo Server';
   mainUrl = 'https://vixsrc.to';
-  // Embed page sniffed in a WebView; the long-standing first choice for series.
-  manifest = { idKind: 'tmdb', costHint: 'sniff', priorMs: 6000, strongFor: { kinds: ['tv'] }, trust: 'scraper' } satisfies SourceManifest;
-
-  embedUrl(params: { id: number; type: 'movie' | 'tv'; season?: number; episode?: number }): string {
-    const { id, type, season = 1, episode = 1 } = params;
-    return type === 'tv' ? `${this.mainUrl}/tv/${id}/${season}/${episode}` : `${this.mainUrl}/movie/${id}`;
-  }
+  manifest = { idKind: 'tmdb', costHint: 'api', priorMs: 3000, strongFor: { kinds: ['tv'] }, trust: 'scraper' } satisfies SourceManifest;
 
   async extract(params: {
     id: number;
@@ -29,7 +17,8 @@ export class FlixeoExtractor extends BaseExtractor {
     signal?: AbortSignal;
   }): Promise<ExtractedStream | null> {
     if (params.signal?.aborted) return null;
-    const page = this.embedUrl(params);
+    const { id, type, season = 1, episode = 1 } = params;
+    const page = type === 'tv' ? `${this.mainUrl}/tv/${id}/${season}/${episode}` : `${this.mainUrl}/movie/${id}`;
     try {
       const html = await this.httpGet(page, { Referer: 'https://flixeo.tv/', Accept: 'text/html,application/xhtml+xml' }, { signal: params.signal, timeoutMs: 3000 });
       const url = parseMasterPlaylist(html);
@@ -37,9 +26,9 @@ export class FlixeoExtractor extends BaseExtractor {
         return { url, format: 'hls', headers: { Referer: `${this.mainUrl}/`, Origin: this.mainUrl }, serverId: this.id, serverName: this.name };
       }
     } catch {
-      // A challenge page or a network error: the embed is sniffed instead.
+      // Direct extraction unavailable
     }
-    return { url: page, format: 'hls', isFallbackEmbed: true, serverId: this.id, serverName: this.name };
+    return null;
   }
 }
 

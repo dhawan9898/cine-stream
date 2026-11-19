@@ -22,18 +22,30 @@ export function subtitlesForPlayer(subs: ExtractorSubtitle[] | undefined, prefer
 export function pickAudio(stream: ExtractedStream, preferredLang: string): { url: string; qualities: ExtractedStream['qualities']; headers?: Record<string, string> } {
   const code = (preferredLang || '').toLowerCase().trim();
   const wanted = code ? (LANGUAGE_NAMES[code]?.toLowerCase() || code) : undefined;
-  const audio = wanted
-    ? stream.audios?.find(a => {
-        // Another provider's copy (often lower quality) is only switched to by hand.
-        if (a.otherSource) return false;
-        const lbl = (a.label || '').toLowerCase();
-        const lng = (a.language || '').toLowerCase();
-        return lbl === wanted || lng === code || lng === wanted || lbl.startsWith(wanted);
-      })
-    : undefined;
-  return audio
-    ? { url: audio.url, qualities: audio.qualities, headers: audio.headers }
-    : { url: stream.url, qualities: stream.qualities };
+  if (!wanted) return { url: stream.url, qualities: stream.qualities };
+
+  // 1. Same-source matching audio variant
+  const sameSourceAudio = stream.audios?.find(a => {
+    if (a.otherSource) return false;
+    const lbl = (a.label || '').toLowerCase();
+    const lng = (a.language || '').toLowerCase();
+    return lbl === wanted || lng === code || lng === wanted || lbl.startsWith(wanted);
+  });
+  if (sameSourceAudio) {
+    return { url: sameSourceAudio.url, qualities: sameSourceAudio.qualities, headers: sameSourceAudio.headers };
+  }
+
+  // 2. Any source matching audio variant (including otherSource multi-provider streams)
+  const anySourceAudio = stream.audios?.find(a => {
+    const lbl = (a.label || '').toLowerCase();
+    const lng = (a.language || '').toLowerCase();
+    return lbl === wanted || lng === code || lng === wanted || lbl.startsWith(wanted);
+  });
+  if (anySourceAudio) {
+    return { url: anySourceAudio.url, qualities: anySourceAudio.qualities, headers: anySourceAudio.headers };
+  }
+
+  return { url: stream.url, qualities: stream.qualities };
 }
 
 /** The rendition matching the "Default Quality" preference, when the stream offers it. */
