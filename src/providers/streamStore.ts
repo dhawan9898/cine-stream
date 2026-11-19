@@ -1,8 +1,8 @@
 // streamStore.ts - Permanent store of every resolved stream link.
 //
-// Unlike the media cache, nothing here expires and the in-app "Clear Cache"
-// does not touch it: records leave only when the app's data is cleared (Android
-// App info). Everything is loaded into memory when the app opens, so lookups
+// Unlike the media cache, nothing here expires: records leave only through the
+// in-app "Clear Cache" (see cacheService.ts) or when the app's data is cleared
+// (Android App info). Everything is loaded into memory when the app opens, so lookups
 // are synchronous afterwards; every write also goes to IndexedDB.
 //
 // A record keeps what a lookup found: the stream (direct link), the embed pages
@@ -181,4 +181,24 @@ export function allStreamRecords(): StreamRecord[] {
 
 export function streamStoreSize(): number {
   return records.size;
+}
+
+/** Forgets every saved stream link (Settings > Clear Cache). */
+export async function clearStreamStore(): Promise<void> {
+  // A load still running would otherwise put the old records back.
+  await streamStoreReady;
+  records.clear();
+  const db = await openDb();
+  if (!db) return;
+  await new Promise<void>(resolve => {
+    try {
+      const tx = db.transaction(STORE, 'readwrite');
+      tx.objectStore(STORE).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
 }

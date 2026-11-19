@@ -5,6 +5,14 @@
 interface Entry<T> { v: T; at: number; exp: number }
 
 export class TtlStore<T> {
+  /** Every store made, so Settings > Clear Cache can empty them all (see clearAll). */
+  private static readonly all = new Set<TtlStore<unknown>>();
+
+  /** Empties every TtlStore (title-id maps, search results). */
+  static clearAll(): void {
+    for (const store of TtlStore.all) store.clear();
+  }
+
   private mem: Record<string, Entry<T>> | null = null;
   private readonly storageKey: string;
   private readonly max: number;
@@ -14,6 +22,12 @@ export class TtlStore<T> {
     this.storageKey = storageKey;
     this.max = max;
     this.now = now;
+    TtlStore.all.add(this as TtlStore<unknown>);
+  }
+
+  clear(): void {
+    this.mem = {};
+    try { globalThis.localStorage?.removeItem(this.storageKey); } catch { /* storage unavailable */ }
   }
 
   private load(): Record<string, Entry<T>> {

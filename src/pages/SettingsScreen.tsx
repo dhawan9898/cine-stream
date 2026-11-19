@@ -10,7 +10,7 @@ import { Capacitor } from '@capacitor/core';
 import { AccountAvatarButton } from '../components/AccountAvatarButton.tsx';
 import { DownloadsPlugin } from '../plugins/downloadsPlugin.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
-import { clearPersistedCache } from '../services/persistentCache.ts';
+import { clearAllCaches } from '../services/cacheService.ts';
 import { streamStoreSize } from '../providers/streamStore.ts';
 import { clearTimings, formatTimingReport, summarize } from '../providers/streamTimings.ts';
 import { ConfirmModal } from 'streamkit/ui/ConfirmModal.tsx';
@@ -75,7 +75,8 @@ export const SettingsScreen: React.FC = () => {
   const [confirming, setConfirming] = useState(false);
   const [confirmingBookmarks, setConfirmingBookmarks] = useState(false);
   const [bookmarkCount, setBookmarkCount] = useState(() => getBookmarks().length);
-  const [cacheCleared, setCacheCleared] = useState(false);
+  const [cacheState, setCacheState] = useState<'idle' | 'clearing' | 'cleared'>('idle');
+  const [linkCount, setLinkCount] = useState(() => streamStoreSize());
   const [timings, setTimings] = useState(() => summarize());
   const [reportCopied, setReportCopied] = useState(false);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
@@ -332,9 +333,14 @@ export const SettingsScreen: React.FC = () => {
           <SettingsRow
             icon={<Database size={18} />}
             title="Clear Cache"
-            hint={cacheCleared ? 'Cache cleared' : 'Frees stored lists and artwork. Saved stream links are kept.'}
-            onClick={() => { hapticLight(); clearPersistedCache(); setCacheCleared(true); }}
-            trailing={<RowValue>{streamStoreSize()} links</RowValue>}
+            hint={cacheState === 'cleared' ? 'Cache cleared' : cacheState === 'clearing' ? 'Clearing...' : 'Frees stored lists, artwork and saved stream links. History, My List and downloads are kept.'}
+            disabled={cacheState === 'clearing'}
+            onClick={() => {
+              hapticLight();
+              setCacheState('clearing');
+              void clearAllCaches().finally(() => { setLinkCount(streamStoreSize()); setCacheState('cleared'); });
+            }}
+            trailing={<RowValue>{linkCount} links</RowValue>}
           />
           <SettingsRow
             danger

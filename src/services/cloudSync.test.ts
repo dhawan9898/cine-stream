@@ -122,3 +122,27 @@ test('create account for an email that already has an account says so instead of
   assert.deepEqual(await phone.sync.signUp('new@b.c', 'secret1'), { needsConfirmation: true });
   assert.equal(phone.sync.getStatus().user, null);
 });
+
+test('a title removed while a sync is running stays removed (here and in the cloud)', async () => {
+  const server = fakeSupabase();
+  const state: Record<string, unknown> = { history: [{ id: 1, at: 5 }, { id: 2, at: 6 }], bookmarks: [] };
+  let reads = 0;
+  const store = new Map<string, string>();
+  const sync = createCloudSync({
+    app: 'cinestream', url: 'https://project.supabase.test', anonKey: 'k'.repeat(40),
+    collections: { history, bookmarks: list },
+    read: async () => {
+      const snapshot = structuredClone(state);
+      // The second sync's first read: right after it, the viewer taps ✕ on title 1.
+      if (++reads === 3) state.history = [{ id: 2, at: 6 }];
+      return snapshot;
+    },
+    write: async next => { Object.assign(state, structuredClone(next)); },
+    fetchImpl: server.fetchImpl,
+    storage: { getItem: k => store.get(k) ?? null, setItem: (k, v) => { store.set(k, v); }, removeItem: k => { store.delete(k); } }
+  });
+  await sync.signIn('a@b.c', 'right');
+  await sync.syncNow();
+  assert.deepEqual(state.history, [{ id: 2, at: 6 }]);
+  assert.deepEqual(server.rows.get('history'), [{ id: 2, at: 6 }]);
+});

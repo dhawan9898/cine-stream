@@ -96,12 +96,19 @@ export interface CloudSyncOptions {
   read: () => Promise<Record<string, Json>>;
   /** Replaces the app's data with the merged result. */
   write: (state: Record<string, Json>) => Promise<void>;
+  /**
+   * Last say on the merged state before it is written here and pushed (e.g. leaving out history
+   * entries that a synced removal covers). Must be pure.
+   */
+  reconcile?: (merged: Record<string, Json>) => Record<string, Json>;
   fetchImpl?: typeof fetch;
   storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 }
 
 const REQUEST_TIMEOUT_MS = 15_000;
 const DEBOUNCE_MS = 4_000;
+// Re-merges when the app's data changed during a sync, at most this many times (playback keeps saving).
+const MERGE_ATTEMPTS = 3;
 
 export function createCloudSync(options: CloudSyncOptions) {
   const base = (options.url ?? '').replace(/\/+$/, '');
@@ -210,12 +217,25 @@ export function createCloudSync(options: CloudSyncOptions) {
     const remote: Record<string, Json> = {};
     for (const row of rows ?? []) remote[row.kind] = row.data;
 
-    const local = await options.read();
     const known = load<{ user: string; state: Record<string, Json> }>(BASE_KEY);
     const baseState = known?.user === userId ? known.state : {};
-    const merged: Record<string, Json> = {};
-    for (const [kind, spec] of Object.entries(options.collections)) {
-      merged[kind] = mergeCollection(spec, baseState[kind], local[kind], remote[kind]);
+    const mergeWith = (local: Record<string, Json>) => {
+      let out: Record<string, Json> = {};
+      for (const [kind, spec] of Object.entries(options.collections)) {
+        out[kind] = mergeCollection(spec, baseState[kind], local[kind], remote[kind]);
+      }
+      if (options.reconcile) out = options.reconcile(out);
+      return out;
+    };
+    // The app's data can change while the merge is worked out (a title removed, progress saved):
+    // the merge is only written when it was made from what is there now, or it would undo that change.
+    let local = await options.read();
+    let merged = mergeWith(local);
+    for (let attempt = 0; attempt < MERGE_ATTEMPTS; attempt++) {
+      const latest = await options.read();
+      if (same(latest, local)) break;
+      local = latest;
+      merged = mergeWith(local);
     }
 
     if (Object.keys(merged).some(kind => !same(merged[kind], local[kind]))) {

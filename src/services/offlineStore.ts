@@ -128,3 +128,8 @@ export async function cachePrune(maxAgeMs: number, maxEntries: number): Promise<
     }
   });
 }
+
+/** Empties the cache store (viewed pages, episode lists, details); downloads are kept. */
+export async function cacheClear(): Promise<void> {
+  await run('cache', 'readwrite', s => s.clear());
+}

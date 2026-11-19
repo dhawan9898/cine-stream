@@ -43,6 +43,19 @@ public class ExoPlayerPlugin extends Plugin {
         call.resolve();
     }
 
+    // Settings > Clear Cache: the WebView's disk cache (artwork, pages). Cookies and storage stay.
+    @PluginMethod
+    public void clearWebCache(PluginCall call) {
+        getActivity().runOnUiThread(() -> {
+            try {
+                getBridge().getWebView().clearCache(true);
+            } catch (Exception e) {
+                android.util.Log.w("ExoPlayerPlugin", "clearWebCache failed", e);
+            }
+            call.resolve();
+        });
+    }
+
     @PluginMethod
     public void play(PluginCall call) {
         Intent intent = buildPlayIntent(call);

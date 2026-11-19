@@ -87,6 +87,49 @@ const isMediaItem = (v: unknown): boolean => {
   return !!m && typeof m.id === 'number' && (m.mediaType === 'movie' || m.mediaType === 'tv') && typeof m.title === 'string';
 };
 
+// Removals, kept so a removed title stays removed: "type|id" -> when it was removed, and "*" -> when
+// the whole history was cleared. Synced between devices (cloudAccount.ts). Without them a sync that
+// was running when the title was removed, or a device / cloud copy that still had it, wrote it back.
+// An entry watched again after its removal is newer than the removal and is kept.
+const REMOVED_KEY = 'cinestream_history_removed';
+const REMOVED_MAX = 1000;
+const ALL = '*';
+export type RemovedLog = Record<string, number>;
+let cachedRemoved: RemovedLog | null = null;
+
+function readRemoved(): RemovedLog {
+  if (cachedRemoved) return cachedRemoved;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(REMOVED_KEY) || '{}');
+    cachedRemoved = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    cachedRemoved = {};
+  }
+  return cachedRemoved!;
+}
+
+function writeRemoved(log: RemovedLog): void {
+  const keys = Object.keys(log).filter(k => k !== ALL);
+  if (keys.length > REMOVED_MAX) {
+    keys.sort((a, b) => log[a] - log[b]).slice(0, keys.length - REMOVED_MAX).forEach(k => delete log[k]);
+  }
+  cachedRemoved = log;
+  try { localStorage.setItem(REMOVED_KEY, JSON.stringify(log)); } catch { /* storage full */ }
+}
+
+const removedAt = (log: RemovedLog, type: string, id: number) => Math.max(Number(log[`${type}|${id}`]) || 0, Number(log[ALL]) || 0);
+
+/** History entries and episode progress that were removed after they were saved are left out. */
+export function withoutRemoved(history: WatchHistoryItem[], episodeLog: EpisodeLog, log: RemovedLog): { history: WatchHistoryItem[]; episodeLog: EpisodeLog } {
+  const keptHistory = history.filter(h => (Number(h.lastWatchedAt) || 0) > removedAt(log, h.type, h.id));
+  const keptLog: EpisodeLog = {};
+  for (const [k, v] of Object.entries(episodeLog)) {
+    const id = Number(k.split('|')[0]);
+    if ((Number(v?.at) || 0) > removedAt(log, 'tv', id)) keptLog[k] = v;
+  }
+  return { history: keptHistory, episodeLog: keptLog };
+}
+
 // 1. Watch History
 export function getWatchHistory(): WatchHistoryItem[] {
   if (cachedHistory !== null) return cachedHistory;
@@ -225,16 +268,18 @@ export function episodeWatchState(p: EpisodeProgress | undefined): 'finished' | 
 
 export function removeWatchHistory(id: number, type: MediaType): void {
   try {
+    writeRemoved({ ...readRemoved(), [`${type}|${id}`]: Date.now() });
     const history = getWatchHistory().filter(h => !(h.id === id && h.type === type));
     cachedHistory = history;
     localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
 
     // Also remove per-episode progress log for this title so episodes don't stay marked as watched
+    // (the log is kept for series only, so a movie with the same id has none).
     const log = { ...readEpisodeLog() };
     const prefix = `${id}|`;
     let changed = false;
     for (const key of Object.keys(log)) {
-      if (key.startsWith(prefix)) {
+      if (type === 'tv' && key.startsWith(prefix)) {
         delete log[key];
         changed = true;
       }
@@ -249,6 +294,8 @@ export function removeWatchHistory(id: number, type: MediaType): void {
 
 export function clearWatchHistory(): void {
   try {
+    // One mark for everything saved until now (it replaces the per-title ones it covers).
+    writeRemoved({ [ALL]: Date.now() });
     cachedHistory = [];
     cachedEpisodeLog = {};
     localStorage.removeItem(HISTORY_KEY);
@@ -339,6 +386,8 @@ export interface BackupData {
   bookmarks: MediaItem[];
   preferences?: Partial<UserPreferences>;
   episodeLog?: EpisodeLog;
+  /** Removed titles (see REMOVED_KEY); only cloud sync uses it. */
+  historyRemoved?: RemovedLog;
 }
 
 export function exportBackup(): string {
@@ -349,18 +398,40 @@ export function exportBackup(): string {
     history: getWatchHistory(),
     bookmarks: getBookmarks(),
     preferences: getUserPreferences(),
-    episodeLog: readEpisodeLog()
+    episodeLog: readEpisodeLog(),
+    historyRemoved: readRemoved()
   };
   return JSON.stringify(data, null, 2);
 }
 
-export function importBackup(jsonStr: string): boolean {
+/**
+ * Applies a cloud sync's merged state. Unlike importBackup (a file the viewer chose to restore),
+ * removals win here: a title removed on this or another device is not brought back by a copy that
+ * still had it.
+ */
+export function applySyncedState(data: Partial<BackupData>): void {
+  // The later removal of each title wins (a removal made here while the sync ran is kept).
+  const log = { ...readRemoved() };
+  for (const [k, v] of Object.entries(data.historyRemoved ?? {})) log[k] = Math.max(Number(v) || 0, Number(log[k]) || 0);
+  writeRemoved(log);
+  const kept = withoutRemoved(
+    Array.isArray(data.history) ? data.history : getWatchHistory(),
+    data.episodeLog && typeof data.episodeLog === 'object' ? data.episodeLog : readEpisodeLog(),
+    log
+  );
+  importBackup(JSON.stringify({ app: 'CineStream', ...data, history: kept.history, episodeLog: kept.episodeLog, historyRemoved: undefined }), { keepRemovals: true });
+}
+
+export function importBackup(jsonStr: string, options: { keepRemovals?: boolean } = {}): boolean {
   try {
     const data = JSON.parse(jsonStr) as Partial<BackupData>;
     if (!data || typeof data !== 'object') return false;
     if (data.app && data.app !== 'CineStream') {
       throw new Error(`Invalid backup file: created by ${data.app}`);
     }
+
+    // Restoring a backup file brings its titles back, even ones removed since.
+    if (!options.keepRemovals && Array.isArray(data.history)) writeRemoved({});
 
     if (Array.isArray(data.history)) {
       const valid = data.history.filter(isHistoryItem);

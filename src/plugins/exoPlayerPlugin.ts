@@ -144,6 +144,8 @@ export interface ExoPlayerPluginInterface {
   /** Enhance settings as JSON, for syncing between devices (native only). */
   getEnhancePrefs(): Promise<{ json: string }>;
   setEnhancePrefs(options: { json: string }): Promise<void>;
+  /** Clears the WebView's disk cache (Settings > Clear Cache). Missing on older native builds. */
+  clearWebCache(): Promise<void>;
 
   addListener(eventName: 'playerClosed', fn: () => void): Promise<PluginListenerHandle>;
   addListener(eventName: 'nextEpisodeRequested', fn: (e: EpisodeEvent) => void): Promise<PluginListenerHandle>;
