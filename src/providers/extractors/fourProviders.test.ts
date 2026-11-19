@@ -127,5 +127,48 @@ test('streamResolver exposes all servers, switches server, and fails over', asyn
 
     const failover = await resolveStream({ ...params, exclude: [res.serverId!] }, { fresh: true });
     assert.notEqual(failover.serverId, res.serverId);
+
+    // params.fresh = true bypasses cached stream even when options is omitted
+    const freshViaParams = await resolveStream({ ...params, fresh: true, preferredServerId: 'vidlink' });
+    assert.equal(freshViaParams.serverId, 'vidlink');
   } finally { restore(); }
+});
+
+test('English content picks English providers and never regional scrapers as main stream', async () => {
+  const reg = new ExtractorRegistry(true);
+  const englishStream = { url: 'https://cdn.test/eng.m3u8', format: 'hls' as const, serverId: 'vidlink', serverName: 'VidLink Direct', quality: '1080p' };
+  // Regional scraper claiming to have English audio among others
+  const regionalStream = {
+    url: 'https://cdn.test/reg.m3u8',
+    format: 'hls' as const,
+    serverId: 'hdhub4u',
+    serverName: 'HDHub4U Direct',
+    quality: '720p',
+    audios: [
+      { label: 'Hindi', language: 'Hindi', url: 'https://cdn.test/reg.m3u8' },
+      { label: 'English', language: 'English', url: 'https://cdn.test/reg.m3u8' }
+    ]
+  };
+
+  const best = await reg.resolveBestStream({ id: 999, type: 'movie', language: 'en' }, [regionalStream, englishStream]);
+  assert.equal(best?.serverId, 'vidlink', 'English provider must win main stream for English titles');
+  assert.ok(best?.audios?.some(a => a.language === 'Hindi'), 'Regional audio variants should still be available in audio list');
+});
+
+test('Regional content is labeled with its native language, not hardcoded Hindi', async () => {
+  const { withExtraLanguages } = await import('./extractorRegistry.ts');
+  const mrStream = { url: 'https://cdn.test/mr.m3u8', format: 'hls' as const, serverId: 'movierulz', serverName: 'Movierulz' };
+  const extraDub = [{ url: 'https://cdn.test/hi.m3u8', format: 'hls' as const, audios: [{ label: 'Hindi', language: 'Hindi', url: 'https://cdn.test/hi.m3u8' }] }];
+
+  const telugu = withExtraLanguages(mrStream, extraDub, 'te');
+  assert.equal(telugu.audios?.[0]?.label, 'Telugu', 'Telugu film must be labeled Telugu');
+
+  const tamil = withExtraLanguages(mrStream, extraDub, 'ta');
+  assert.equal(tamil.audios?.[0]?.label, 'Tamil', 'Tamil film must be labeled Tamil');
+
+  const malayalam = withExtraLanguages(mrStream, extraDub, 'ml');
+  assert.equal(malayalam.audios?.[0]?.label, 'Malayalam', 'Malayalam film must be labeled Malayalam');
+
+  const kannada = withExtraLanguages(mrStream, extraDub, 'kn');
+  assert.equal(kannada.audios?.[0]?.label, 'Kannada', 'Kannada film must be labeled Kannada');
 });

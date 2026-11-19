@@ -40,7 +40,7 @@ final class MediaDownloads {
 
     interface Listener {
         /** A download changed state or made progress. Always called on the main thread. */
-        void onChanged(String id, String state, float percent, long bytes);
+        void onChanged(String id, String state, float percent, long bytes, @Nullable String error);
     }
 
     private static final long PROGRESS_INTERVAL_MS = 1000;
@@ -65,7 +65,7 @@ final class MediaDownloads {
             for (Download d : current) {
                 if (d.state == Download.STATE_DOWNLOADING) {
                     active = true;
-                    emit(d);
+                    emit(d, null);
                 }
             }
             if (active) main.postDelayed(this, PROGRESS_INTERVAL_MS);
@@ -101,14 +101,14 @@ final class MediaDownloads {
         manager.addListener(new DownloadManager.Listener() {
             @Override
             public void onDownloadChanged(DownloadManager m, Download download, @Nullable Exception finalException) {
-                emit(download);
+                emit(download, finalException != null ? finalException.getMessage() : null);
                 main.removeCallbacks(progressTicker);
                 main.postDelayed(progressTicker, PROGRESS_INTERVAL_MS);
             }
 
             @Override
             public void onDownloadRemoved(DownloadManager m, Download download) {
-                for (Listener l : listeners) l.onChanged(download.request.id, "removed", 0f, 0L);
+                for (Listener l : listeners) l.onChanged(download.request.id, "removed", 0f, 0L, null);
             }
         });
         // A DownloadManager starts paused; this also resumes whatever was
@@ -227,9 +227,9 @@ final class MediaDownloads {
         }
     }
 
-    private void emit(Download d) {
+    private void emit(Download d, @Nullable String error) {
         float percent = d.state == Download.STATE_COMPLETED ? 100f : Math.max(0f, d.getPercentDownloaded());
         String state = stateName(d.state);
-        for (Listener l : listeners) l.onChanged(d.request.id, state, percent, d.getBytesDownloaded());
+        for (Listener l : listeners) l.onChanged(d.request.id, state, percent, d.getBytesDownloaded(), error);
     }
 }

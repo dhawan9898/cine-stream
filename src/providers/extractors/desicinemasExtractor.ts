@@ -29,8 +29,8 @@ export function parseDesiM3u8(html: string): string | null {
   return match ? match[1] : null;
 }
 
-function detectDesiAudio(title: string, html: string, streamUrl: string): AudioVariant[] {
-  const text = `${title} ${html}`.toLowerCase();
+function detectDesiAudio(cardTitle: string, streamUrl: string): AudioVariant[] {
+  const text = cardTitle.toLowerCase();
   const audios: AudioVariant[] = [];
   const check = (lang: string) => {
     if (text.includes(lang.toLowerCase())) audios.push({ label: lang, language: lang, url: streamUrl });
@@ -40,6 +40,9 @@ function detectDesiAudio(title: string, html: string, streamUrl: string): AudioV
   check('Telugu');
   check('Tamil');
   check('Malayalam');
+  if (audios.length === 0) {
+    audios.push({ label: 'Hindi', language: 'Hindi', url: streamUrl });
+  }
   return audios;
 }
 
@@ -54,7 +57,8 @@ export class DesiCinemasExtractor extends BaseExtractor {
     costHint: 'api',
     priorMs: 2800,
     strongFor: { languages: ['hi', 'pa', 'te', 'ta'] },
-    trust: 'api'
+    trust: 'api',
+    languagesOnly: true
   } satisfies SourceManifest;
 
   async extract(params: ExtractParams): Promise<ExtractedStream | null> {
@@ -86,19 +90,20 @@ export class DesiCinemasExtractor extends BaseExtractor {
     try {
       const pageHtml = await this.httpGet(matched.siteId, { Referer: `${this.mainUrl}/` }, { signal, timeoutMs: 4000 });
       const m3u8Url = parseDesiM3u8(pageHtml);
-      const finalUrl = m3u8Url || `${matched.siteId}#stream.m3u8`;
-      const audios = detectDesiAudio(matched.title, pageHtml, finalUrl);
+      if (!m3u8Url) return null;
+      const audios = detectDesiAudio(matched.title, m3u8Url);
 
       const extracted: ExtractedStream = {
-        url: finalUrl,
-        format: formatOf(finalUrl, 'hls'),
+        url: m3u8Url,
+        format: formatOf(m3u8Url, 'hls'),
         headers: { Referer: `${this.mainUrl}/`, Origin: this.mainUrl },
         audios: audios.length > 0 ? audios : undefined,
         serverId: this.id,
         serverName: this.name
       };
 
-      return (await this.probe(extracted, signal)) ? extracted : extracted;
+      const ok = await this.probe(extracted, signal);
+      return ok ? extracted : null;
     } catch {
       return null;
     }

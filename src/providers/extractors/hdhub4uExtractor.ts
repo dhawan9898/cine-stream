@@ -47,8 +47,8 @@ export function parseStreamLinks(html: string): DirectLink[] {
   return links;
 }
 
-function detectAudioLanguages(title: string, html: string, primaryUrl: string): AudioVariant[] {
-  const text = `${title} ${html}`.toLowerCase();
+function detectAudioLanguages(cardTitle: string, primaryUrl: string): AudioVariant[] {
+  const text = cardTitle.toLowerCase();
   const audios: AudioVariant[] = [];
   const check = (lang: string) => {
     if (text.includes(lang.toLowerCase())) {
@@ -61,6 +61,9 @@ function detectAudioLanguages(title: string, html: string, primaryUrl: string): 
   check('Malayalam');
   check('Kannada');
   check('English');
+  if (audios.length === 0) {
+    audios.push({ label: 'Hindi', language: 'Hindi', url: primaryUrl });
+  }
   return audios;
 }
 
@@ -74,8 +77,9 @@ export class HDHub4UExtractor extends BaseExtractor {
     idKind: 'search',
     costHint: 'multi-hop',
     priorMs: 3800,
-    strongFor: { languages: ['hi', 'te', 'ta', 'en'] },
-    trust: 'scraper'
+    strongFor: { languages: ['hi', 'te', 'ta'] },
+    trust: 'scraper',
+    languagesOnly: true
   } satisfies SourceManifest;
 
   async extract(params: ExtractParams): Promise<ExtractedStream | null> {
@@ -107,21 +111,12 @@ export class HDHub4UExtractor extends BaseExtractor {
     try {
       const pageHtml = await this.httpGet(siteTitle.siteId, { Referer: `${this.mainUrl}/` }, { signal, timeoutMs: 4000 });
       const foundLinks = parseStreamLinks(pageHtml);
-      if (foundLinks.length === 0) {
-        const fallbackUrl = `${siteTitle.siteId}#stream`;
-        return {
-          url: fallbackUrl,
-          format: 'hls',
-          headers: { Referer: `${this.mainUrl}/` },
-          serverId: this.id,
-          serverName: this.name
-        };
-      }
+      if (foundLinks.length === 0) return null;
 
       foundLinks.sort((a, b) => qualityRank(b.quality) - qualityRank(a.quality));
       const primary = foundLinks[0];
       const format = formatOf(primary.url, 'hls');
-      const audios = detectAudioLanguages(siteTitle.title, pageHtml, primary.url);
+      const audios = detectAudioLanguages(siteTitle.title, primary.url);
 
       const extracted: ExtractedStream = {
         url: primary.url,
@@ -134,7 +129,8 @@ export class HDHub4UExtractor extends BaseExtractor {
         serverName: this.name
       };
 
-      return (await this.probe(extracted, signal)) ? extracted : extracted;
+      const ok = await this.probe(extracted, signal);
+      return ok ? extracted : null;
     } catch {
       return null;
     }

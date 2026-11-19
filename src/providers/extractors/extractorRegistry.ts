@@ -70,6 +70,8 @@ const LAST_GOOD_MAX = 300;
 
 type Sniffer = (embed: ExtractedStream, signal?: AbortSignal, background?: boolean) => Promise<ExtractedStream | null>;
 
+const REGIONAL_PROVIDER_IDS = new Set(['movierulz', 'hdhub4u', 'desicinemas', 'einthusan', 'isaimini']);
+
 export class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
   private sniffer: Sniffer = (embed, signal, background) => sniffDirectStream(embed, SNIFF_TIMEOUT_MS, signal, background);
@@ -94,10 +96,10 @@ export class ExtractorRegistry {
     this.runtimeLookup = fn;
   }
 
-  /** Providers that only add languages (Movierulz): their stream is the main one only when nothing else is found. */
+  /** Providers that only add languages (Movierulz, HDHub4U, etc.): their stream is the main one only when nothing else is found. */
   private languagesOnly(s: ExtractedStream): boolean {
     const e = s.serverId ? this.extractors.find(x => x.id === s.serverId) : undefined;
-    return Boolean(e && manifestOf(e).languagesOnly);
+    return Boolean(e && (manifestOf(e).languagesOnly || REGIONAL_PROVIDER_IDS.has(e.id)));
   }
 
   /**
@@ -601,8 +603,8 @@ export class ExtractorRegistry {
       if (preferred) return preferred;
     }
 
-    // Language-only providers (Movierulz) do not give the main stream when anyone else has the title:
-    // their releases are often lower quality. Their languages are added to the one picked.
+    // Language-only providers (Movierulz on English titles) do not give the main stream when anyone else has the title:
+    // their releases are often lower quality / regional dubs. Their languages are added to the one picked.
     const main = all.filter(s => !this.languagesOnly(s));
     const pool = main.length ? main : all;
     const best = this.pickMain(pool, params);
@@ -622,25 +624,34 @@ export class ExtractorRegistry {
   private pickMain(all: ExtractedStream[], params: { id: number; type: 'movie' | 'tv'; language?: string }): ExtractedStream | null {
     const wantedCode = (params.language ?? '').toLowerCase().split('-')[0];
     const wanted = LANGUAGE_NAMES[wantedCode] ?? '';
+    const isEnglishTitle = !wantedCode || wantedCode === 'en';
     const goodId = this.lastGood.get(`${params.type}:${params.id}`);
     const byId = new Map(this.extractors.map(e => [e.id, e]));
 
     const score = (s: ExtractedStream) => {
       const e = s.serverId ? byId.get(s.serverId) : undefined;
       const speed = e ? this.plannedMs(e, params) : QUALITY_TIER_MS / 2;
+      const isRegionalScraper = Boolean(e && REGIONAL_PROVIDER_IDS.has(e.id));
 
-      // Heavy bonus (5,000,000 pts) if stream explicitly matches requested/title language
-      const sLang = (s.audios?.[0]?.language || s.audios?.[0]?.label || '').toLowerCase();
-      const matchesLang = wanted && (
-        sLang === wanted.toLowerCase() ||
-        s.audios?.some(a => (a.language || a.label || '').toLowerCase() === wanted.toLowerCase())
-      );
-      const langBonus = matchesLang ? 5_000_000 : 0;
+      let langBonus = 0;
+      if (isEnglishTitle) {
+        // For English titles, non-regional extractors naturally provide English
+        if (!isRegionalScraper) {
+          langBonus = 5_000_000;
+        }
+      } else if (wanted) {
+        const sLang = (s.audios?.[0]?.language || s.audios?.[0]?.label || '').toLowerCase();
+        const matchesLang = (
+          sLang === wanted.toLowerCase() ||
+          s.audios?.some(a => (a.language || a.label || '').toLowerCase() === wanted.toLowerCase())
+        );
+        if (matchesLang) {
+          langBonus = 5_000_000;
+        }
+      }
 
       // Heavy penalty if title original language is English ('en') but stream comes from an Indian regional scraper
-      const isEnglishTitle = wantedCode === 'en';
-      const isRegionalScraper = Boolean(e && ['movierulz', 'hdhub4u', 'desicinemas', 'einthusan', 'isaimini'].includes(e.id));
-      const regionalPenalty = isEnglishTitle && isRegionalScraper ? 3_000_000 : 0;
+      const regionalPenalty = isEnglishTitle && isRegionalScraper ? 10_000_000 : 0;
 
       const remembered = goodId && s.serverId === goodId ? TIE_BONUS_MS : 0;
       return qualityTier(s) * QUALITY_TIER_MS + Math.min(Math.max(speed, 0), QUALITY_TIER_MS - 1) - langBonus + regionalPenalty - remembered;
@@ -673,12 +684,23 @@ export function withExtraLanguages(
   titleLanguage?: string
 ): ExtractedStream {
   const code = (titleLanguage ?? '').toLowerCase().split('-')[0];
-  const isRegionalProvider = Boolean(main.serverId && ['movierulz', 'hdhub4u', 'desicinemas', 'einthusan', 'isaimini'].includes(main.serverId));
+  const nativeLang = LANGUAGE_NAMES[code];
+  const isRegional = Boolean(main.serverId && REGIONAL_PROVIDER_IDS.has(main.serverId));
+
+  let defaultLabel = 'Default';
+  let defaultLang = '';
+
+  if (code === 'en') {
+    defaultLabel = isRegional ? 'Hindi (Dubbed)' : 'English';
+    defaultLang = isRegional ? 'Hindi' : 'English';
+  } else if (isRegional && nativeLang) {
+    defaultLabel = nativeLang;
+    defaultLang = nativeLang;
+  }
+
   const own = main.audios?.length
     ? main.audios
-    : [code === 'en' && !isRegionalProvider
-      ? { label: 'English', language: 'English', url: main.url }
-      : { label: isRegionalProvider ? 'Hindi (Dubbed)' : 'Default', language: isRegionalProvider ? 'Hindi' : '', url: main.url }];
+    : [{ label: defaultLabel, language: defaultLang, url: main.url }];
   const audios = [...own];
   const has = (name: string) => audios.some(a => a.language.toLowerCase() === name.toLowerCase() || a.label.toLowerCase() === name.toLowerCase());
   for (const extra of extras) {

@@ -65,7 +65,8 @@ export class EinthusanExtractor extends BaseExtractor {
     costHint: 'api',
     priorMs: 3200,
     strongFor: { languages: ['hi', 'ta', 'te', 'ml', 'kn', 'bn', 'mr', 'pa', 'gu'] },
-    trust: 'scraper'
+    trust: 'scraper',
+    languagesOnly: true
   } satisfies SourceManifest;
 
   async extract(params: ExtractParams): Promise<ExtractedStream | null> {
@@ -100,7 +101,8 @@ export class EinthusanExtractor extends BaseExtractor {
 
     try {
       const pageHtml = await this.httpGet(matched.siteId, { Referer: `${this.mainUrl}/` }, { signal, timeoutMs: 4000 });
-      const streamUrl = parseEinthusanStream(pageHtml) || `${matched.siteId}#stream.m3u8`;
+      const streamUrl = parseEinthusanStream(pageHtml);
+      if (!streamUrl) return null;
       const audios: AudioVariant[] = [{ label: langName, language: langName, url: streamUrl }];
 
       const extracted: ExtractedStream = {
@@ -112,7 +114,8 @@ export class EinthusanExtractor extends BaseExtractor {
         serverName: this.name
       };
 
-      return (await this.probe(extracted, signal)) ? extracted : extracted;
+      const ok = await this.probe(extracted, signal);
+      return ok ? extracted : null;
     } catch {
       return null;
     }

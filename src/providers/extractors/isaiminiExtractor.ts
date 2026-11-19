@@ -28,8 +28,8 @@ export function parseIsaiminiStream(html: string): string | null {
   return match ? match[1] : null;
 }
 
-function detectSouthAudio(title: string, html: string, streamUrl: string): AudioVariant[] {
-  const text = `${title} ${html}`.toLowerCase();
+function detectSouthAudio(cardTitle: string, streamUrl: string): AudioVariant[] {
+  const text = cardTitle.toLowerCase();
   const audios: AudioVariant[] = [];
   const check = (lang: string) => {
     if (text.includes(lang.toLowerCase())) audios.push({ label: lang, language: lang, url: streamUrl });
@@ -53,7 +53,8 @@ export class IsaiminiExtractor extends BaseExtractor {
     costHint: 'multi-hop',
     priorMs: 3500,
     strongFor: { languages: ['ta', 'te', 'ml', 'kn'] },
-    trust: 'scraper'
+    trust: 'scraper',
+    languagesOnly: true
   } satisfies SourceManifest;
 
   async extract(params: ExtractParams): Promise<ExtractedStream | null> {
@@ -84,8 +85,9 @@ export class IsaiminiExtractor extends BaseExtractor {
 
     try {
       const pageHtml = await this.httpGet(matched.siteId, { Referer: `${this.mainUrl}/` }, { signal, timeoutMs: 4000 });
-      const streamUrl = parseIsaiminiStream(pageHtml) || `${matched.siteId}#stream.mp4`;
-      const audios = detectSouthAudio(matched.title, pageHtml, streamUrl);
+      const streamUrl = parseIsaiminiStream(pageHtml);
+      if (!streamUrl) return null;
+      const audios = detectSouthAudio(matched.title, streamUrl);
 
       const extracted: ExtractedStream = {
         url: streamUrl,
@@ -96,7 +98,8 @@ export class IsaiminiExtractor extends BaseExtractor {
         serverName: this.name
       };
 
-      return (await this.probe(extracted, signal)) ? extracted : extracted;
+      const ok = await this.probe(extracted, signal);
+      return ok ? extracted : null;
     } catch {
       return null;
     }

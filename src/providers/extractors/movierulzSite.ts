@@ -75,11 +75,10 @@ export function releasesOf(releases: Release[], title: string, year?: number): R
   if (!slug) return [];
   const sameYear = releases.filter(r => !year || Math.abs(r.year - year) <= 1);
   const exact = sameYear.filter(r => r.name === slug);
-  const mainWords = slug.split('-').filter(w => w.length > 2).slice(0, 2).join('-');
   const loose = sameYear.filter(r =>
-    r.name.startsWith(slug) ||
-    slug.startsWith(r.name) ||
-    (mainWords && r.name.includes(mainWords))
+    r.name === slug ||
+    r.name.startsWith(slug + '-') ||
+    slug.startsWith(r.name + '-')
   );
   const pool = exact.length ? exact : loose;
   const perLanguage = new Map<string, Release>();

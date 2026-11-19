@@ -5,7 +5,7 @@ import { SkipForward, Gauge, Database, Vibrate, Droplets, Zap, Bookmark, Chevron
 import { SettingsSection, SettingsRow, ChoiceRow, Switch, RowValue, SettingsNote, UpdateRows } from 'streamkit/ui/Settings.tsx';
 import { JellyfinSource } from '../providers/sources/jellyfin.ts';
 import { CategoryPicker } from 'streamkit/ui/CategoryPicker.tsx';
-import { clearWatchHistory, clearBookmarks, getBookmarks, getUserPreferences, saveUserPreferences, getWatchHistory, exportBackup, importBackup } from '../services/historyService.ts';
+import { clearWatchHistory, clearBookmarks, getBookmarks, getUserPreferences, saveUserPreferences, getWatchHistory, getEpisodeLogCount, exportBackup, importBackup, subscribeLibraryChanges } from '../services/historyService.ts';
 import { Capacitor } from '@capacitor/core';
 import { AccountAvatarButton } from '../components/AccountAvatarButton.tsx';
 import { DownloadsPlugin } from '../plugins/downloadsPlugin.ts';
@@ -71,6 +71,7 @@ export const SettingsScreen: React.FC = () => {
   const [haptics, setHaptics] = useState(getHapticSettings);
   const [glassClear, setGlassClear] = useState(() => getGlassStyle() === 'clear');
   const [historyCount, setHistoryCount] = useState(() => getWatchHistory().length);
+  const [episodeCount, setEpisodeCount] = useState(() => getEpisodeLogCount());
   const [confirming, setConfirming] = useState(false);
   const [confirmingBookmarks, setConfirmingBookmarks] = useState(false);
   const [bookmarkCount, setBookmarkCount] = useState(() => getBookmarks().length);
@@ -83,6 +84,15 @@ export const SettingsScreen: React.FC = () => {
   const [jfKey, setJfKey] = useState(() => getUserPreferences().jellyfinApiKey ?? '');
   const [jfStatus, setJfStatus] = useState<{ ok: boolean; message: string } | null>(null);
   const [jfTesting, setJfTesting] = useState(false);
+
+  // Keep counts in sync whenever history or bookmarks change across tabs/player
+  useEffect(() => {
+    return subscribeLibraryChanges(() => {
+      setHistoryCount(getWatchHistory().length);
+      setEpisodeCount(getEpisodeLogCount());
+      setBookmarkCount(getBookmarks().length);
+    });
+  }, []);
 
   // Crash reporting & backup
   const [crashReport, setCrashReport] = useState<string | null>(null);
@@ -139,6 +149,7 @@ export const SettingsScreen: React.FC = () => {
         const text = event.target?.result as string;
         importBackup(text);
         setHistoryCount(getWatchHistory().length);
+        setEpisodeCount(getEpisodeLogCount());
         setBookmarkCount(getBookmarks().length);
         setPrefs(getUserPreferences());
         setBackupStatus('Backup imported successfully');
@@ -330,9 +341,9 @@ export const SettingsScreen: React.FC = () => {
             icon={<Clock size={18} />}
             title="Clear Watch History"
             hint="Forgets where you stopped in every title"
-            disabled={historyCount === 0}
+            disabled={historyCount === 0 && episodeCount === 0}
             onClick={() => { hapticLight(); setConfirming(true); }}
-            trailing={<RowValue>{historyCount}</RowValue>}
+            trailing={<RowValue>{historyCount > 0 ? historyCount : episodeCount}</RowValue>}
           />
           <SettingsRow
             danger
@@ -431,7 +442,7 @@ export const SettingsScreen: React.FC = () => {
         confirmLabel="Clear"
         cancelLabel="Cancel"
         danger
-        onConfirm={() => { clearWatchHistory(); setHistoryCount(0); setConfirming(false); }}
+        onConfirm={() => { clearWatchHistory(); setHistoryCount(0); setEpisodeCount(0); setConfirming(false); }}
         onCancel={() => setConfirming(false)}
       />
       <ConfirmModal

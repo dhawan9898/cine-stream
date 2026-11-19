@@ -13,6 +13,7 @@ export interface DownloadChangedEvent {
   state: NativeDownloadState;
   percent: number;
   bytes: number;
+  error?: string;
 }
 
 export interface ApkUpdateProgressEvent {

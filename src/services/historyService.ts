@@ -228,6 +228,21 @@ export function removeWatchHistory(id: number, type: MediaType): void {
     const history = getWatchHistory().filter(h => !(h.id === id && h.type === type));
     cachedHistory = history;
     localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+
+    // Also remove per-episode progress log for this title so episodes don't stay marked as watched
+    const log = { ...readEpisodeLog() };
+    const prefix = `${id}|`;
+    let changed = false;
+    for (const key of Object.keys(log)) {
+      if (key.startsWith(prefix)) {
+        delete log[key];
+        changed = true;
+      }
+    }
+    if (changed) {
+      cachedEpisodeLog = log;
+      localStorage.setItem(EPISODE_LOG_KEY, JSON.stringify(log));
+    }
     notify();
   } catch {}
 }
@@ -235,11 +250,15 @@ export function removeWatchHistory(id: number, type: MediaType): void {
 export function clearWatchHistory(): void {
   try {
     cachedHistory = [];
-    cachedEpisodeLog = null;
+    cachedEpisodeLog = {};
     localStorage.removeItem(HISTORY_KEY);
     localStorage.removeItem(EPISODE_LOG_KEY);
     notify();
   } catch {}
+}
+
+export function getEpisodeLogCount(): number {
+  return Object.keys(readEpisodeLog()).length;
 }
 
 // 2. Bookmarks / Watchlist

@@ -39,12 +39,14 @@ public class DownloadsPlugin extends Plugin {
 
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private MediaDownloads downloads;
-    private final MediaDownloads.Listener listener = (id, state, percent, bytes) -> {
+    private final MediaDownloads.Listener listener = (id, state, percent, bytes, error) -> {
         JSObject e = new JSObject();
         e.put("id", id);
         e.put("state", state);
         e.put("percent", Math.round(percent * 10f) / 10f);
         e.put("bytes", bytes);
+        if (error != null)
+            e.put("error", error);
         notifyListeners("downloadChanged", e);
     };
 
@@ -56,12 +58,14 @@ public class DownloadsPlugin extends Plugin {
 
     @Override
     protected void handleOnDestroy() {
-        if (downloads != null) downloads.removeListener(listener);
+        if (downloads != null)
+            downloads.removeListener(listener);
         io.shutdownNow();
     }
 
     /**
-     * start({ id, url, referer, headers, maxHeight, subtitles: [{ src, label, default }] })
+     * start({ id, url, referer, headers, maxHeight, subtitles: [{ src, label,
+     * default }] })
      * Resolves { subtitles } with the caption files saved next to the video
      * (file:// URIs usable offline) once the download has been queued.
      */
@@ -85,23 +89,28 @@ public class DownloadsPlugin extends Plugin {
         });
     }
 
-    private void prepareAndQueue(PluginCall call, String id, String url, String referer, java.util.Map<String, String> headers, int maxHeight, JSArray savedSubs) {
+    private void prepareAndQueue(PluginCall call, String id, String url, String referer,
+            java.util.Map<String, String> headers, int maxHeight, JSArray savedSubs) {
         try {
             MediaDownloads dl = MediaDownloads.get(getContext());
             final java.util.Map<String, String> streamHeaders = MediaDownloads.streamHeaders(referer, headers);
             MediaItem.Builder item = new MediaItem.Builder().setUri(Uri.parse(url));
             String lower = url.toLowerCase(java.util.Locale.US);
-            if (lower.contains(".mpd")) item.setMimeType(MimeTypes.APPLICATION_MPD);
-            else if (!lower.contains(".mp4")) item.setMimeType(MimeTypes.APPLICATION_M3U8);
+            if (lower.contains(".mpd"))
+                item.setMimeType(MimeTypes.APPLICATION_MPD);
+            else if (!lower.contains(".mp4"))
+                item.setMimeType(MimeTypes.APPLICATION_M3U8);
             // Highest rendition up to the chosen height (the helper prefers
             // the best bitrate within the limit).
-            androidx.media3.exoplayer.trackselection.DefaultTrackSelector.Parameters params =
-                    DownloadHelper.getDefaultTrackSelectorParameters(getContext())
-                            .buildUpon()
-                            .setMaxVideoSize(Integer.MAX_VALUE, Math.max(144, maxHeight))
-                            .build();
+            androidx.media3.exoplayer.trackselection.DefaultTrackSelector.Parameters params = DownloadHelper
+                    .getDefaultTrackSelectorParameters(getContext())
+                    .buildUpon()
+                    .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, true)
+                    .setMaxVideoSize(Integer.MAX_VALUE, Math.max(144, maxHeight))
+                    .build();
             DownloadHelper helper = DownloadHelper.forMediaItem(
-                    item.build(), params, new DefaultRenderersFactory(getContext()), MediaDownloads.buildHttp(streamHeaders));
+                    item.build(), params, new DefaultRenderersFactory(getContext()),
+                    MediaDownloads.buildHttp(streamHeaders));
             helper.prepare(new DownloadHelper.Callback() {
                 @Override
                 public void onPrepared(@NonNull DownloadHelper h) {
@@ -161,8 +170,10 @@ public class DownloadsPlugin extends Plugin {
     @PluginMethod
     public void setPaused(PluginCall call) {
         boolean paused = call.getBoolean("paused", false);
-        if (paused) MediaDownloads.get(getContext()).manager().pauseDownloads();
-        else MediaDownloads.get(getContext()).manager().resumeDownloads();
+        if (paused)
+            MediaDownloads.get(getContext()).manager().pauseDownloads();
+        else
+            MediaDownloads.get(getContext()).manager().resumeDownloads();
         call.resolve();
     }
 
@@ -172,33 +183,41 @@ public class DownloadsPlugin extends Plugin {
     // (best effort: a failed caption never blocks the video download).
     private static java.util.Map<String, String> readHeaders(JSObject obj) {
         java.util.Map<String, String> out = new java.util.HashMap<>();
-        if (obj == null) return out;
+        if (obj == null)
+            return out;
         java.util.Iterator<String> keys = obj.keys();
         while (keys.hasNext()) {
             String k = keys.next();
             String v = obj.optString(k, "");
-            if (!v.isEmpty()) out.put(k, v);
+            if (!v.isEmpty())
+                out.put(k, v);
         }
         return out;
     }
 
     private JSArray saveSubtitles(String id, JSArray subs, String referer, java.util.Map<String, String> headers) {
         JSArray saved = new JSArray();
-        if (subs == null) return saved;
+        if (subs == null)
+            return saved;
         File dir = MediaDownloads.get(getContext()).subtitleDir();
         String base = MediaDownloads.safeName(id);
         for (int i = 0; i < subs.length(); i++) {
             try {
                 JSONObject s = subs.getJSONObject(i);
                 String src = s.optString("src", "");
-                if (!src.startsWith("http")) continue;
+                if (!src.startsWith("http"))
+                    continue;
                 File out = new File(dir, base + "_" + i + ".vtt");
                 HttpURLConnection c = (HttpURLConnection) new URL(src).openConnection();
                 c.setConnectTimeout(10_000);
                 c.setReadTimeout(15_000);
-                if (referer != null && !referer.isEmpty()) c.setRequestProperty("Referer", referer);
-                if (headers != null) for (java.util.Map.Entry<String, String> h : headers.entrySet()) c.setRequestProperty(h.getKey(), h.getValue());
-                c.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124.0.0.0 Mobile Safari/537.36");
+                if (referer != null && !referer.isEmpty())
+                    c.setRequestProperty("Referer", referer);
+                if (headers != null)
+                    for (java.util.Map.Entry<String, String> h : headers.entrySet())
+                        c.setRequestProperty(h.getKey(), h.getValue());
+                c.setRequestProperty("User-Agent",
+                        "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/124.0.0.0 Mobile Safari/537.36");
                 try (InputStream in = c.getInputStream(); FileOutputStream fos = new FileOutputStream(out)) {
                     byte[] buf = new byte[8192];
                     int n;
@@ -226,16 +245,21 @@ public class DownloadsPlugin extends Plugin {
         File dir = MediaDownloads.get(getContext()).subtitleDir();
         final String prefix = MediaDownloads.safeName(id) + "_";
         File[] files = dir.listFiles((d, name) -> name.startsWith(prefix));
-        if (files != null) for (File f : files) //noinspection ResultOfMethodCallIgnored
-            f.delete();
+        if (files != null)
+            for (File f : files) // noinspection ResultOfMethodCallIgnored
+                f.delete();
     }
 
-    /** Updates are only ever installed from GitHub releases: https, and a GitHub host. */
+    /**
+     * Updates are only ever installed from GitHub releases: https, and a GitHub
+     * host.
+     */
     private static boolean isTrustedApkUrl(String url) {
         try {
             java.net.URI uri = java.net.URI.create(url);
             String host = uri.getHost();
-            if (!"https".equalsIgnoreCase(uri.getScheme()) || host == null) return false;
+            if (!"https".equalsIgnoreCase(uri.getScheme()) || host == null)
+                return false;
             host = host.toLowerCase(java.util.Locale.ROOT);
             return host.equals("github.com") || host.endsWith(".github.com")
                     || host.equals("githubusercontent.com") || host.endsWith(".githubusercontent.com");
@@ -264,12 +288,14 @@ public class DownloadsPlugin extends Plugin {
                 File cacheDir = getContext().getCacheDir();
                 File apkFile = new File(cacheDir, "update.apk");
                 if (apkFile.exists()) {
-                    //noinspection ResultOfMethodCallIgnored
+                    // noinspection ResultOfMethodCallIgnored
                     apkFile.delete();
                 }
 
-                // Follow redirects by hand (GitHub hands the file to its CDN) and only through GitHub hosts
-                // over https, so a tampered link cannot make the app fetch an APK from anywhere else.
+                // Follow redirects by hand (GitHub hands the file to its CDN) and only through
+                // GitHub hosts
+                // over https, so a tampered link cannot make the app fetch an APK from anywhere
+                // else.
                 String currentUrl = apkUrl;
                 HttpURLConnection conn = null;
                 for (int hop = 0; hop < 5; hop++) {
@@ -299,8 +325,10 @@ public class DownloadsPlugin extends Plugin {
                 }
 
                 long fileLength = conn.getContentLengthLong();
-                // optLong, not call.getLong: a size below 2^31 arrives as an Integer, for which getLong
-                // answers null - unboxing that failed every update with "APK download failed: null".
+                // optLong, not call.getLong: a size below 2^31 arrives as an Integer, for which
+                // getLong
+                // answers null - unboxing that failed every update with "APK download failed:
+                // null".
                 long expectedSize = call.getData().optLong("expectedSize", -1);
                 long targetSize = expectedSize > 0 ? expectedSize : fileLength;
                 long downloaded = 0;
@@ -331,13 +359,14 @@ public class DownloadsPlugin extends Plugin {
 
                 // Verify file size before installing to prevent corrupted or truncated packages
                 if (targetSize > 0 && downloaded < targetSize) {
-                    if (apkFile.exists()) //noinspection ResultOfMethodCallIgnored
+                    if (apkFile.exists()) // noinspection ResultOfMethodCallIgnored
                         apkFile.delete();
-                    call.reject("APK download was truncated (" + downloaded + " of " + targetSize + " bytes). Will not launch installer.");
+                    call.reject("APK download was truncated (" + downloaded + " of " + targetSize
+                            + " bytes). Will not launch installer.");
                     return;
                 }
                 if (apkFile.length() < 1_000_000L) {
-                    if (apkFile.exists()) //noinspection ResultOfMethodCallIgnored
+                    if (apkFile.exists()) // noinspection ResultOfMethodCallIgnored
                         apkFile.delete();
                     call.reject("Downloaded file is too small to be a valid APK (" + apkFile.length() + " bytes).");
                     return;
@@ -345,7 +374,8 @@ public class DownloadsPlugin extends Plugin {
 
                 getActivity().runOnUiThread(() -> {
                     try {
-                        Uri contentUri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apkFile);
+                        Uri contentUri = FileProvider.getUriForFile(getContext(),
+                                getContext().getPackageName() + ".fileprovider", apkFile);
                         Intent intent = new Intent(Intent.ACTION_VIEW);
                         intent.setDataAndType(contentUri, "application/vnd.android.package-archive");
                         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
@@ -362,8 +392,10 @@ public class DownloadsPlugin extends Plugin {
     }
 
     /**
-     * Saves a text file (a backup) where the user can find it: the Downloads folder on Android 10+,
-     * the app's own documents folder before that. A file link clicked in the WebView saves nothing.
+     * Saves a text file (a backup) where the user can find it: the Downloads folder
+     * on Android 10+,
+     * the app's own documents folder before that. A file link clicked in the
+     * WebView saves nothing.
      * saveTextFile({ name, text, mimeType? }) -> { location }
      */
     @PluginMethod
@@ -383,19 +415,23 @@ public class DownloadsPlugin extends Plugin {
                     android.content.ContentValues values = new android.content.ContentValues();
                     values.put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name);
                     values.put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mime);
-                    values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS);
+                    values.put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
+                            android.os.Environment.DIRECTORY_DOWNLOADS);
                     android.content.ContentResolver resolver = getContext().getContentResolver();
                     Uri uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
-                    if (uri == null) throw new IOException("Could not create the file in Downloads");
+                    if (uri == null)
+                        throw new IOException("Could not create the file in Downloads");
                     try (java.io.OutputStream out = resolver.openOutputStream(uri)) {
-                        if (out == null) throw new IOException("Could not open the file in Downloads");
+                        if (out == null)
+                            throw new IOException("Could not open the file in Downloads");
                         out.write(bytes);
                     }
                     location = "Downloads/" + name;
                 } else {
                     File dir = getContext().getExternalFilesDir(android.os.Environment.DIRECTORY_DOCUMENTS);
-                    if (dir == null) dir = getContext().getFilesDir();
-                    //noinspection ResultOfMethodCallIgnored
+                    if (dir == null)
+                        dir = getContext().getFilesDir();
+                    // noinspection ResultOfMethodCallIgnored
                     dir.mkdirs();
                     File file = new File(dir, name);
                     try (FileOutputStream out = new FileOutputStream(file)) {

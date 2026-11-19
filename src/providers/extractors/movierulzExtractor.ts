@@ -38,9 +38,18 @@ const HOSTERS: Array<{ match: RegExp; plainHeaders?: boolean }> = [
 export class MovierulzExtractor extends BaseExtractor {
   id = 'movierulz';
   name = 'Movierulz Regional';
-  mainUrl = 'https://www.5movierulz.dentist';
+  mainUrl = 'https://www.5movierulz.app';
   // Older addresses forward to the current one.
-  private mirrors = ['https://www.5movierulz.gratis', 'https://5movierulz.voto', 'https://www.5movierulz.camera'];
+  private mirrors = [
+    'https://www.5movierulz.app',
+    'https://ww1.movierulz.ch',
+    'https://www.5movierulz.be',
+    'https://www.5movierulz.ms',
+    'https://www.5movierulz.dentist',
+    'https://www.5movierulz.gratis',
+    'https://5movierulz.voto',
+    'https://www.5movierulz.camera'
+  ];
   // Indian-language catalog found by title (several page loads): waited for on those titles, for their
   // other languages; the main stream comes from the other providers when they have the title.
   manifest = { idKind: 'search', costHint: 'multi-hop', priorMs: 5000, strongFor: { languages: ['te', 'hi', 'ta', 'ml', 'kn', 'pa', 'bn'] }, trust: 'scraper', languagesOnly: true } satisfies SourceManifest;
@@ -149,9 +158,9 @@ export class MovierulzExtractor extends BaseExtractor {
     const cleanTitle = title.replace(/[:\-]/g, ' ').replace(/\s+/g, ' ').trim();
 
     // The site's own search lists every language at once, when it lets a plain request through.
-    let search = await this.get(`${origin}/search_movies?s=${encodeURIComponent(cleanTitle)}`, `${origin}/`, signal, 1800);
+    let search = await this.get(`${origin}/search_movies?s=${encodeURIComponent(cleanTitle)}`, `${origin}/`, signal, 3500);
     if (!search && cleanTitle !== title) {
-      search = await this.get(`${origin}/search_movies?s=${encodeURIComponent(title)}`, `${origin}/`, signal, 1800);
+      search = await this.get(`${origin}/search_movies?s=${encodeURIComponent(title)}`, `${origin}/`, signal, 3500);
     }
     let releases = search ? releasesOf(parseReleases(search, false, origin), title, year) : [];
     if (releases.length === 0 && search) {
@@ -205,18 +214,31 @@ export class MovierulzExtractor extends BaseExtractor {
       if (signal?.aborted) return null;
       const streams = await Promise.all(releases.map(r => this.resolveRelease(r, hoster, signal)));
       // Start in the wanted language when this player has it, else in the first one it has.
-      const stream = streams[releases.indexOf(primary)] ?? streams.find(Boolean);
+      const primaryIdx = releases.indexOf(primary);
+      const winningIdx = streams[primaryIdx] ? primaryIdx : streams.findIndex(Boolean);
+      if (winningIdx === -1) continue;
+      const stream = streams[winningIdx];
       if (!stream || !(await this.probe(stream, signal))) continue;
+
+      const actualLang = releases[winningIdx].language;
       const audios: AudioVariant[] = releases.flatMap((r, i) =>
         streams[i] ? [{ label: r.language, language: r.language, url: streams[i]!.url }] : []
       );
-      return { ...stream, audios: audios.length > 1 ? audios : undefined };
+      return {
+        ...stream,
+        audios: audios.length > 0 ? audios : [{ label: actualLang, language: actualLang, url: stream.url }]
+      };
     }
     // None of the known players: whatever link of the wanted language resolves, without audio choices.
     for (const link of (await this.playerLinks(primary, signal)).filter(l => !HOSTERS.some(h => h.match.test(l))).slice(0, 3)) {
       if (signal?.aborted) return null;
       const stream = await this.resolveFromPage(link, { referer: primary.url, maxDepth: 2, maxPages: 3, signal, timeoutMs: HOSTER_TIMEOUT_MS }).catch(() => null);
-      if (stream && (await this.probe(stream, signal))) return stream;
+      if (stream && (await this.probe(stream, signal))) {
+        return {
+          ...stream,
+          audios: [{ label: primary.language, language: primary.language, url: stream.url }]
+        };
+      }
     }
     return null;
   }

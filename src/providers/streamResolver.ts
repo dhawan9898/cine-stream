@@ -185,8 +185,16 @@ function paramsForStore(p: StreamParams): Record<string, unknown> {
   return rest;
 }
 
-// Embed fallback sniffing removed: all extractors in CineStream are direct stream extractors.
-async function reviveFromEmbeds(): Promise<ExtractedStream | null> {
+// Tries saved embed pages with the sniffer, a couple at most. Native only; a no-op elsewhere.
+async function reviveFromEmbeds(params: StreamParams, embeds: ExtractedStream[], backgroundOnly?: boolean): Promise<ExtractedStream | null> {
+  if (backgroundOnly || !Capacitor.isNativePlatform()) return null;
+  // Not the pages of servers whose stream just failed to play.
+  const excluded = new Set(params.exclude ?? []);
+  const usable = embeds.filter(e => !e.serverId || !excluded.has(e.serverId));
+  for (const embed of usable.slice(0, 2)) {
+    const stream = await extractorRegistry.sniffEmbed(embed).catch(() => null);
+    if (stream && stream.url) return { ...stream, serverId: embed.serverId, serverName: embed.serverName };
+  }
   return null;
 }
 
@@ -328,8 +336,22 @@ async function resolveUncachedInner(params: StreamParams, hit: { cached: boolean
       availableServers
     };
   } else {
-    // Never hand an embed/iframe page to the player.
-    throw new Error('No working stream was found for this title right now. It may not be available yet - try again in a moment.');
+    // Embed pages saved by earlier lookups can still be turned into a direct stream
+    // by the native sniffer (a hidden web view; the embed itself is never played).
+    const spentMs = Date.now() - lookupStartedAt;
+    if (signal?.aborted) throw abortError();
+    const revived = spentMs > REVIVE_BUDGET_MS ? null : await reviveFromEmbeds(params, [...foundEmbeds, ...savedEmbeds], Boolean(params.prefetch));
+    if (revived) {
+      allStreams.push(revived);
+      result = {
+        ...revived,
+        id: params.id, type: params.type, season: params.season, episode: params.episode,
+        title: params.title, language: params.language, availableServers
+      };
+    } else {
+      // Never hand an embed/iframe page to the player.
+      throw new Error('No working stream was found for this title right now. It may not be available yet - try again in a moment.');
+    }
   }
 
   // Subtitles the stream itself carries stay first; external ones are added
@@ -448,12 +470,13 @@ async function validateSaved(params: StreamParams, key: string, record: StreamRe
  * episode was picked): once every such caller has left, the lookup itself is cancelled.
  */
 export function resolveStream(params: StreamParams, options: { fresh?: boolean; signal?: AbortSignal } = {}): Promise<ResolvedStream> {
+  const isFresh = Boolean(options.fresh || params.fresh);
   const key = keyOf(params);
 
   // The user asked for this very lookup: it must not also wait in the background queue.
   if (!params.prefetch) scheduler.cancel(key);
 
-  if (!options.fresh) {
+  if (!isFresh) {
     const syncPersisted = getLiveStream<ResolvedStream>(key);
     if (syncPersisted && syncPersisted.url) {
       const record = getStreamRecord<ResolvedStream>(key);
@@ -494,7 +517,7 @@ export function resolveStream(params: StreamParams, options: { fresh?: boolean; 
   const entry = startEntry(
     key,
     { prefetch: Boolean(params.prefetch), speculative: Boolean(params.speculative) },
-    signal => resolveUncached(options.fresh ? { ...params, fresh: true } : params, signal)
+    signal => resolveUncached(isFresh ? { ...params, fresh: true } : params, signal)
   );
   // A lookup the user is waiting on: background prefetching yields to it.
   if (!params.prefetch) scheduler.trackUrgent(entry.promise);

@@ -8,7 +8,7 @@
 // provider embed pages (the web-view fallback) are not downloadable.
 import { Capacitor } from '@capacitor/core';
 import { DownloadsPlugin, type DownloadChangedEvent, type DownloadSubtitle, type NativeDownloadState } from '../plugins/downloadsPlugin.ts';
-import { resolveStream } from '../providers/streamResolver.ts';
+import { forgetStream, resolveStream } from '../providers/streamResolver.ts';
 import type { MediaItem, MediaType } from '../providers/cineHypeCore.ts';
 import { pickAudio, subtitlesForPlayer } from './playbackPrefs.ts';
 import { getUserPreferences } from './historyService.ts';
@@ -73,7 +73,15 @@ function apply(event: DownloadChangedEvent) {
   const state = toState(event.state);
   if (!state) return;
   const changedState = rec.state !== state;
-  const next: DownloadRecord = { ...rec, state, percent: state === 'completed' ? 100 : event.percent, bytes: event.bytes };
+  const isCompleted = state === 'completed';
+  const isFailed = state === 'failed';
+  const next: DownloadRecord = {
+    ...rec,
+    state,
+    percent: isCompleted ? 100 : (isFailed && event.percent >= 99 ? 0 : event.percent),
+    bytes: event.bytes,
+    error: event.error ?? rec.error
+  };
   records.set(rec.id, next);
   if (changedState) void idbPut('downloads', next);
   publish();
@@ -167,11 +175,14 @@ export async function startDownload(media: DownloadedMedia, season?: number, epi
   const existing = records.get(id);
   if (existing && existing.state !== 'failed') return;
 
-  // A failed download is retried on the SAME stream link first: the partly
-  // downloaded data is cached under that link, so it carries on instead of
-  // starting over. Only if that fails again (the link has probably expired)
-  // is the partial data dropped and a fresh link resolved.
-  const reuseLink = !!existing && existing.state === 'failed' && !!existing.streamUrl && (existing.attempts ?? 0) < 1;
+  // A failed download is retried on the same stream link only if it failed early (< 90% progress)
+  // and hasn't exceeded 1 retry attempt. If it failed near 100% or failed before, the stream
+  // URL is likely expired or broken, so we clear the old download state and extract a fresh stream.
+  const reuseLink = !!existing &&
+    existing.state === 'failed' &&
+    !!existing.streamUrl &&
+    (existing.percent < 90) &&
+    (existing.attempts ?? 0) < 1;
   const placeholder: DownloadRecord = {
     id, media: trimMedia(media), season, episode, episodeName, state: 'queued',
     percent: reuseLink ? existing.percent : 0, bytes: reuseLink ? existing.bytes : 0,
@@ -189,10 +200,21 @@ export async function startDownload(media: DownloadedMedia, season?: number, epi
     if (reuseLink) {
       source = { url: existing.streamUrl, referer: existing.referer, headers: existing.headers, subtitles: [] };
     } else {
+      // Remove stale native Media3 download state so it starts fresh without corrupt chunks
       if (existing) await DownloadsPlugin.remove({ id }).catch(() => undefined);
+      // Invalidate streamStore for this title so resolveStream extracts a fresh, live stream
+      forgetStream({
+        id: media.id,
+        type: media.mediaType,
+        season,
+        episode,
+        language: media.language,
+        title: media.title
+      });
       const prefs = getUserPreferences();
       const resolved = await resolveStream(
-        { id: media.id, type: media.mediaType, season, episode, language: media.language, title: media.title, fresh: true }
+        { id: media.id, type: media.mediaType, season, episode, language: media.language, title: media.title, fresh: true },
+        { fresh: true }
       );
       const url = pickAudio(resolved, prefs.audioLanguage || media.language || '').url;
       if (resolved.isFallbackEmbed || !isDownloadable(url)) {
@@ -229,7 +251,20 @@ export async function startDownload(media: DownloadedMedia, season?: number, epi
     publish();
     void savePoster(placeholder.media);
   } catch (err) {
-    const failed: DownloadRecord = { ...placeholder, state: 'failed', error: err instanceof Error ? err.message : String(err) };
+    forgetStream({
+      id: media.id,
+      type: media.mediaType,
+      season,
+      episode,
+      language: media.language,
+      title: media.title
+    });
+    const failed: DownloadRecord = {
+      ...placeholder,
+      state: 'failed',
+      percent: existing?.percent && existing.percent < 90 ? existing.percent : 0,
+      error: err instanceof Error ? err.message : String(err)
+    };
     records.set(id, failed);
     await idbPut('downloads', failed);
     publish();
