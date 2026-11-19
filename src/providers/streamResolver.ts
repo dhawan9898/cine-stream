@@ -163,7 +163,9 @@ function attach(key: string, entry: MemoryEntry, signal?: AbortSignal): Promise<
 // v13: Movierulz no longer gives the main stream when others have the title, and streams of the wrong
 // length (another film) are dropped; streams saved before may be either.
 // v14: the main stream is picked by quality first, and playback never starts on another provider's language.
-const CACHE_VERSION = 'v14';
+// v15: the main stream is elected by print > resolution > language (stable), and audio labels are only
+// what the playlist or the site's per-language release says; saved streams carry guessed labels.
+const CACHE_VERSION = 'v15';
 // How long a ready stream waits for the (optional) external subtitle lookup.
 const SUBTITLE_GRACE_MS = 300;
 const keyOf = (p: StreamParams) => `${CACHE_VERSION}|${p.type}|${p.id}|${p.season ?? 0}|${p.episode ?? 0}|${p.languageMode ?? 'sub'}|${p.language ?? ''}|${p.title ?? ''}|${p.preferredServerId ?? ''}`;
@@ -609,4 +611,10 @@ export function prefetchUpcomingEpisodes(
     prefetchStream({ ...base, episode: upcoming[0], nextEpisode: true }, { priority: Priority.NEXT_EPISODE });
     upcoming.slice(1).forEach(n => prefetchStream({ ...base, episode: n }, { priority: Priority.RAIL }));
   }, NEXT_EPISODE_DELAY_MS);
+}
+
+/** Forgets every lookup kept in memory and the recent failures (Settings > Clear Cache). */
+export function clearResolvedStreams(): void {
+  for (const [k, e] of memoryCache) if (e.settled) memoryCache.delete(k);
+  negative.clear();
 }

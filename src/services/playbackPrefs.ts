@@ -18,29 +18,41 @@ export function subtitlesForPlayer(subs: ExtractorSubtitle[] | undefined, prefer
   }));
 }
 
-/** The language file matching the preferred audio, or the stream as resolved. */
-export function pickAudio(stream: ExtractedStream, preferredLang: string): { url: string; qualities: ExtractedStream['qualities']; headers?: Record<string, string> } {
+/**
+ * The language file matching the preferred audio, or the stream as resolved.
+ *
+ * A file of the same provider is always fine (another language of the same release). Another
+ * provider's file is taken only when `allowOtherSource` - the viewer chose the audio language in
+ * Settings: just because a title is Telugu, the elected stream (best print and resolution, see
+ * streamElection.ts) must not be swapped for a worse copy from elsewhere; it stays a choice under Audio.
+ */
+export function pickAudio(
+  stream: ExtractedStream,
+  preferredLang: string,
+  options: { allowOtherSource?: boolean } = {}
+): { url: string; qualities: ExtractedStream['qualities']; headers?: Record<string, string> } {
+  const { allowOtherSource = true } = options;
   const code = (preferredLang || '').toLowerCase().trim();
   const wanted = code ? (LANGUAGE_NAMES[code]?.toLowerCase() || code) : undefined;
   if (!wanted) return { url: stream.url, qualities: stream.qualities };
 
+  // Already playing it (one language, or a multi-audio file that has it among its tracks).
+  if (stream.languages?.some(l => l.toLowerCase() === wanted)) return { url: stream.url, qualities: stream.qualities };
+
+  // "Hindi + Telugu" (a multi-audio file) matches either language.
+  const matches = (a: { label?: string; language?: string }) => {
+    const names = `${a.language || ''} + ${a.label || ''}`.toLowerCase().split(/\s*[+/,&]\s*/).map(n => n.trim());
+    return names.some(n => n === wanted || n === code || n.startsWith(`${wanted} `) || n.startsWith(`${wanted}(`));
+  };
+
   // 1. Same-source matching audio variant
-  const sameSourceAudio = stream.audios?.find(a => {
-    if (a.otherSource) return false;
-    const lbl = (a.label || '').toLowerCase();
-    const lng = (a.language || '').toLowerCase();
-    return lbl === wanted || lng === code || lng === wanted || lbl.startsWith(wanted);
-  });
+  const sameSourceAudio = stream.audios?.find(a => !a.otherSource && matches(a));
   if (sameSourceAudio) {
     return { url: sameSourceAudio.url, qualities: sameSourceAudio.qualities, headers: sameSourceAudio.headers };
   }
 
-  // 2. Any source matching audio variant (including otherSource multi-provider streams)
-  const anySourceAudio = stream.audios?.find(a => {
-    const lbl = (a.label || '').toLowerCase();
-    const lng = (a.language || '').toLowerCase();
-    return lbl === wanted || lng === code || lng === wanted || lbl.startsWith(wanted);
-  });
+  // 2. Another provider's release in that language (only when the viewer asked for the language)
+  const anySourceAudio = allowOtherSource ? stream.audios?.find(matches) : undefined;
   if (anySourceAudio) {
     return { url: anySourceAudio.url, qualities: anySourceAudio.qualities, headers: anySourceAudio.headers };
   }

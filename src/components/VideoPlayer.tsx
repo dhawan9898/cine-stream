@@ -436,7 +436,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         if (isNative) {
           const prefs = getUserPreferences();
           const targetAudioLang = prefs.audioLanguage || media.language || undefined;
-          const audio = applyPreferredQuality(pickAudio(res, targetAudioLang || ''), prefs.defaultQuality);
+          // Another provider's copy only for a language the viewer chose, not just the title's own.
+          const audio = applyPreferredQuality(pickAudio(res, targetAudioLang || '', { allowOtherSource: Boolean(prefs.audioLanguage) }), prefs.defaultQuality);
           openNativeExoPlayer({
             url: audio.url,
             title: media.title,
@@ -520,7 +521,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     if (!source || !isDirectVideoUrl(source.url)) return null;
     const prefs = getUserPreferences();
     const targetAudioLang = prefs.audioLanguage || media.language || undefined;
-    const audio = applyPreferredQuality(pickAudio(source, targetAudioLang || ''), prefs.defaultQuality);
+    const audio = applyPreferredQuality(pickAudio(source, targetAudioLang || '', { allowOtherSource: Boolean(prefs.audioLanguage) }), prefs.defaultQuality);
     return {
       streamUrl: audio.url,
       quality: source.quality ?? '1080p',

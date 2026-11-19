@@ -216,7 +216,7 @@ export async function startDownload(media: DownloadedMedia, season?: number, epi
         { id: media.id, type: media.mediaType, season, episode, language: media.language, title: media.title, fresh: true },
         { fresh: true }
       );
-      const url = pickAudio(resolved, prefs.audioLanguage || media.language || '').url;
+      const url = pickAudio(resolved, prefs.audioLanguage || media.language || '', { allowOtherSource: Boolean(prefs.audioLanguage) }).url;
       if (resolved.isFallbackEmbed || !isDownloadable(url)) {
         throw new Error('This title only has an embedded player right now, which can\'t be downloaded.');
       }

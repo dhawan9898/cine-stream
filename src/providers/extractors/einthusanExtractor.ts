@@ -1,7 +1,7 @@
 // einthusanExtractor.ts - Einthusan Direct HLS Stream Extractor
 // Dedicated Indian Regional catalog provider (Hindi, Tamil, Telugu, Malayalam, Kannada, Bengali, Marathi, Punjabi, Gujarati).
 import { BaseExtractor } from './baseExtractor.ts';
-import type { AudioVariant, ExtractedStream, ExtractParams, SourceManifest } from './types.ts';
+import type { ExtractedStream, ExtractParams, SourceManifest } from './types.ts';
 import { idMapper } from '../sources/idMapper.ts';
 import { formatOf } from './kunaiCommon.ts';
 
@@ -103,13 +103,14 @@ export class EinthusanExtractor extends BaseExtractor {
       const pageHtml = await this.httpGet(matched.siteId, { Referer: `${this.mainUrl}/` }, { signal, timeoutMs: 4000 });
       const streamUrl = parseEinthusanStream(pageHtml);
       if (!streamUrl) return null;
-      const audios: AudioVariant[] = [{ label: langName, language: langName, url: streamUrl }];
 
       const extracted: ExtractedStream = {
         url: streamUrl,
         format: formatOf(streamUrl, 'hls'),
         headers: { Referer: `${this.mainUrl}/`, Origin: this.mainUrl },
-        audios,
+        // Searched in that language's catalog: the site files every film under its language.
+        languages: [langName],
+        releaseName: matched.title,
         serverId: this.id,
         serverName: this.name
       };

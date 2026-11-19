@@ -152,23 +152,21 @@ test('English content picks English providers and never regional scrapers as mai
 
   const best = await reg.resolveBestStream({ id: 999, type: 'movie', language: 'en' }, [regionalStream, englishStream]);
   assert.equal(best?.serverId, 'vidlink', 'English provider must win main stream for English titles');
-  assert.ok(best?.audios?.some(a => a.language === 'Hindi'), 'Regional audio variants should still be available in audio list');
+  // One dual-audio file is one Audio entry naming both languages, never two entries on the same file.
+  assert.deepEqual(best?.audios?.map(a => a.label), ['Default', 'Hindi + English']);
+  assert.equal(best?.audios?.filter(a => a.url === regionalStream.url).length, 1);
 });
 
-test('Regional content is labeled with its native language, not hardcoded Hindi', async () => {
+test('Regional content is labeled with the language it carries, never with the title\'s language', async () => {
   const { withExtraLanguages } = await import('./extractorRegistry.ts');
   const mrStream = { url: 'https://cdn.test/mr.m3u8', format: 'hls' as const, serverId: 'movierulz', serverName: 'Movierulz' };
   const extraDub = [{ url: 'https://cdn.test/hi.m3u8', format: 'hls' as const, audios: [{ label: 'Hindi', language: 'Hindi', url: 'https://cdn.test/hi.m3u8' }] }];
 
-  const telugu = withExtraLanguages(mrStream, extraDub, 'te');
-  assert.equal(telugu.audios?.[0]?.label, 'Telugu', 'Telugu film must be labeled Telugu');
+  // A Kannada release of a Telugu film is Kannada (the "shows Telugu, plays Kannada" bug).
+  const kannada = withExtraLanguages({ ...mrStream, languages: ['Kannada'] }, extraDub);
+  assert.deepEqual(kannada.audios?.map(a => a.label), ['Kannada', 'Hindi']);
 
-  const tamil = withExtraLanguages(mrStream, extraDub, 'ta');
-  assert.equal(tamil.audios?.[0]?.label, 'Tamil', 'Tamil film must be labeled Tamil');
-
-  const malayalam = withExtraLanguages(mrStream, extraDub, 'ml');
-  assert.equal(malayalam.audios?.[0]?.label, 'Malayalam', 'Malayalam film must be labeled Malayalam');
-
-  const kannada = withExtraLanguages(mrStream, extraDub, 'kn');
-  assert.equal(kannada.audios?.[0]?.label, 'Kannada', 'Kannada film must be labeled Kannada');
+  // Nothing says what it is: not labeled with a guess.
+  const unknown = withExtraLanguages(mrStream, extraDub);
+  assert.equal(unknown.audios?.[0]?.label, 'Default');
 });

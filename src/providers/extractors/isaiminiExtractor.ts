@@ -1,7 +1,8 @@
 // isaiminiExtractor.ts - Isaimini South Regional Direct Stream Extractor
 // Scrapes South Indian catalog (Tamil, Telugu, Malayalam, Kannada) for direct MP4 and HLS streams.
 import { BaseExtractor } from './baseExtractor.ts';
-import type { AudioVariant, ExtractedStream, ExtractParams, SourceManifest } from './types.ts';
+import type { ExtractedStream, ExtractParams, SourceManifest } from './types.ts';
+import { languagesIn } from './variantDiscovery.ts';
 import { idMapper } from '../sources/idMapper.ts';
 import { formatOf } from './kunaiCommon.ts';
 
@@ -26,20 +27,6 @@ export function parseIsaiminiSearch(html: string): Array<{ title: string; link: 
 export function parseIsaiminiStream(html: string): string | null {
   const match = html.match(/href=["'](https?:\/\/[^"'\s]+\.(?:mp4|m3u8)(?:\?[^"'\s]*)?)["']/i);
   return match ? match[1] : null;
-}
-
-function detectSouthAudio(cardTitle: string, streamUrl: string): AudioVariant[] {
-  const text = cardTitle.toLowerCase();
-  const audios: AudioVariant[] = [];
-  const check = (lang: string) => {
-    if (text.includes(lang.toLowerCase())) audios.push({ label: lang, language: lang, url: streamUrl });
-  };
-  check('Tamil');
-  check('Telugu');
-  check('Malayalam');
-  check('Kannada');
-  if (audios.length === 0) audios.push({ label: 'Tamil', language: 'Tamil', url: streamUrl });
-  return audios;
 }
 
 export class IsaiminiExtractor extends BaseExtractor {
@@ -87,13 +74,15 @@ export class IsaiminiExtractor extends BaseExtractor {
       const pageHtml = await this.httpGet(matched.siteId, { Referer: `${this.mainUrl}/` }, { signal, timeoutMs: 4000 });
       const streamUrl = parseIsaiminiStream(pageHtml);
       if (!streamUrl) return null;
-      const audios = detectSouthAudio(matched.title, streamUrl);
+      // The languages the release names (a multi-audio file names several); none named stays unknown.
+      const languages = languagesIn(matched.title, query);
 
       const extracted: ExtractedStream = {
         url: streamUrl,
         format: formatOf(streamUrl, 'mp4'),
         headers: { Referer: `${this.mainUrl}/`, Origin: this.mainUrl },
-        audios,
+        languages: languages.length > 0 ? languages : undefined,
+        releaseName: matched.title,
         serverId: this.id,
         serverName: this.name
       };

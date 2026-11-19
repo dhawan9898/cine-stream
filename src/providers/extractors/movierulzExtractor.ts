@@ -226,6 +226,9 @@ export class MovierulzExtractor extends BaseExtractor {
       );
       return {
         ...stream,
+        // Each language is its own release on the site, so the playing one's language is known.
+        languages: [actualLang],
+        releaseName: releaseTail(releases[winningIdx]),
         audios: audios.length > 0 ? audios : [{ label: actualLang, language: actualLang, url: stream.url }]
       };
     }
@@ -236,6 +239,8 @@ export class MovierulzExtractor extends BaseExtractor {
       if (stream && (await this.probe(stream, signal))) {
         return {
           ...stream,
+          languages: [primary.language],
+          releaseName: releaseTail(primary),
           audios: [{ label: primary.language, language: primary.language, url: stream.url }]
         };
       }
@@ -281,4 +286,15 @@ export class MovierulzExtractor extends BaseExtractor {
       serverName: this.name
     };
   }
+}
+
+/**
+ * What the release address says after the film's name and year ("hdrip-telugu-dubbed", "camrip-tamil"):
+ * its print. The film's own name is left out, so a title word never reads as a print.
+ */
+function releaseTail(r: Release): string {
+  let slug = '';
+  try { slug = new URL(r.url).pathname.split('/').filter(Boolean)[0] ?? ''; } catch { return r.language; }
+  const tail = slug.toLowerCase().split(`${r.name}-${r.year}-`)[1] ?? r.language;
+  return tail.replace(/-\d+\.html$/, '').replace(/-/g, ' ');
 }

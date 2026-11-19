@@ -37,6 +37,15 @@ export interface ExtractedStream {
   qualities?: QualityVariant[];
   // Other languages of this title; the player lists them under Audio.
   audios?: AudioVariant[];
+  /**
+   * The audio language(s) actually carried by the file at `url`, as display names ("Telugu"): one
+   * for a single-language release, several for a multi-audio file. Set only from something that
+   * says so (the stream's playlist, the site's per-language release); absent when unknown - never a
+   * guess from the title's language.
+   */
+  languages?: string[];
+  /** The site's own name for the release ("Kalki 2898 AD (2024) Telugu HDRip"), to tell its print. */
+  releaseName?: string;
   isFallbackEmbed?: boolean;
   /** A saved copy of this link is checked before playback once it was last confirmed this long ago (default: 15 min). Set for links that carry short-lived tokens. */
   revalidateAfterMs?: number;

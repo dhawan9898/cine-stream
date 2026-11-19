@@ -6,6 +6,7 @@
 // playlist also names its renditions, which gives the stream's real quality.
 import { CapacitorHttp, Capacitor } from '@capacitor/core';
 import type { ExtractedStream } from './types.ts';
+import { languageName } from './variantDiscovery.ts';
 
 const CHECK_TIMEOUT_MS = 3500;
 
@@ -14,6 +15,8 @@ export interface StreamFacts {
   minutes?: number;
   /** Tallest rendition, e.g. 1080. */
   height?: number;
+  /** Audio languages the playlist declares (display names), the default one first. */
+  languages?: string[];
 }
 
 /** Minutes of a media playlist (sum of its segment lengths); undefined for a live or unreadable one. */
@@ -31,13 +34,49 @@ export function dashMinutes(mpd: string): number | undefined {
   return minutes > 0 ? minutes : undefined;
 }
 
-/** Tallest rendition named in an HLS master playlist or DASH manifest. */
+/**
+ * The resolution class of a frame: a wide-screen film is 1920x800, which is 1080p, not 800p. The
+ * class is the larger of the height and the height a 16:9 frame of that width would have.
+ */
+export function nominalHeight(width: number, height: number): number {
+  return Math.max(height, Math.round((width * 9) / 16 / 10) * 10);
+}
+
+/** Tallest rendition named in an HLS master playlist or DASH manifest (by resolution class). */
 export function tallestRendition(text: string): number | undefined {
   const heights = [
-    ...[...text.matchAll(/RESOLUTION=\d+x(\d+)/gi)].map(m => Number(m[1])),
-    ...[...text.matchAll(/<Representation\b[^>]*\bheight="(\d+)"/gi)].map(m => Number(m[1]))
+    ...[...text.matchAll(/RESOLUTION=(\d+)x(\d+)/gi)].map(m => nominalHeight(Number(m[1]), Number(m[2]))),
+    ...[...text.matchAll(/<Representation\b([^>]*)>/gi)].map(m => {
+      const h = Number(m[1].match(/\bheight="(\d+)"/i)?.[1] ?? 0);
+      const w = Number(m[1].match(/\bwidth="(\d+)"/i)?.[1] ?? 0);
+      return h > 0 ? nominalHeight(w, h) : 0;
+    })
   ].filter(h => h > 0);
   return heights.length ? Math.max(...heights) : undefined;
+}
+
+/**
+ * The audio languages an HLS master playlist (EXT-X-MEDIA TYPE=AUDIO) or DASH manifest (audio
+ * AdaptationSet lang) declares, the default track first. Unknown codes ("und") are left out.
+ */
+export function playlistLanguages(text: string): string[] {
+  const found: Array<{ name: string; isDefault: boolean }> = [];
+  for (const m of text.matchAll(/#EXT-X-MEDIA:([^\n]*)/g)) {
+    const attrs = m[1];
+    if (!/TYPE=AUDIO/i.test(attrs)) continue;
+    const lang = attrs.match(/LANGUAGE="([^"]*)"/i)?.[1];
+    const label = attrs.match(/NAME="([^"]*)"/i)?.[1];
+    const name = languageName(lang) ?? languageName(label);
+    if (name) found.push({ name, isDefault: /DEFAULT=YES/i.test(attrs) });
+  }
+  for (const m of text.matchAll(/<AdaptationSet\b([^>]*)>/gi)) {
+    const attrs = m[1];
+    if (!/(contentType|mimeType)="audio/i.test(attrs)) continue;
+    const name = languageName(attrs.match(/\blang="([^"]*)"/i)?.[1]);
+    if (name) found.push({ name, isDefault: false });
+  }
+  found.sort((a, b) => Number(b.isDefault) - Number(a.isDefault));
+  return [...new Set(found.map(f => f.name))];
 }
 
 /**
@@ -80,16 +119,21 @@ export async function inspectStream(stream: Pick<ExtractedStream, 'url' | 'forma
   if (stream.format === 'mp4') return {};
   const body = await getText(stream.url, stream.headers, signal);
   if (!body) return {};
-  if (/<MPD\b/i.test(body)) return { minutes: dashMinutes(body), height: tallestRendition(body) };
+  if (/<MPD\b/i.test(body)) return { minutes: dashMinutes(body), height: tallestRendition(body), ...langs(playlistLanguages(body)) };
   if (!body.trimStart().startsWith('#EXTM3U')) return {};
   if (!body.includes('#EXT-X-STREAM-INF')) return { minutes: body.includes('#EXT-X-ENDLIST') || body.includes('#EXTINF') ? hlsMinutes(body) : undefined };
   const height = tallestRendition(body);
+  const languages = langs(playlistLanguages(body));
   const lines = body.split('\n').map(l => l.trim());
   const at = lines.findIndex(l => l.startsWith('#EXT-X-STREAM-INF'));
   const variant = at >= 0 ? lines.slice(at + 1).find(l => l && !l.startsWith('#')) : undefined;
-  if (!variant) return { height };
+  if (!variant) return { height, ...languages };
   let mediaUrl: string;
-  try { mediaUrl = new URL(variant, stream.url).toString(); } catch { return { height }; }
+  try { mediaUrl = new URL(variant, stream.url).toString(); } catch { return { height, ...languages }; }
   const media = await getText(mediaUrl, stream.headers, signal);
-  return { height, minutes: media ? hlsMinutes(media) : undefined };
+  return { height, minutes: media ? hlsMinutes(media) : undefined, ...languages };
+}
+
+function langs(list: string[]): { languages?: string[] } {
+  return list.length ? { languages: list } : {};
 }

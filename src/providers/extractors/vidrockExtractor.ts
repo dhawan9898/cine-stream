@@ -4,7 +4,7 @@
 import { BaseExtractor } from './baseExtractor.ts';
 import type { AudioVariant, ExtractedStream, QualityVariant, SourceManifest, ExtractParams } from './types.ts';
 import { KUNAI_UA, base64UrlToBytes, firstSuccess, formatOf, qualityRank } from './kunaiCommon.ts';
-import { LANGUAGE_NAMES } from './variantDiscovery.ts';
+import { LANGUAGE_NAMES, languageName } from './variantDiscovery.ts';
 
 const ORIGIN = 'https://vidrock.net';
 const KEY_HEX = '7f3e9c2a8b5d1f4e6a9c3b7d2e5f8a1c4b6d9e2f5a8c1b4d7e9f2a5c8b1d4e7f';
@@ -102,6 +102,8 @@ export class VidRockExtractor extends BaseExtractor {
     const primary = working[0].stream;
     const labelled = working.filter(w => w.name);
     const audios: AudioVariant[] = labelled.map(w => ({ label: w.name, language: w.name, url: w.stream.url, qualities: w.stream.qualities }));
-    return { ...primary, audios: audios.length > 1 ? audios : undefined };
+    // The lane's own language field names what plays, even when it is the only working lane.
+    const playing = languageName(working[0].name);
+    return { ...primary, languages: playing ? [playing] : undefined, audios: audios.length > 1 ? audios : undefined };
   }
 }

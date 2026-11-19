@@ -1,7 +1,8 @@
 // desicinemasExtractor.ts - DesiCinemas Direct HLS Stream Extractor
 // Scrapes DesiCinemas catalog for Hindi, Punjabi, Tamil, and Telugu releases.
 import { BaseExtractor } from './baseExtractor.ts';
-import type { AudioVariant, ExtractedStream, ExtractParams, SourceManifest } from './types.ts';
+import type { ExtractedStream, ExtractParams, SourceManifest } from './types.ts';
+import { languagesIn } from './variantDiscovery.ts';
 import { idMapper } from '../sources/idMapper.ts';
 import { formatOf } from './kunaiCommon.ts';
 
@@ -27,23 +28,6 @@ export function parseDesiM3u8(html: string): string | null {
   const match = html.match(/(?:file|src|source)\s*:\s*["'](https?:\/\/[^"'\s]+\.m3u8[^"'\s]*)["']/i)
     || html.match(/["'](https?:\/\/[^"'\s]+\.m3u8(?:\?[^"'\s]*)?)["']/i);
   return match ? match[1] : null;
-}
-
-function detectDesiAudio(cardTitle: string, streamUrl: string): AudioVariant[] {
-  const text = cardTitle.toLowerCase();
-  const audios: AudioVariant[] = [];
-  const check = (lang: string) => {
-    if (text.includes(lang.toLowerCase())) audios.push({ label: lang, language: lang, url: streamUrl });
-  };
-  check('Hindi');
-  check('Punjabi');
-  check('Telugu');
-  check('Tamil');
-  check('Malayalam');
-  if (audios.length === 0) {
-    audios.push({ label: 'Hindi', language: 'Hindi', url: streamUrl });
-  }
-  return audios;
 }
 
 export class DesiCinemasExtractor extends BaseExtractor {
@@ -91,13 +75,15 @@ export class DesiCinemasExtractor extends BaseExtractor {
       const pageHtml = await this.httpGet(matched.siteId, { Referer: `${this.mainUrl}/` }, { signal, timeoutMs: 4000 });
       const m3u8Url = parseDesiM3u8(pageHtml);
       if (!m3u8Url) return null;
-      const audios = detectDesiAudio(matched.title, m3u8Url);
+      // The languages the release names (a multi-audio file names several); none named stays unknown.
+      const languages = languagesIn(matched.title, query);
 
       const extracted: ExtractedStream = {
         url: m3u8Url,
         format: formatOf(m3u8Url, 'hls'),
         headers: { Referer: `${this.mainUrl}/`, Origin: this.mainUrl },
-        audios: audios.length > 0 ? audios : undefined,
+        languages: languages.length > 0 ? languages : undefined,
+        releaseName: matched.title,
         serverId: this.id,
         serverName: this.name
       };

@@ -36,17 +36,19 @@ test('Movierulz languages are added to the main stream with their own headers, w
     headers: { Referer: 'https://player.test/' },
     audios: ['Telugu', 'Hindi', 'Tamil', 'Malayalam'].map(l => ({ label: l, language: l, url: `https://mr.test/${l}.m3u8` }))
   });
-  const out = withExtraLanguages(main, [mr], 'te');
+  const out = withExtraLanguages(main, [mr]);
   assert.deepEqual(out.audios!.map(a => a.label), ['Telugu', 'Hindi', 'Tamil', 'Malayalam']);
   assert.equal(out.url, main.url);
   assert.deepEqual(out.audios![2].headers, { Referer: 'https://player.test/' });
   assert.equal(out.audios![0].headers, undefined);
 });
 
-test('a single-language main stream is "English" for an English film, else "Default"', () => {
+test('a main stream of unknown language is "Default" (never guessed); a known one says its language', () => {
   const mr = stream('movierulz', { audios: ['Telugu', 'Hindi'].map(l => ({ label: l, language: l, url: `https://mr.test/${l}.m3u8` })) });
-  assert.deepEqual(withExtraLanguages(stream('movy'), [mr], 'te').audios!.map(a => a.label), ['Default', 'Telugu', 'Hindi']);
-  assert.deepEqual(withExtraLanguages(stream('movy'), [mr], 'en').audios!.map(a => a.label), ['English', 'Telugu', 'Hindi']);
+  assert.deepEqual(withExtraLanguages(stream('movy'), [mr]).audios!.map(a => a.label), ['Default', 'Telugu', 'Hindi']);
+  assert.deepEqual(withExtraLanguages(stream('movy', { languages: ['English'] }), [mr]).audios!.map(a => a.label), ['English', 'Telugu', 'Hindi']);
+  // A language the main stream already has is not added again.
+  assert.deepEqual(withExtraLanguages(stream('movy', { languages: ['Telugu'] }), [mr]).audios!.map(a => a.label), ['Telugu', 'Hindi']);
 });
 
 test('a sharp stream beats a blurry one that would answer a little sooner', async () => {
@@ -77,7 +79,7 @@ test('requested language audio track is selected when available', async () => {
   assert.equal(best?.serverId, 'vidrock', 'Telugu matching stream selected');
 
   const { pickAudio } = await import('../../services/playbackPrefs.ts');
-  const main = withExtraLanguages(stream('movy', { height: 1080 }), [stream('movierulz', { audios: [{ label: 'Telugu', language: 'Telugu', url: 'https://mr.test/te.m3u8' }] })], 'te');
+  const main = withExtraLanguages(stream('movy', { height: 1080 }), [stream('movierulz', { audios: [{ label: 'Telugu', language: 'Telugu', url: 'https://mr.test/te.m3u8' }] })]);
   assert.equal(pickAudio(main, 'te').url, 'https://mr.test/te.m3u8');
 });
 

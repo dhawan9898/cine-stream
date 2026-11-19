@@ -1,8 +1,8 @@
 // extractorRegistry.ts - Central registry for real title-specific stream extractors
-import { LANGUAGE_NAMES } from './variantDiscovery.ts';
 import { reportError } from '../../services/errorReporter.ts';
 import type { StreamExtractor, ExtractedStream, ExtractParams } from './types.ts';
 import { isCheap, manifestOf, priorMs, strongFor, strongForLanguage, trustRank } from './manifest.ts';
+import { compareStreams, electionContext, elect, isSettled, normalizeLanguages, withExtraLanguages, type ElectionContext } from './streamElection.ts';
 import { markBackground } from './hostLimiter.ts';
 import { FlixHQSource } from '../sources/flixhq.ts';
 import { JellyfinSource } from '../sources/jellyfin.ts';
@@ -23,7 +23,9 @@ import { DesiCinemasExtractor } from './desicinemasExtractor.ts';
 import { EinthusanExtractor } from './einthusanExtractor.ts';
 import { IsaiminiExtractor } from './isaiminiExtractor.ts';
 import { filterBestPrintStreams } from './printClassifier.ts';
-import { heightOf, inspectStream, isWrongLength } from './streamCheck.ts';
+import { inspectStream, isWrongLength } from './streamCheck.ts';
+
+export { withExtraLanguages } from './streamElection.ts';
 
 const MAX_SNIFF_ATTEMPTS = 4;
 // The best two embeds are sniffed side by side from the start; a third only after the hedge delay.
@@ -45,7 +47,8 @@ const LAST_GOOD_HEAD_START_MS = 1200;
 const CHEAP_HEAD_START_MIN_MS = 800;
 const CHEAP_HEAD_START_MAX_MS = 3500;
 const EARLY_EXIT_GRACE_MS = 250;
-// The first stream in hand is below 1080p: the race waits this long for a sharper one.
+// The best stream in hand is below 1080p, a theatrical print, or (regional titles) not in the title's
+// language: the race waits this long for a better one (see streamElection.ts#isSettled).
 const QUALITY_WAIT_MS = 2000;
 // Streams still being checked when the race would end get this long to finish (see checkStream).
 const CHECK_WAIT_MS = 1500;
@@ -62,15 +65,9 @@ const PRIMARY_BIAS_MS = 1500;
 const LAST_GOOD_KEY = 'cinestream_last_good_v1';
 // How long the film's runtime may take to arrive (it is usually cached from the title page).
 const RUNTIME_WAIT_MS = 2000;
-// The final pick ranks by quality tier first (a tier outweighs any difference in speed), then speed.
-const QUALITY_TIER_MS = 1_000_000;
-// Within a tier: the provider that worked last time, or a stream with the title's own language.
-const TIE_BONUS_MS = 1500;
 const LAST_GOOD_MAX = 300;
 
 type Sniffer = (embed: ExtractedStream, signal?: AbortSignal, background?: boolean) => Promise<ExtractedStream | null>;
-
-const REGIONAL_PROVIDER_IDS = new Set(['movierulz', 'hdhub4u', 'desicinemas', 'einthusan', 'isaimini']);
 
 export class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
@@ -99,7 +96,29 @@ export class ExtractorRegistry {
   /** Providers that only add languages (Movierulz, HDHub4U, etc.): their stream is the main one only when nothing else is found. */
   private languagesOnly(s: ExtractedStream): boolean {
     const e = s.serverId ? this.extractors.find(x => x.id === s.serverId) : undefined;
-    return Boolean(e && (manifestOf(e).languagesOnly || REGIONAL_PROVIDER_IDS.has(e.id)));
+    return Boolean(e && manifestOf(e).languagesOnly);
+  }
+
+  /**
+   * The fixed order the election falls back on when streams tie on print, resolution and language:
+   * suits the title (kind / language), trust, the manifest's expected speed (with the remote-config
+   * bias), registration order. Learned speed is left out on purpose: it drifts from one lookup to the
+   * next, and the played provider must not change with it.
+   */
+  private providerOrder(title: { type: 'movie' | 'tv'; language?: string }): (serverId: string | undefined) => number[] {
+    return serverId => {
+      const index = this.extractors.findIndex(x => x.id === serverId);
+      if (index < 0) return [1, 2, Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER];
+      const e = this.extractors[index];
+      return [strongFor(e, title) ? 0 : 1, trustRank(e), priorMs(e) - (getProviderOverride(e.id)?.bias ?? 0), index];
+    };
+  }
+
+  private election(params: { id: number; type: 'movie' | 'tv'; language?: string }): ElectionContext {
+    return electionContext(params.language, {
+      lastGoodId: this.lastGood.get(`${params.type}:${params.id}`),
+      providerOrder: this.providerOrder(params)
+    });
   }
 
   /**
@@ -109,6 +128,8 @@ export class ExtractorRegistry {
   private async checkStream(stream: ExtractedStream, runtime: Promise<number | undefined>, title: { id: number; title?: string }, signal?: AbortSignal): Promise<boolean> {
     const [facts, expected] = await Promise.all([this.inspect(stream, signal).catch(() => ({})), runtime]) as [Awaited<ReturnType<typeof inspectStream>>, number | undefined];
     if (facts.height) stream.height = facts.height;
+    // What the playlist itself declares beats any label the provider put on the stream.
+    if (facts.languages?.length) stream.languages = facts.languages;
     if (!isWrongLength(facts.minutes, expected)) return true;
     // Not counted against the provider: a wrong title is about this film (often a regional one sharing
     // its name with another), and three of them must not switch a good provider off for every title.
@@ -127,6 +148,11 @@ export class ExtractorRegistry {
     // No network says nothing about the provider.
     if (!ok && typeof navigator !== 'undefined' && navigator.onLine === false) return;
     this.stats.record(id, ok, ms);
+  }
+
+  /** Forgets which provider played each title (Settings > Clear Cache). Speed and health stay learned. */
+  forgetLastGood(): void {
+    this.lastGood.clear();
   }
 
   /** What has been learned so far, for diagnostics. */
@@ -289,6 +315,7 @@ export class ExtractorRegistry {
       : active;
     const headCount = headIds.size;
 
+    const election = this.election(params);
     const lookupStart = Date.now();
     const runtime: Promise<number | undefined> = params.type === 'movie'
       ? Promise.race([
@@ -338,12 +365,17 @@ export class ExtractorRegistry {
             if (x.serverId === params.preferredServerId) return -1;
             if (y.serverId === params.preferredServerId) return 1;
           }
-          // Language-only providers go last: they are the final fallback, not the next one.
+          // Best first by the election's order; on an English title the language-only providers go
+          // last: they are the final fallback, not the next one.
           return Number(Boolean(x.isFallbackEmbed)) - Number(Boolean(y.isFallbackEmbed))
-            || Number(this.languagesOnly(x)) - Number(this.languagesOnly(y));
+            || (election.regional ? 0 : Number(this.languagesOnly(x)) - Number(this.languagesOnly(y)))
+            || compareStreams(x, y, election);
         });
-        this.rememberGood(params, sorted.find(x => !x.isFallbackEmbed)?.serverId);
-        resolve(sorted.filter(x => !x.isFallbackEmbed));
+        const directs = sorted.filter(x => !x.isFallbackEmbed);
+        // Remembered: the stream the election picks, not whichever arrived first.
+        const winner = this.electMain(filterBestPrintStreams(directs), params);
+        if (winner) this.rememberGood(params, winner.serverId);
+        resolve(directs);
       };
 
       const maybeFinish = () => {
@@ -354,6 +386,8 @@ export class ExtractorRegistry {
           // need to sit out the rest of its head start.
           const headDone = pendingExtract <= raceList.length - headCount;
           if (headDone && sniffRunning === 0 && verifying === 0 && queue.length === 0 && found.length === 0) startOthers();
+          // Everyone was in the head group and has answered: nothing more is coming.
+          else if (headDone && headCount === raceList.length) startOthers();
           return;
         }
         if (pendingExtract === 0 && sniffRunning === 0 && verifying === 0 && (queue.length === 0 || sniffStarted >= MAX_SNIFF_ATTEMPTS)) finish();
@@ -366,7 +400,7 @@ export class ExtractorRegistry {
           verifying--;
           if (done) return;
           if (ok) {
-            found.push(stream);
+            found.push(normalizeLanguages(stream));
             finishSoon();
           }
           maybeFinish();
@@ -383,7 +417,8 @@ export class ExtractorRegistry {
         // A language-only provider's stream (Movierulz, often from its cache in a second) never ends
         // the race: the others are still looking for the main stream. maybeFinish ends it when
         // everyone is done and that stream is all there is.
-        const mains = found.filter(s => !s.isFallbackEmbed && !this.languagesOnly(s));
+        // On a regional title they compete like everyone else (they have its own language).
+        const mains = found.filter(s => !s.isFallbackEmbed && (election.regional || !this.languagesOnly(s)));
         if (mains.length === 0) return;
         const strongHasStream = found.some(s => !s.isFallbackEmbed && strongIds.has(s.serverId ?? ''));
         if (strongPending > 0 && !strongHasStream) {
@@ -393,10 +428,10 @@ export class ExtractorRegistry {
             return;
           }
         }
-        // Quality first: below 1080p, give a sharper stream a moment to arrive.
-        // (A stream whose quality is not known does not hold the race up.)
-        const sharp = mains.some(s => (streamHeight(s) ?? 1080) >= 1080);
-        if (!grace) grace = setTimeout(finishWhenChecked, sharp ? EARLY_EXIT_GRACE_MS : QUALITY_WAIT_MS);
+        // Original print, 1080p+ and (regional titles) the title's language: nothing can beat it, end
+        // soon. Otherwise give a better stream a moment to arrive.
+        const settled = mains.some(s => isSettled(s, election));
+        if (!grace) grace = setTimeout(finishWhenChecked, settled ? EARLY_EXIT_GRACE_MS : QUALITY_WAIT_MS);
       };
 
       // Streams found but still being checked are not thrown away by the end of the race.
@@ -594,7 +629,10 @@ export class ExtractorRegistry {
     preferredServerId?: string;
     directOnly?: boolean;
   }, precomputed?: ExtractedStream[]): Promise<ExtractedStream | null> {
-    const directStreams = (precomputed ?? await this.resolveAllStreams(params)).filter(s => !s.isFallbackEmbed);
+    const directStreams = (precomputed ?? await this.resolveAllStreams(params))
+      .filter(s => !s.isFallbackEmbed)
+      .map(normalizeLanguages);
+    // An original print is there: theatrical ones are neither played nor offered as a language.
     const all = filterBestPrintStreams(directStreams);
     if (all.length === 0) return null;
 
@@ -603,114 +641,27 @@ export class ExtractorRegistry {
       if (preferred) return preferred;
     }
 
-    // Language-only providers (Movierulz on English titles) do not give the main stream when anyone else has the title:
-    // their releases are often lower quality / regional dubs. Their languages are added to the one picked.
-    const main = all.filter(s => !this.languagesOnly(s));
-    const pool = main.length ? main : all;
-    const best = this.pickMain(pool, params);
+    const best = this.electMain(all, params);
     if (!best) return null;
-    // Every other stream with a language list lends the languages the main one lacks; the
+    this.rememberGood(params, best.serverId);
+    // Every other stream of a known language lends the languages the main one lacks; the
     // language-only providers' come last.
-    const extras = all.filter(s => s !== best && (s.audios?.length ?? 0) > 0)
+    const extras = all.filter(s => s !== best && ((s.audios?.length ?? 0) > 0 || (s.languages?.length ?? 0) > 0))
       .sort((a, b) => Number(this.languagesOnly(a)) - Number(this.languagesOnly(b)));
-    return extras.length ? withExtraLanguages(best, extras, params.language) : best;
+    return extras.length ? withExtraLanguages(best, extras) : best;
   }
 
   /**
-   * Quality first: the sharpest stream wins; within the same quality the one expected to start
-   * sooner, with a small edge for the provider that worked last time and for a stream that has the
-   * title's own language among its audio tracks.
+   * The stream that plays (see streamElection.ts for the order). On an English (or unknown-language)
+   * title the language-only providers - Indian sites whose copies are mostly Hindi / regional dubs -
+   * give the main stream only when nobody else has the title. On a regional title they compete like
+   * everyone else: they often have the original-language release.
    */
-  private pickMain(all: ExtractedStream[], params: { id: number; type: 'movie' | 'tv'; language?: string }): ExtractedStream | null {
-    const wantedCode = (params.language ?? '').toLowerCase().split('-')[0];
-    const wanted = LANGUAGE_NAMES[wantedCode] ?? '';
-    const isEnglishTitle = !wantedCode || wantedCode === 'en';
-    const goodId = this.lastGood.get(`${params.type}:${params.id}`);
-    const byId = new Map(this.extractors.map(e => [e.id, e]));
-
-    const score = (s: ExtractedStream) => {
-      const e = s.serverId ? byId.get(s.serverId) : undefined;
-      const speed = e ? this.plannedMs(e, params) : QUALITY_TIER_MS / 2;
-      const isRegionalScraper = Boolean(e && REGIONAL_PROVIDER_IDS.has(e.id));
-
-      let langBonus = 0;
-      if (isEnglishTitle) {
-        // For English titles, non-regional extractors naturally provide English
-        if (!isRegionalScraper) {
-          langBonus = 5_000_000;
-        }
-      } else if (wanted) {
-        const sLang = (s.audios?.[0]?.language || s.audios?.[0]?.label || '').toLowerCase();
-        const matchesLang = (
-          sLang === wanted.toLowerCase() ||
-          s.audios?.some(a => (a.language || a.label || '').toLowerCase() === wanted.toLowerCase())
-        );
-        if (matchesLang) {
-          langBonus = 5_000_000;
-        }
-      }
-
-      // Heavy penalty if title original language is English ('en') but stream comes from an Indian regional scraper
-      const regionalPenalty = isEnglishTitle && isRegionalScraper ? 10_000_000 : 0;
-
-      const remembered = goodId && s.serverId === goodId ? TIE_BONUS_MS : 0;
-      return qualityTier(s) * QUALITY_TIER_MS + Math.min(Math.max(speed, 0), QUALITY_TIER_MS - 1) - langBonus + regionalPenalty - remembered;
-    };
-    return [...all].sort((a, b) => score(a) - score(b))[0] ?? null;
+  private electMain(all: ExtractedStream[], params: { id: number; type: 'movie' | 'tv'; language?: string }): ExtractedStream | null {
+    const ctx = this.election(params);
+    const main = ctx.regional ? all : all.filter(s => !this.languagesOnly(s));
+    return elect(main.length ? main : all, ctx);
   }
-}
-
-function streamHeight(s: ExtractedStream): number | undefined {
-  return s.height ?? heightOf(s.quality) ?? heightOf(s.qualities?.map(q => heightOf(q.quality) ?? 0).sort((a, b) => b - a)[0])
-    // A rendition playlist named after its height (".../720/index.m3u8", "..._1080p.m3u8").
-    ?? heightOf(s.url.match(/[/_-](2160|1440|1080|720|576|480|360)p?(?=[/_.-])/i)?.[1]);
-}
-
-/** 0 = 1080p or better, 1 = 720p (or not known), 2 = 480p, 3 = less. */
-function qualityTier(s: ExtractedStream): number {
-  const h = streamHeight(s);
-  if (!h) return 1;
-  return h >= 1080 ? 0 : h >= 720 ? 1 : h >= 480 ? 2 : 3;
-}
-
-/**
- * The main stream with the languages it lacks added from other providers' streams. Each added
- * language is a whole stream of its own (the player switches to it at the same position) with its own
- * request headers; a language the main stream already has is not added again.
- */
-export function withExtraLanguages(
-  main: ExtractedStream,
-  extras: ExtractedStream[],
-  titleLanguage?: string
-): ExtractedStream {
-  const code = (titleLanguage ?? '').toLowerCase().split('-')[0];
-  const nativeLang = LANGUAGE_NAMES[code];
-  const isRegional = Boolean(main.serverId && REGIONAL_PROVIDER_IDS.has(main.serverId));
-
-  let defaultLabel = 'Default';
-  let defaultLang = '';
-
-  if (code === 'en') {
-    defaultLabel = isRegional ? 'Hindi (Dubbed)' : 'English';
-    defaultLang = isRegional ? 'Hindi' : 'English';
-  } else if (isRegional && nativeLang) {
-    defaultLabel = nativeLang;
-    defaultLang = nativeLang;
-  }
-
-  const own = main.audios?.length
-    ? main.audios
-    : [{ label: defaultLabel, language: defaultLang, url: main.url }];
-  const audios = [...own];
-  const has = (name: string) => audios.some(a => a.language.toLowerCase() === name.toLowerCase() || a.label.toLowerCase() === name.toLowerCase());
-  for (const extra of extras) {
-    const list = extra.audios?.length ? extra.audios : [];
-    for (const a of list) {
-      if (!a.language || has(a.language)) continue;
-      audios.push({ ...a, headers: a.headers ?? extra.headers, otherSource: true });
-    }
-  }
-  return audios.length > own.length ? { ...main, audios } : main;
 }
 
 export const extractorRegistry = new ExtractorRegistry();

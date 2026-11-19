@@ -74,6 +74,11 @@ export class LastGoodStore {
     return this.map[key];
   }
 
+  clear(): void {
+    for (const k of Object.keys(this.map)) delete this.map[k];
+    writeJson(this.store, this.storageKey, this.map);
+  }
+
   remember(key: string, providerId: string | undefined): void {
     if (!providerId || this.map[key] === providerId) return;
     delete this.map[key]; // re-insert so the newest entry is last

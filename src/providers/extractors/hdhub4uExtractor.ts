@@ -2,7 +2,8 @@
 // Scrapes HDHub4U catalog for Hindi, South Indian Dubbed, and English titles.
 // Unrolls HubCloud, PixelDrain, and StreamWish links into direct playable HLS/MP4 streams.
 import { BaseExtractor } from './baseExtractor.ts';
-import type { AudioVariant, ExtractedStream, ExtractParams, SourceManifest } from './types.ts';
+import type { ExtractedStream, ExtractParams, SourceManifest } from './types.ts';
+import { languagesIn } from './variantDiscovery.ts';
 import { formatOf, qualityRank } from './kunaiCommon.ts';
 import { idMapper } from '../sources/idMapper.ts';
 
@@ -45,26 +46,6 @@ export function parseStreamLinks(html: string): DirectLink[] {
     }
   }
   return links;
-}
-
-function detectAudioLanguages(cardTitle: string, primaryUrl: string): AudioVariant[] {
-  const text = cardTitle.toLowerCase();
-  const audios: AudioVariant[] = [];
-  const check = (lang: string) => {
-    if (text.includes(lang.toLowerCase())) {
-      audios.push({ label: lang, language: lang, url: primaryUrl });
-    }
-  };
-  check('Hindi');
-  check('Telugu');
-  check('Tamil');
-  check('Malayalam');
-  check('Kannada');
-  check('English');
-  if (audios.length === 0) {
-    audios.push({ label: 'Hindi', language: 'Hindi', url: primaryUrl });
-  }
-  return audios;
 }
 
 export class HDHub4UExtractor extends BaseExtractor {
@@ -116,7 +97,9 @@ export class HDHub4UExtractor extends BaseExtractor {
       foundLinks.sort((a, b) => qualityRank(b.quality) - qualityRank(a.quality));
       const primary = foundLinks[0];
       const format = formatOf(primary.url, 'hls');
-      const audios = detectAudioLanguages(siteTitle.title, primary.url);
+      // The languages the release names ("Hindi + English" is one dual-audio file, not two choices);
+      // none named stays unknown.
+      const languages = languagesIn(siteTitle.title, query);
 
       const extracted: ExtractedStream = {
         url: primary.url,
@@ -124,7 +107,8 @@ export class HDHub4UExtractor extends BaseExtractor {
         quality: primary.quality,
         headers: { Referer: `${this.mainUrl}/`, Origin: this.mainUrl },
         qualities: foundLinks,
-        audios: audios.length > 0 ? audios : undefined,
+        languages: languages.length > 0 ? languages : undefined,
+        releaseName: siteTitle.title,
         serverId: this.id,
         serverName: this.name
       };
