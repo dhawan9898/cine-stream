@@ -294,6 +294,30 @@ function mapRawToMedia(item: TmdbRawMedia, defaultType: MediaType = 'movie'): Me
   };
 }
 
+// ================= Release filter =================
+// TMDB lists (trending, popular, discover sorted by newest, search, recommendations)
+// include announced titles that are not out yet, and seasons / episodes that have
+// not aired. Nothing can be streamed for those, so they are kept out of the app.
+// A title with no date at all is an unannounced one and is dropped as well.
+
+/** Today as YYYY-MM-DD in the device's own time zone (TMDB dates are plain dates). */
+export function todayISO(now: Date = new Date()): string {
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function isReleased(date: string | undefined | null, today: string = todayISO()): boolean {
+  return !!date && /^\d{4}-\d{2}-\d{2}/.test(date) && date.slice(0, 10) <= today;
+}
+
+/** Keeps released titles only. Also applied to cached lists, which may predate this filter. */
+export function onlyReleased<T extends { releaseDate?: string }>(items: T[]): T[] {
+  const today = todayISO();
+  return items.filter(i => isReleased(i.releaseDate, today));
+}
+
 // ================= API Functions =================
 
 // Helper to check L1/L2 sync cache first then L3 async cache
@@ -307,70 +331,70 @@ async function getCached<T>(key: string): Promise<T | null> {
 export async function getTrending(type: 'all' | 'movie' | 'tv' = 'all', time: 'week' | 'day' = 'week'): Promise<MediaItem[]> {
   const cacheKey = `trending_${type}_${time}`;
   const cached = await getCached<MediaItem[]>(cacheKey);
-  if (cached) return cached;
+  if (cached) return onlyReleased(cached);
 
   const data = await tmdbFetch<TmdbList>(`/trending/${type}/${time}`);
   const items = data.results.filter(i => i.poster_path || i.backdrop_path).map(i => mapRawToMedia(i, type === 'tv' ? 'tv' : 'movie'));
   writePersisted(cacheKey, items, 30 * 60 * 1000);
-  return items;
+  return onlyReleased(items);
 }
 
 // 2. Popular Movies & TV
 export async function getPopularMovies(page = 1): Promise<MediaItem[]> {
   const cacheKey = `popular_movies_${page}`;
   const cached = await getCached<MediaItem[]>(cacheKey);
-  if (cached) return cached;
+  if (cached) return onlyReleased(cached);
 
   const data = await tmdbFetch<TmdbList>('/movie/popular', { page });
   const items = data.results.map(i => mapRawToMedia(i, 'movie'));
   writePersisted(cacheKey, items, 60 * 60 * 1000);
-  return items;
+  return onlyReleased(items);
 }
 
 export async function getPopularTV(page = 1): Promise<MediaItem[]> {
   const cacheKey = `popular_tv_${page}`;
   const cached = await getCached<MediaItem[]>(cacheKey);
-  if (cached) return cached;
+  if (cached) return onlyReleased(cached);
 
   const data = await tmdbFetch<TmdbList>('/tv/popular', { page });
   const items = data.results.map(i => mapRawToMedia(i, 'tv'));
   writePersisted(cacheKey, items, 60 * 60 * 1000);
-  return items;
+  return onlyReleased(items);
 }
 
 // 3. Top Rated
 export async function getTopRatedMovies(page = 1): Promise<MediaItem[]> {
   const cacheKey = `top_rated_movies_${page}`;
   const cached = await getCached<MediaItem[]>(cacheKey);
-  if (cached) return cached;
+  if (cached) return onlyReleased(cached);
 
   const data = await tmdbFetch<TmdbList>('/movie/top_rated', { page });
   const items = data.results.map(i => mapRawToMedia(i, 'movie'));
   writePersisted(cacheKey, items, 120 * 60 * 1000);
-  return items;
+  return onlyReleased(items);
 }
 
 export async function getTopRatedTV(page = 1): Promise<MediaItem[]> {
   const cacheKey = `top_rated_tv_${page}`;
   const cached = await getCached<MediaItem[]>(cacheKey);
-  if (cached) return cached;
+  if (cached) return onlyReleased(cached);
 
   const data = await tmdbFetch<TmdbList>('/tv/top_rated', { page });
   const items = data.results.map(i => mapRawToMedia(i, 'tv'));
   writePersisted(cacheKey, items, 120 * 60 * 1000);
-  return items;
+  return onlyReleased(items);
 }
 
 // 4. On The Air TV (new episodes)
 export async function getOnTheAirTV(page = 1): Promise<MediaItem[]> {
   const cacheKey = `on_air_tv_${page}`;
   const cached = await getCached<MediaItem[]>(cacheKey);
-  if (cached) return cached;
+  if (cached) return onlyReleased(cached);
 
   const data = await tmdbFetch<TmdbList>('/tv/on_the_air', { page });
   const items = data.results.map(i => mapRawToMedia(i, 'tv'));
   writePersisted(cacheKey, items, 60 * 60 * 1000);
-  return items;
+  return onlyReleased(items);
 }
 
 // 4b. Personalized: titles TMDB recommends from one the viewer watched
@@ -413,7 +437,7 @@ async function buildRegionalSuggestions(
 export async function getMediaDetails(id: number, type: MediaType): Promise<MediaDetails> {
   const cacheKey = `details2_${type}_${id}`;
   const cached = await getCached<MediaDetails>(cacheKey);
-  if (cached) return cached;
+  if (cached) return withReleasedOnly(cached);
 
   const endpoint = type === 'movie' ? `/movie/${id}` : `/tv/${id}`;
   const data = await tmdbFetch<TmdbDetails>(endpoint, {
@@ -490,7 +514,18 @@ export async function getMediaDetails(id: number, type: MediaType): Promise<Medi
   };
 
   writePersisted(cacheKey, details, 30 * 60 * 1000);
-  return details;
+  return withReleasedOnly(details);
+}
+
+// The title itself still opens (a trailer or watchlist entry can link to it); only
+// its suggestions and unaired seasons are filtered.
+function withReleasedOnly(details: MediaDetails): MediaDetails {
+  const today = todayISO();
+  return {
+    ...details,
+    recommendations: onlyReleased(details.recommendations || []),
+    seasons: details.seasons?.filter(s => isReleased(s.airDate, today))
+  };
 }
 
 export function prefetchMediaDetails(id: number, type: MediaType): void {
@@ -501,7 +536,7 @@ export function prefetchMediaDetails(id: number, type: MediaType): void {
 export async function getTVSeasonEpisodes(tvId: number, seasonNumber: number): Promise<EpisodeItem[]> {
   const cacheKey = `tv_episodes_${tvId}_s${seasonNumber}`;
   const cached = await getCached<EpisodeItem[]>(cacheKey);
-  if (cached) return cached;
+  if (cached) return releasedEpisodes(cached);
 
   const data = await tmdbFetch<{ episodes?: TmdbEpisode[] }>(`/tv/${tvId}/season/${seasonNumber}`);
   const episodes: EpisodeItem[] = (data.episodes || []).map((e) => ({
@@ -517,7 +552,12 @@ export async function getTVSeasonEpisodes(tvId: number, seasonNumber: number): P
   }));
 
   writePersisted(cacheKey, episodes, 60 * 60 * 1000);
-  return episodes;
+  return releasedEpisodes(episodes);
+}
+
+function releasedEpisodes(episodes: EpisodeItem[]): EpisodeItem[] {
+  const today = todayISO();
+  return episodes.filter(e => isReleased(e.airDate, today));
 }
 
 // 7. Multi-Search (Movies & TV Series)
@@ -533,7 +573,7 @@ export async function searchMedia(query: string, page = 1): Promise<MediaItem[]>
   const results = data.results
     .filter(i => (i.media_type === 'movie' || i.media_type === 'tv') && (i.poster_path || i.backdrop_path))
     .map(i => mapRawToMedia(i, i.media_type === 'tv' ? 'tv' : 'movie'));
-  return rankSearchResults(results, clean);
+  return rankSearchResults(onlyReleased(results), clean);
 }
 
 /**
@@ -567,21 +607,23 @@ export async function discoverMedia(opts: DiscoverOptions): Promise<MediaItem[]>
   // TV has no primary_release_date.
   const sort = type === 'tv' ? sortBy.replace('primary_release_date', 'first_air_date') : sortBy;
   const minVotes = opts.minVotes ?? (sort.startsWith('vote_average') ? 200 : 0);
-  const cacheKey = `discover2_${type}_${genres ?? ''}_${language ?? ''}_p${page}_${sort}_${minVotes}`;
+  const cacheKey = `discover3_${type}_${genres ?? ''}_${language ?? ''}_p${page}_${sort}_${minVotes}`;
   const cached = await getCached<MediaItem[]>(cacheKey);
-  if (cached) return cached;
+  if (cached) return onlyReleased(cached);
 
   const params: Record<string, string | number> = { page, sort_by: sort };
   if (genres) params.with_genres = genres;
   if (language) params.with_original_language = language;
   if (minVotes) params['vote_count.gte'] = minVotes;
+  // Server-side too, so a "Newest" page is not mostly announced titles that get filtered out.
+  params[type === 'movie' ? 'primary_release_date.lte' : 'first_air_date.lte'] = todayISO();
 
   const data = await tmdbFetch<TmdbList>(type === 'movie' ? '/discover/movie' : '/discover/tv', params);
   const items = data.results
     .filter(i => i.poster_path)
     .map(i => mapRawToMedia(i, type));
   writePersisted(cacheKey, items, 60 * 60 * 1000);
-  return items;
+  return onlyReleased(items);
 }
 
 // 10. Genres & Regional Categories
