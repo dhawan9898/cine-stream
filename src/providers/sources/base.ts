@@ -1,28 +1,11 @@
-// base.ts - Base class providing HTTP helper functions for stream extractors
-import { Capacitor, CapacitorHttp } from '@capacitor/core';
+// base.ts - What every site source shares: the HTTP helpers, the playability probe and the generic
+// page walker (resolveFromPage) for sites whose player pages carry the stream address in their markup.
 import type { StreamExtractor, ExtractedStream, ExtractorSubtitle, SourceManifest, StreamFormat } from '../core/types.ts';
-import { hostLimiter, isBackground, retryAfterMs } from '../core/hostLimiter.ts';
+import { BROWSER_UA, http, type RequestOptions } from '../core/http.ts';
+import { PLAYLIST_MEMO_MS } from '../core/streamCheck.ts';
 import { discover, pickBest, type FoundStream } from '../core/streamDiscovery.ts';
 
-// Per-request limit; a provider's whole lookup is capped by the registry anyway.
-const DEFAULT_HTTP_TIMEOUT_MS = 5000;
 const PROBE_TIMEOUT_MS = 3500;
-
-function headerOf(headers: Record<string, string> | undefined, name: string): string | undefined {
-  if (!headers) return undefined;
-  const key = Object.keys(headers).find(k => k.toLowerCase() === name);
-  return key ? headers[key] : undefined;
-}
-
-function combineSignals(a: AbortSignal, b: AbortSignal): AbortSignal {
-  if (typeof AbortSignal.any === 'function') return AbortSignal.any([a, b]);
-  const c = new AbortController();
-  const abort = () => c.abort();
-  if (a.aborted || b.aborted) c.abort();
-  a.addEventListener('abort', abort, { once: true });
-  b.addEventListener('abort', abort, { once: true });
-  return c.signal;
-}
 
 /**
  * Do these first bytes of an HLS segment look like video the player can read? MPEG-TS (sync bytes every
@@ -56,100 +39,20 @@ export abstract class BaseExtractor implements StreamExtractor {
     if (override.mainUrl) this.mainUrl = override.mainUrl;
   }
 
-  protected defaultUserAgent =
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/124.0.0.0 Safari/537.36';
+  protected defaultUserAgent = BROWSER_UA;
 
-  protected async httpGet(
-    url: string,
-    headers: Record<string, string> = {},
-    options: { signal?: AbortSignal; timeoutMs?: number } = {}
-  ): Promise<string> {
-    if (options.signal?.aborted) {
-      throw new Error('Request aborted');
-    }
-
-    const timeoutMs = options.timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
-    const mergedHeaders = {
-      'User-Agent': this.defaultUserAgent,
-      'Accept-Language': 'en-US,en;q=0.9',
-      ...headers
-    };
-    // One budget per host for every provider (see hostLimiter.ts); throws at once when closed.
-    await hostLimiter.acquire(url, { signal: options.signal, background: isBackground(options.signal) });
-
-    if (Capacitor.isNativePlatform()) {
-      const response = await CapacitorHttp.get({
-        url,
-        headers: mergedHeaders,
-        connectTimeout: timeoutMs,
-        readTimeout: timeoutMs
-      });
-      if (response.status >= 200 && response.status < 300) {
-        return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
-      }
-      if (response.status === 429) hostLimiter.penalize(url, retryAfterMs(headerOf(response.headers, 'retry-after')));
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    // Web: fetch with the caller's signal combined with the timeout. AbortSignal.any keeps this to one
-    // listener however many requests share the signal (a listener per request leaked on busy lookups).
-    const timeout = AbortSignal.timeout(timeoutMs);
-    const signal = options.signal ? combineSignals(options.signal, timeout) : timeout;
-    const res = await fetch(url, { headers: mergedHeaders, signal });
-    if (res.status === 429) hostLimiter.penalize(url, retryAfterMs(res.headers.get('retry-after')));
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.text();
+  // Requests go through the shared client (core/http.ts). They stay methods so a test can stand in
+  // for one provider's network without touching the others.
+  protected httpGet(url: string, headers: Record<string, string> = {}, options: Omit<RequestOptions, 'headers'> = {}): Promise<string> {
+    return http.text(url, { ...options, headers });
   }
 
-  /** POSTs JSON and returns the answer's text (same budget, timeout and abort rules as httpGet). */
-  protected async httpPostJson(
-    url: string,
-    body: unknown,
-    headers: Record<string, string> = {},
-    options: { signal?: AbortSignal; timeoutMs?: number } = {}
-  ): Promise<string> {
-    if (options.signal?.aborted) throw new Error('Request aborted');
-    const timeoutMs = options.timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
-    const mergedHeaders = { 'User-Agent': this.defaultUserAgent, 'Content-Type': 'application/json', Accept: 'application/json', ...headers };
-    await hostLimiter.acquire(url, { signal: options.signal, background: isBackground(options.signal) });
-    if (Capacitor.isNativePlatform()) {
-      const response = await CapacitorHttp.post({ url, headers: mergedHeaders, data: body, connectTimeout: timeoutMs, readTimeout: timeoutMs });
-      if (response.status === 429) hostLimiter.penalize(url, retryAfterMs(headerOf(response.headers, 'retry-after')));
-      if (response.status < 200 || response.status >= 300) throw new Error(`HTTP ${response.status}`);
-      return typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
-    }
-    const timeout = AbortSignal.timeout(timeoutMs);
-    const signal = options.signal ? combineSignals(options.signal, timeout) : timeout;
-    const res = await fetch(url, { method: 'POST', headers: mergedHeaders, body: JSON.stringify(body), signal });
-    if (res.status === 429) hostLimiter.penalize(url, retryAfterMs(res.headers.get('retry-after')));
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.text();
+  protected httpPostJson(url: string, body: unknown, headers: Record<string, string> = {}, options: Omit<RequestOptions, 'headers'> = {}): Promise<string> {
+    return http.postJson(url, body, { ...options, headers });
   }
 
-  /** The first bytes of a binary resource (a segment). Native HTTP hands binary back as base64. */
-  protected async httpGetBytes(
-    url: string,
-    headers: Record<string, string> = {},
-    options: { signal?: AbortSignal; timeoutMs?: number } = {}
-  ): Promise<Uint8Array> {
-    if (options.signal?.aborted) throw new Error('Request aborted');
-    const timeoutMs = options.timeoutMs ?? DEFAULT_HTTP_TIMEOUT_MS;
-    const mergedHeaders = { 'User-Agent': this.defaultUserAgent, ...headers };
-    await hostLimiter.acquire(url, { signal: options.signal, background: isBackground(options.signal) });
-    if (Capacitor.isNativePlatform()) {
-      const response = await CapacitorHttp.get({ url, headers: mergedHeaders, responseType: 'arraybuffer', connectTimeout: timeoutMs, readTimeout: timeoutMs });
-      if (response.status === 429) hostLimiter.penalize(url, retryAfterMs(headerOf(response.headers, 'retry-after')));
-      if (response.status < 200 || response.status >= 300) throw new Error(`HTTP ${response.status}`);
-      const data = response.data as unknown;
-      if (typeof data === 'string') return Uint8Array.from(atob(data), c => c.charCodeAt(0));
-      return new Uint8Array(0);
-    }
-    const timeout = AbortSignal.timeout(timeoutMs);
-    const signal = options.signal ? combineSignals(options.signal, timeout) : timeout;
-    const res = await fetch(url, { headers: mergedHeaders, signal });
-    if (res.status === 429) hostLimiter.penalize(url, retryAfterMs(res.headers.get('retry-after')));
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return new Uint8Array(await res.arrayBuffer());
+  protected httpGetBytes(url: string, headers: Record<string, string> = {}, options: Omit<RequestOptions, 'headers'> = {}): Promise<Uint8Array> {
+    return http.bytes(url, { ...options, headers });
   }
 
   /**
@@ -173,7 +76,8 @@ export abstract class BaseExtractor implements StreamExtractor {
         await this.httpGet(stream.url, { ...stream.headers, Range: 'bytes=0-1' }, { signal, timeoutMs: PROBE_TIMEOUT_MS });
         return true;
       }
-      const body = await this.httpGet(stream.url, { ...stream.headers, Accept: '*/*' }, { signal, timeoutMs: PROBE_TIMEOUT_MS });
+      // Memoised: the registry reads this same playlist next (length, quality, languages).
+      const body = await this.httpGet(stream.url, { ...stream.headers, Accept: '*/*' }, { signal, timeoutMs: PROBE_TIMEOUT_MS, memoMs: PLAYLIST_MEMO_MS });
       if (stream.format === 'dash') return body.includes('<MPD');
       if (!body.trimStart().startsWith('#EXTM3U')) return false;
       if (!deep) return true;
@@ -187,7 +91,7 @@ export abstract class BaseExtractor implements StreamExtractor {
         const variant = lines.slice(at + 1).find(l => l && !l.startsWith('#'));
         if (!variant) return false;
         mediaUrl = new URL(variant, stream.url).toString();
-        media = await this.httpGet(mediaUrl, { ...stream.headers, Accept: '*/*' }, { signal, timeoutMs: PROBE_TIMEOUT_MS });
+        media = await this.httpGet(mediaUrl, { ...stream.headers, Accept: '*/*' }, { signal, timeoutMs: PROBE_TIMEOUT_MS, memoMs: PLAYLIST_MEMO_MS });
         if (!media.trimStart().startsWith('#EXTM3U')) return false;
       }
       const mediaLines = media.split('\n').map(l => l.trim());

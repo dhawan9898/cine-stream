@@ -2,6 +2,7 @@
 // from the public OpenSubtitles Stremio addon (no API key). Never throws.
 import { CINEHYPE_TMDB_KEY, TMDB_API_BASE } from '../cineHypeCore.ts';
 import type { ExtractorSubtitle } from '../core/types.ts';
+import { http } from '../core/http.ts';
 
 const ADDON = 'https://opensubtitles-v3.strem.io/subtitles';
 const TIMEOUT_MS = 5000;
@@ -17,15 +18,11 @@ const LANGUAGES: Array<[string, string]> = [
 const imdbCache = new Map<string, Promise<string | null>>();
 
 async function getJson<T>(url: string): Promise<T | null> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
-    const res = await fetch(url, { signal: controller.signal });
-    return res.ok ? ((await res.json()) as T) : null;
+    // Plain cross-origin JSON APIs: no extra headers (a CORS preflight would only slow them down).
+    return await http.json<T>(url, { bare: true, headers: {}, timeoutMs: TIMEOUT_MS });
   } catch {
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
 

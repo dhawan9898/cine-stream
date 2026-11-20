@@ -4,12 +4,14 @@
 // The encrypted id depends only on the TMDB id, so it is remembered for 30 minutes.
 import { BaseExtractor } from './base.ts';
 import type { ExtractedStream, ExtractorSubtitle, SourceManifest } from '../core/types.ts';
-import { Cooldown } from './kunaiCommon.ts';
+import { hostLimiter } from '../core/hostLimiter.ts';
+import { isRateLimited } from '../core/http.ts';
 
 const ENC_DEC = 'https://enc-dec.app/api/enc-vidlink';
 const ORIGIN = 'https://vidlink.pro';
 const ENC_TTL_MS = 30 * 60_000;
 const ENC_CACHE_MAX = 256;
+const ENC_DEC_DOWN_MS = 30_000;
 const encCache = new Map<number, { value: string; expires: number }>();
 
 interface VidlinkStream {
@@ -27,9 +29,6 @@ export class VidLinkExtractor extends BaseExtractor {
   mainUrl = ORIGIN;
   // HEVC in DASH: ranked after the H.264 HLS providers (a device may lack the decoder).
   manifest = { idKind: 'tmdb', costHint: 'api', priorMs: 2200, linkTtlMs: 2 * 60 * 1000, trust: 'api' } satisfies SourceManifest;
-  // enc-dec.app is a third party VidLink cannot work without: while it is down (or refusing us) VidLink
-  // answers nothing at once, so the other providers are not held up by its timeout on every title.
-  private encDecDown = new Cooldown();
 
   async extract(params: {
     id: number;
@@ -76,16 +75,18 @@ export class VidLinkExtractor extends BaseExtractor {
   private async encrypt(tmdbId: number, signal?: AbortSignal): Promise<string | null> {
     const hit = encCache.get(tmdbId);
     if (hit && hit.expires > Date.now()) return hit.value;
-    if (this.encDecDown.active) return null;
+    // enc-dec.app is a third party VidLink cannot work without: while it is down (or refusing us) its
+    // host is closed for a while, and VidLink answers nothing at once instead of timing out on every title.
+    if (hostLimiter.isClosed(ENC_DEC)) return null;
     let value: string | undefined;
     try {
       const body = await this.httpGet(`${ENC_DEC}?text=${tmdbId}`, { Accept: 'application/json' }, { signal, timeoutMs: 4000 });
       value = JSON.parse(body)?.result;
     } catch (e) {
-      if (!signal?.aborted) this.encDecDown.trip(e instanceof Error && /HTTP 429\b/.test(e.message) ? 60_000 : 30_000);
+      if (!signal?.aborted && !isRateLimited(e)) hostLimiter.penalize(ENC_DEC, ENC_DEC_DOWN_MS);
       throw e;
     }
-    if (!value) { this.encDecDown.trip(30_000); return null; }
+    if (!value) { hostLimiter.penalize(ENC_DEC, ENC_DEC_DOWN_MS); return null; }
     encCache.delete(tmdbId);
     encCache.set(tmdbId, { value, expires: Date.now() + ENC_TTL_MS });
     // Bounded: a long session touches many titles (oldest dropped first).

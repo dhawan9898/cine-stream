@@ -4,7 +4,8 @@
 // saved links are re-checked one at a time, least recently checked first. A link
 // that no longer answers is flagged dead and queued for a fresh lookup at the
 // lowest priority. Checking stops the moment the user does something.
-import { Capacitor, CapacitorHttp } from '@capacitor/core';
+import { Capacitor } from '@capacitor/core';
+import { HttpError, http } from '../core/http.ts';
 import { allStreamRecords, markStreamChecked, markStreamDead, streamStoreReady, type StreamRecord } from './streamStore.ts';
 
 /** A link is re-checked when it has not been checked for this long. */
@@ -41,30 +42,19 @@ export function isStreamPlaying(): boolean {
 export async function checkLink(record: StreamRecord): Promise<LinkCheck> {
   const { url, headers } = record.value as { url: string; headers?: Record<string, string> };
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return undefined;
+  // On the web a page cannot send the stream's own headers cross-origin (nor read most answers).
+  const native = Capacitor.isNativePlatform();
   try {
-    if (Capacitor.isNativePlatform()) {
-      const res = await CapacitorHttp.get({
-        url,
-        headers: { ...(headers ?? {}), Range: 'bytes=0-1023' },
-        connectTimeout: CHECK_TIMEOUT_MS,
-        readTimeout: CHECK_TIMEOUT_MS
-      });
-      if (res.status >= 200 && res.status < 300) return true;
-      // Signed links answer 401/403/404/410 once they expire.
-      return res.status >= 400 && res.status < 500 ? false : undefined;
-    }
-    // A page cannot read cross-origin responses: only a CORS-enabled host can be judged.
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), CHECK_TIMEOUT_MS);
-    try {
-      const res = await fetch(url, { headers: { Range: 'bytes=0-1023' }, signal: ctl.signal });
-      if (res.ok) return true;
-      return res.status >= 400 && res.status < 500 ? false : undefined;
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch {
-    return undefined;
+    await http.bytes(url, {
+      headers: { ...(native ? headers ?? {} : {}), Range: 'bytes=0-1023' },
+      bare: !native,
+      timeoutMs: CHECK_TIMEOUT_MS,
+      background: true
+    });
+    return true;
+  } catch (e) {
+    // Signed links answer 401/403/404/410 once they expire; anything else cannot be judged.
+    return e instanceof HttpError && e.status >= 400 && e.status < 500 && e.status !== 429 ? false : undefined;
   }
 }
 

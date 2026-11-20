@@ -6,7 +6,8 @@
 // a few at a time; the first that answers with a stream wins.
 import { BaseExtractor } from './base.ts';
 import type { ExtractedStream, SourceManifest } from '../core/types.ts';
-import { Cooldown, KUNAI_UA, firstSuccess, formatOf, qualityRank, toSubtitles } from './kunaiCommon.ts';
+import { KUNAI_UA, firstSuccess, formatOf, qualityRank, toSubtitles } from './kunaiCommon.ts';
+import { hostLimiter } from '../core/hostLimiter.ts';
 
 const API = 'https://www.rivestream.app/api/backendfetch';
 const REFERER = 'https://www.rivestream.app/';
@@ -178,7 +179,6 @@ export class RivestreamExtractor extends BaseExtractor {
   mainUrl = 'https://www.rivestream.app';
   // Fastest Kunai API (0.1-0.5 s); some services hand out placeholder-segment lanes.
   manifest = { idKind: 'tmdb', costHint: 'api', priorMs: 900, linkTtlMs: 2 * 60 * 1000, deepProbe: true, trust: 'api' } satisfies SourceManifest;
-  private cooldown = new Cooldown();
 
   private get headers() { return { 'User-Agent': KUNAI_UA, Referer: REFERER }; }
 
@@ -195,7 +195,8 @@ export class RivestreamExtractor extends BaseExtractor {
 
   async extract(params: { id: number; type: 'movie' | 'tv'; season?: number; episode?: number; signal?: AbortSignal }): Promise<ExtractedStream | null> {
     const { id, type, season = 1, episode = 1, signal } = params;
-    if (this.cooldown.active) return null;
+    // A 429 closed the host (hostLimiter.ts): answer at once instead of failing every service.
+    if (hostLimiter.isClosed(API)) return null;
     const secretKey = generateSecretKey(id);
     const all = await this.services(signal);
     const services = [...all.filter(s => !DEMOTED.has(s.toLowerCase())), ...all.filter(s => DEMOTED.has(s.toLowerCase()))].slice(0, SERVICES_AT_ONCE);
@@ -207,7 +208,7 @@ export class RivestreamExtractor extends BaseExtractor {
       let answer: Answer;
       try {
         answer = JSON.parse(await this.httpGet(`${url}&service=${service}&secretKey=${secretKey}&proxyMode=noProxy`, this.headers, { signal, timeoutMs: 5000 })) as Answer;
-      } catch (e) { this.cooldown.noteError(e); return null; }
+      } catch { return null; }
       const d = answer.data;
       const rows = (Array.isArray(d) ? d : d?.sources ?? []).filter(r => r?.url?.startsWith('http'))
         .sort((a, b) => qualityRank(b.quality) - qualityRank(a.quality));

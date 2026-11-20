@@ -45,15 +45,3 @@ export function base64UrlToBytes(payload: string): Uint8Array {
   const pad = b64.length % 4 === 2 ? '==' : b64.length % 4 === 3 ? '=' : '';
   return Uint8Array.from(atob(b64 + pad), c => c.charCodeAt(0));
 }
-
-/** After the provider answers 429 (or is otherwise refusing us), stay away from it for a while instead of retrying every title. */
-export class Cooldown {
-  private until = 0;
-  get active(): boolean { return Date.now() < this.until; }
-  trip(ms: number) { this.until = Date.now() + ms; }
-  /** Trips on a rate-limit error; returns whether it was one. */
-  noteError(e: unknown, ms = 60_000): boolean {
-    if (e instanceof Error && /HTTP 429\b/.test(e.message)) { this.trip(ms); return true; }
-    return false;
-  }
-}

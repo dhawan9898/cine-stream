@@ -4,7 +4,9 @@
 // Each lane is a different upstream scraper, so lanes are tried a few at a time and the first with a stream wins.
 import { BaseExtractor } from './base.ts';
 import type { ExtractedStream, SourceManifest } from '../core/types.ts';
-import { Cooldown, KUNAI_UA, firstSuccess, formatOf, qualityRank, toSubtitles } from './kunaiCommon.ts';
+import { KUNAI_UA, firstSuccess, formatOf, qualityRank, toSubtitles } from './kunaiCommon.ts';
+import { hostLimiter } from '../core/hostLimiter.ts';
+import { isRateLimited } from '../core/http.ts';
 import { decryptMovyPayload } from './movyCrypto.ts';
 
 const API = 'https://api.wecollege.net';
@@ -24,9 +26,8 @@ export class MovyExtractor extends BaseExtractor {
   id = 'movy';
   name = 'Movy';
   mainUrl = API;
-  // Rate limited (see its Cooldown): last of the Kunai APIs.
+  // Rate limited (a 429 closes its host for a while, see hostLimiter.ts): last of the Kunai APIs.
   manifest = { idKind: 'tmdb', costHint: 'api', priorMs: 2600, linkTtlMs: 2 * 60 * 1000, trust: 'api' } satisfies SourceManifest;
-  private cooldown = new Cooldown();
 
   private get headers() {
     return { 'User-Agent': KUNAI_UA, Referer: REFERER, Origin: ORIGIN, Accept: '*/*' };
@@ -36,7 +37,7 @@ export class MovyExtractor extends BaseExtractor {
     const hit = seeds.get(mediaId);
     if (!fresh && hit && hit.expires - 5000 > Date.now()) return hit.seed;
     let raw: string;
-    try { raw = await this.httpGet(`${API}/seed?mediaId=${mediaId}`, this.headers, { signal, timeoutMs: 3000 }); } catch (e) { this.cooldown.noteError(e); throw e; }
+    raw = await this.httpGet(`${API}/seed?mediaId=${mediaId}`, this.headers, { signal, timeoutMs: 3000 });
     const body = JSON.parse(raw) as { seed?: string; ttlMs?: number };
     if (!body?.seed) throw new Error('no seed');
     seeds.set(mediaId, { seed: body.seed, expires: Date.now() + (body.ttlMs && body.ttlMs > 0 ? body.ttlMs : 30_000) });
@@ -51,7 +52,7 @@ export class MovyExtractor extends BaseExtractor {
         const cipher = await this.httpGet(`${API}/${lane}/sources?${q}`, this.headers, { signal, timeoutMs: 5000 });
         return JSON.parse(decryptMovyPayload(cipher, seed, mediaId)) as Payload;
       } catch (e) {
-        if (this.cooldown.noteError(e) || attempt === 1 || signal?.aborted) return null;
+        if (isRateLimited(e) || attempt === 1 || signal?.aborted) return null;
       }
     }
     return null;
@@ -59,7 +60,7 @@ export class MovyExtractor extends BaseExtractor {
 
   async extract(params: { id: number; type: 'movie' | 'tv'; season?: number; episode?: number; title?: string; signal?: AbortSignal }): Promise<ExtractedStream | null> {
     const { id, type, season = 1, episode = 1, title = '', signal } = params;
-    if (this.cooldown.active) return null;
+    if (hostLimiter.isClosed(API)) return null;
     const laneParams: Record<string, string> = {
       // The site encodes the title before the query layer encodes it again.
       title: encodeURIComponent(title),
@@ -72,7 +73,7 @@ export class MovyExtractor extends BaseExtractor {
       imdbId: ''
     };
     for (let i = 0; i < MAX_LANES_TRIED; i += LANES_AT_ONCE) {
-      if (signal?.aborted || this.cooldown.active) return null;
+      if (signal?.aborted || hostLimiter.isClosed(API)) return null;
       const batch = LANES.slice(i, i + LANES_AT_ONCE);
       const hit = await firstSuccess(batch.map(async lane => {
         const payload = await this.lane(lane, laneParams, id, signal);

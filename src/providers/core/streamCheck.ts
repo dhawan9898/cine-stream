@@ -4,11 +4,13 @@
 // Devara, which runs almost three hours). The length of an HLS or DASH stream is in its playlist, so a
 // stream far shorter or longer than the film's TMDB runtime is a different title and is dropped. The
 // playlist also names its renditions, which gives the stream's real quality.
-import { CapacitorHttp, Capacitor } from '@capacitor/core';
+import { http } from './http.ts';
 import type { ExtractedStream } from './types.ts';
 import { languageName } from './language.ts';
 
 const CHECK_TIMEOUT_MS = 3500;
+/** A playlist read by a provider's probe is reused this long by the stream check (and vice versa). */
+export const PLAYLIST_MEMO_MS = 20_000;
 
 export interface StreamFacts {
   /** Running time in minutes, when the playlist tells (a VOD HLS or DASH stream). */
@@ -98,17 +100,9 @@ export function heightOf(quality: string | number | undefined): number | undefin
 }
 
 async function getText(url: string, headers: Record<string, string> | undefined, signal?: AbortSignal): Promise<string | null> {
-  if (signal?.aborted) return null;
-  const merged = { Accept: '*/*', ...(headers ?? {}) };
   try {
-    if (Capacitor.isNativePlatform()) {
-      const r = await CapacitorHttp.get({ url, headers: merged, connectTimeout: CHECK_TIMEOUT_MS, readTimeout: CHECK_TIMEOUT_MS, responseType: 'text' });
-      if (r.status < 200 || r.status >= 300) return null;
-      return typeof r.data === 'string' ? r.data : JSON.stringify(r.data);
-    }
-    const timeout = AbortSignal.timeout(CHECK_TIMEOUT_MS);
-    const r = await fetch(url, { headers: merged, signal: signal && typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, timeout]) : timeout });
-    return r.ok ? await r.text() : null;
+    // Memoised with the provider's own probe of the same playlist (one fetch for both).
+    return await http.text(url, { headers: { Accept: '*/*', ...(headers ?? {}) }, signal, timeoutMs: CHECK_TIMEOUT_MS, memoMs: PLAYLIST_MEMO_MS });
   } catch {
     return null;
   }
