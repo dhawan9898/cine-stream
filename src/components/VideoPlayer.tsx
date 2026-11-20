@@ -272,7 +272,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             ? `${L.media.mediaType}|${L.media.id}|${L.season}|${reqEp}`
             : L.contentKey;
           markServerFailed(failedServer, failedKey);
-          forgetStream({ id: L.media.id, type: L.media.mediaType, season: L.season, episode: !isNaN(reqEp) ? reqEp : L.episode, languageMode: L.langMode, language: L.media.language, title: L.media.title, preferredServerId: L.selectedServerId });
+          forgetStream({ id: L.media.id, type: L.media.mediaType, season: L.season, episode: !isNaN(reqEp) ? reqEp : L.episode, languageMode: L.langMode, language: L.media.language, title: L.media.title, preferredServerId: L.selectedServerId }, failedServer);
           setSelectedServerId(undefined);
           setAttempt(n => n + 1);
         });

@@ -5,11 +5,13 @@
 // (Android App info). Everything is loaded into memory when the app opens, so lookups
 // are synchronous afterwards; every write also goes to IndexedDB.
 //
-// A record keeps what a lookup found: the stream (direct link), the embed pages
-// it came from (for the native sniffer; never played as an iframe), and whether
-// the link was still answering the last time it was checked (see
-// streamRevalidator.ts). A link that stopped working is flagged "dead", not
-// deleted, so it is replaced by the next lookup rather than lost.
+// One record per title (or episode) keeps what a lookup found: the stream that
+// plays (`value`), every other direct link it found (`links`: other servers and
+// lanes, each with its own check state, so a server switch or a failover starts
+// from here), the embed pages it came from (for the native sniffer; never played
+// as an iframe), and whether the played link was still answering the last time
+// it was checked (see revalidator.ts). A link that stopped working is flagged
+// "dead", not deleted, so it is replaced by the next lookup rather than lost.
 import type { ExtractedStream } from '../core/types.ts';
 
 export type LinkStatus = 'alive' | 'dead' | 'unknown';
@@ -25,6 +27,14 @@ export interface StreamRecord<T extends { url: string } = ExtractedStream> {
   /** Last time the link was resolved or checked. */
   checkedAt: number;
   status: LinkStatus;
+  /** Every direct link the lookup found, best first (the played one among them). */
+  links?: StoredLink[];
+}
+
+export interface StoredLink<T extends { url: string } = ExtractedStream> {
+  stream: T;
+  status: LinkStatus;
+  checkedAt: number;
 }
 
 /**
@@ -130,7 +140,7 @@ export function getLiveStream<T extends { url: string }>(key: string): T | undef
 }
 
 /** Saves a freshly resolved stream (permanently). */
-export function putStream<T extends { url: string }>(key: string, value: T, embeds: ExtractedStream[] = [], params?: Record<string, unknown>): void {
+export function putStream<T extends { url: string }>(key: string, value: T, embeds: ExtractedStream[] = [], params?: Record<string, unknown>, links?: ExtractedStream[]): void {
   const now = Date.now();
   const previous = records.get(key);
   const record: StreamRecord<{ url: string }> = {
@@ -141,7 +151,10 @@ export function putStream<T extends { url: string }>(key: string, value: T, embe
     embeds: embeds.length > 0 ? embeds : (previous?.embeds ?? []),
     savedAt: now,
     checkedAt: now,
-    status: 'alive'
+    status: 'alive',
+    // A new lookup's links replace the old ones (it asked every provider again); a save without
+    // links (the played stream moved to another saved link) keeps them.
+    links: links ? links.map(stream => ({ stream, status: 'alive' as const, checkedAt: now })) : previous?.links
   };
   records.set(key, record);
   void persist(record);
@@ -161,7 +174,8 @@ export function updateStreamValue<T extends { url: string }>(key: string, value:
 export function markStreamDead(key: string): void {
   const r = records.get(key);
   if (!r || r.status === 'dead') return;
-  const next = { ...r, status: 'dead' as const, checkedAt: Date.now() };
+  const links = r.links?.map(l => (l.stream.url === r.value.url ? { ...l, status: 'dead' as const } : l));
+  const next = { ...r, links, status: 'dead' as const, checkedAt: Date.now() };
   records.set(key, next);
   void persist(next);
 }
@@ -175,12 +189,41 @@ export function markStreamChecked(key: string, alive: boolean | undefined): void
   void persist(next);
 }
 
+/** Records the check of one saved link (`alive: false` flags it dead); the played one's state follows. */
+export function markLinkChecked(key: string, url: string, alive: boolean | undefined): void {
+  const r = records.get(key);
+  if (!r) return;
+  const now = Date.now();
+  const links = r.links?.map(l => l.stream.url !== url ? l : {
+    ...l, checkedAt: now, status: alive === undefined ? l.status : alive ? ('alive' as const) : ('dead' as const)
+  });
+  const isValue = r.value.url === url;
+  const next: StreamRecord<{ url: string }> = {
+    ...r,
+    links,
+    ...(isValue ? { checkedAt: now, status: alive === undefined ? r.status : alive ? 'alive' as const : 'dead' as const } : {})
+  };
+  records.set(r.key, next);
+  void persist(next);
+}
+
+/** Drops every record whose key does not start with `prefix` (saved by an older format). */
+export function dropRecordsWithout(prefix: string): number {
+  const stale = [...records.keys()].filter(k => !k.startsWith(prefix));
+  stale.forEach(k => records.delete(k));
+  void removeFromDb(stale);
+  return stale.length;
+}
+
 export function allStreamRecords(): StreamRecord[] {
   return Array.from(records.values()) as unknown as StreamRecord[];
 }
 
+/** Saved stream links (every server's, not only the played ones) - what Settings shows. */
 export function streamStoreSize(): number {
-  return records.size;
+  let n = 0;
+  for (const r of records.values()) n += r.links?.length || 1;
+  return n;
 }
 
 /** Forgets every saved stream link (Settings > Clear Cache). */

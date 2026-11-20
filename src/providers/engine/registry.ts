@@ -7,7 +7,7 @@
 import { reportError } from '../../services/errorReporter.ts';
 import type { StreamExtractor, ExtractedStream } from '../core/types.ts';
 import { manifestOf, priorMs, strongFor, trustRank } from '../core/manifest.ts';
-import { compareStreams, electionContext, elect, isSettled, normalizeLanguages, withExtraLanguages, type ElectionContext } from './election.ts';
+import { compareStreams, electionContext, elect, normalizeLanguages, withExtraLanguages, type ElectionContext } from './election.ts';
 import { planRace } from './planner.ts';
 import { RACE_LIMITS, Race, type RaceParams } from './race.ts';
 import { FlixHQSource } from '../sources/flixhq.ts';
