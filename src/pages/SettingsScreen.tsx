@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { SkipForward, Gauge, Database, Vibrate, Droplets, Zap, Bookmark, ChevronRight, ChevronDown, Server, KeyRound, RefreshCw, DownloadCloud, Bug, Upload, Download, Clock, Captions, AudioLines, Film, Info, Activity } from 'lucide-react';
 import { SettingsSection, SettingsRow, ChoiceRow, Switch, RowValue, SettingsNote, UpdateRows } from 'streamkit/ui/Settings.tsx';
-import { JellyfinSource } from '../providers/sources/jellyfin.ts';
 import { CategoryPicker } from 'streamkit/ui/CategoryPicker.tsx';
 import { clearWatchHistory, clearBookmarks, getBookmarks, getUserPreferences, saveUserPreferences, getWatchHistory, getEpisodeLogCount, exportBackup, importBackup, subscribeLibraryChanges } from '../services/historyService.ts';
 import { Capacitor } from '@capacitor/core';
@@ -11,12 +10,11 @@ import { AccountAvatarButton } from '../components/AccountAvatarButton.tsx';
 import { DownloadsPlugin } from '../plugins/downloadsPlugin.ts';
 import { getSavedTheme, applyTheme, type Theme } from '../services/themeService.ts';
 import { clearAllCaches } from '../services/cacheService.ts';
-import { streamStoreSize } from '../providers/service/streamStore.ts';
-import { clearTimings, formatTimingReport, summarize } from '../providers/service/timings.ts';
 import { ConfirmModal } from 'streamkit/ui/ConfirmModal.tsx';
 import { getGlassStyle, setGlassStyle } from '../services/glassService.ts';
 import { getHapticSettings, saveHapticSettings, hapticLight, hapticMedium, hapticSelection, hapticToggle, type HapticIntensity } from '../services/hapticsService.ts';
 import { checkForUpdate, installUpdate } from '../services/updateService.ts';
+import { testJellyfinConnection, streamStoreSize, clearTimings, formatTimingReport, summarize } from '../providers/index.ts';
 
 const THEMES: { id: Theme; label: string }[] = [
   { id: 'dark', label: 'Dark' },
@@ -170,7 +168,7 @@ export const SettingsScreen: React.FC = () => {
   const testJellyfin = async () => {
     saveJellyfin();
     setJfTesting(true);
-    setJfStatus(await new JellyfinSource().testConnection());
+    setJfStatus(await testJellyfinConnection());
     setJfTesting(false);
   };
 

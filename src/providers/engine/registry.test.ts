@@ -18,7 +18,7 @@ const fake = (id: string, run: () => Promise<ExtractedStream | null>): StreamExt
   return e;
 };
 const delay = <T,>(ms: number, v: T) => new Promise<T>(r => setTimeout(() => r(v), ms));
-const params = { id: 1, type: 'movie' as const, directOnly: true, allowSniff: false };
+const params = { id: 1, type: 'movie' as const, allowSniff: false };
 
 beforeEach(() => mem.clear());
 
@@ -61,7 +61,7 @@ test('the provider that worked last time is tried alone first', async () => {
 // ---- embed pages are sniffed as soon as their provider answers -------------
 
 const embed = (id: string): ExtractedStream => ({ url: `https://${id}/embed/1`, format: 'hls', isFallbackEmbed: true, serverId: id });
-const sniffParams = { id: 1, type: 'movie' as const, directOnly: true, allowSniff: true };
+const sniffParams = { id: 1, type: 'movie' as const, allowSniff: true };
 
 test('an embed is sniffed at once, without waiting for the slowest provider', async () => {
   const reg = new ExtractorRegistry(false);

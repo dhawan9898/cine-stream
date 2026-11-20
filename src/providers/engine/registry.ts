@@ -208,7 +208,7 @@ export class ExtractorRegistry {
    * race.ts for when the lookup ends). Embed pages are never returned: they are sniffed, or handed to
    * `onEmbed` to be saved.
    */
-  async resolveAllStreams(params: RaceParams & { directOnly?: boolean; fresh?: boolean; exclude?: string[] }): Promise<ExtractedStream[]> {
+  async resolveAllStreams(params: RaceParams & { fresh?: boolean; exclude?: string[] }): Promise<ExtractedStream[]> {
     const plan = planRace(this.getAllExtractors(), params, {
       plannedMs: e => this.plannedMs(e, params),
       admit: e => this.stats.tryAcquire(e.id),
@@ -276,7 +276,6 @@ export class ExtractorRegistry {
     language?: string;
     languageMode?: string;
     preferredServerId?: string;
-    directOnly?: boolean;
   }, precomputed?: ExtractedStream[]): Promise<ExtractedStream | null> {
     const directStreams = (precomputed ?? await this.resolveAllStreams(params))
       .filter(s => !s.isFallbackEmbed)

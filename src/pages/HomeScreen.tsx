@@ -4,7 +4,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, ChevronDown, X, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { clearPersistedCache } from '../services/persistentCache.ts';
-import { Priority, prefetchStream, warmStreams } from '../providers/service/resolver.ts';
 import { getTrending, getRecommendations, type MediaItem } from '../providers/cineHypeCore.ts';
 import { getWatchHistory, getBookmarks, removeWatchHistory, subscribeLibraryChanges, type WatchHistoryItem } from '../services/historyService.ts';
 import {
@@ -32,6 +31,7 @@ import { ErrorState } from 'streamkit/ui/ErrorState.tsx';
 import { GenrePicker } from '../components/GenrePicker.tsx';
 import { AccountAvatarButton } from '../components/AccountAvatarButton.tsx';
 import { hapticLight, hapticMedium } from '../services/hapticsService.ts';
+import { Priority, prefetchStream, warmStreams } from '../providers/index.ts';
 
 interface HomeScreenProps {
   // `rect`: where the tapped artwork is, so the title page can open from it.

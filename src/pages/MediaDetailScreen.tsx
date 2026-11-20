@@ -11,7 +11,6 @@ import {
   type MediaItem
 } from '../providers/cineHypeCore.ts';
 import { episodeWatchState, getEpisodeProgress, getWatchHistory, isBookmarked, isEpisodeFinished, subscribeLibraryChanges, toggleBookmark, type EpisodeProgress, type WatchHistoryItem } from '../services/historyService.ts';
-import { Priority, prefetchStream, resolveStream } from '../providers/service/resolver.ts';
 import { Capacitor } from '@capacitor/core';
 import { getUserPreferences } from '../services/historyService.ts';
 import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
@@ -22,6 +21,7 @@ import { DownloadButton } from '../components/DownloadButton.tsx';
 import { downloadsSupported, downloadId, startDownload, removeDownload } from '../services/downloadService.ts';
 import { useDownloads } from '../services/useDownloads.ts';
 import { hapticLight, hapticMedium, hapticSelection, hapticSuccess } from '../services/hapticsService.ts';
+import { Priority, prefetchStream, resolveStream } from '../providers/index.ts';
 
 interface MediaDetailScreenProps {
   media: MediaItem;

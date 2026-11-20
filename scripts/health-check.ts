@@ -8,8 +8,6 @@
 import { appendFileSync } from 'node:fs';
 import { MovierulzExtractor } from '../src/providers/sources/movierulz.ts';
 import { FlixeoExtractor } from '../src/providers/sources/flixeo.ts';
-import { VegaExtractor } from '../src/providers/sources/vega.ts';
-import { CineHypeExtractor } from '../src/providers/sources/cinehype.ts';
 import { VidLinkExtractor } from '../src/providers/sources/vidlink.ts';
 import { VidRockExtractor } from '../src/providers/sources/vidrock.ts';
 import { RivestreamExtractor } from '../src/providers/sources/rivestream.ts';
@@ -34,9 +32,7 @@ const providers: Array<{ extractor: StreamExtractor; direct: boolean; titles: Ti
   { extractor: new RivestreamExtractor(), direct: true, titles: WORLD },
   { extractor: new MovyExtractor(), direct: true, titles: WORLD },
   { extractor: new MovierulzExtractor(), direct: true, titles: REGIONAL },
-  { extractor: new CineHypeExtractor(), direct: false, titles: WORLD },
-  { extractor: new FlixeoExtractor(), direct: false, titles: WORLD },
-  { extractor: new VegaExtractor(), direct: false, titles: WORLD }
+  { extractor: new FlixeoExtractor(), direct: false, titles: WORLD }
 ];
 
 const rows: string[] = [];

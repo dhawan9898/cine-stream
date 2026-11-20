@@ -93,7 +93,7 @@ test('resolveAllStreams returns direct streams only', async () => {
   const restore = stubExtractors(['flixeo', 'vidlink']);
   try {
     const reg = new ExtractorRegistry(true);
-    const streams = await reg.resolveAllStreams({ id: 550, type: 'movie', directOnly: false, fresh: true });
+    const streams = await reg.resolveAllStreams({ id: 550, type: 'movie', fresh: true });
     assert.deepEqual(streams.map(s => s.serverId).sort(), ['flixeo', 'vidlink']);
     assert.ok(streams.every(s => !s.isFallbackEmbed && s.url.endsWith('.m3u8')));
   } finally { restore(); }

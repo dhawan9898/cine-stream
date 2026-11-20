@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { HeroCarousel as SharedHeroCarousel, type HeroSlide } from 'streamkit/ui/HeroCarousel.tsx';
 import { MOVIE_GENRES, TV_GENRES, type MediaItem } from '../providers/cineHypeCore.ts';
 import { getBookmarks, subscribeLibraryChanges, toggleBookmark } from '../services/historyService.ts';
-import { Priority, prefetchStream } from '../providers/service/resolver.ts';
+import { Priority, prefetchStream } from '../providers/index.ts';
 
 const MAX_SLIDES = 8;
 

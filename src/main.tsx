@@ -7,12 +7,9 @@ import 'streamkit/styles/dock.css'
 import 'streamkit/styles/shared.css';
 import './index.css';
 import { applyGlassStyle, getGlassStyle } from './services/glassService.ts';
-import { refreshSavedStream } from './providers/service/resolver.ts';
-import { startStreamRevalidator } from './providers/service/revalidator.ts';
-import { initSpeculation } from './providers/service/speculation.ts';
-import { loadProviderConfig } from './providers/core/providerConfig.ts';
 import { startCloudSync } from './services/cloudAccount.ts';
 import { startErrorCapture } from './services/errorCapture.ts';
+import { refreshSavedStream, startStreamRevalidator, initSpeculation, loadProviderConfig } from './providers/index.ts';
 
 // Failures are sent to the app_errors table (see services/errorCapture.ts). First, so it sees
 // everything that goes wrong while the rest starts.

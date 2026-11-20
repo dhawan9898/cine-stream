@@ -1,8 +1,6 @@
 // bench-providers.ts - times each extractor on its own and reports direct stream vs iframe embed.
 import { MovierulzExtractor } from '../src/providers/sources/movierulz.ts';
 import { FlixeoExtractor } from '../src/providers/sources/flixeo.ts';
-import { VegaExtractor } from '../src/providers/sources/vega.ts';
-import { CineHypeExtractor } from '../src/providers/sources/cinehype.ts';
 import type { StreamExtractor } from '../src/providers/core/types.ts';
 
 import { VidLinkExtractor } from '../src/providers/sources/vidlink.ts';
@@ -11,7 +9,7 @@ import { RivestreamExtractor } from '../src/providers/sources/rivestream.ts';
 import { MovyExtractor } from '../src/providers/sources/movy.ts';
 const extra: StreamExtractor[] = [new VidLinkExtractor(), new VidRockExtractor(), new RivestreamExtractor(), new MovyExtractor()];
 
-const providers: StreamExtractor[] = [...extra, new CineHypeExtractor(), new FlixeoExtractor(), new VegaExtractor(), new MovierulzExtractor()];
+const providers: StreamExtractor[] = [...extra, new FlixeoExtractor(), new MovierulzExtractor()];
 const only = process.argv[2];
 const titles = [
   { name: 'Fight Club', id: 550, type: 'movie' as const },

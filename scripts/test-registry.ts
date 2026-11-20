@@ -20,7 +20,7 @@ const reg = new ExtractorRegistry(false);
 reg.register(mk('a', null));
 reg.register(mk('b', 'https://x/b.m3u8', 20));
 reg.register(mk('c', 'https://x/c.m3u8', 20));
-const params = { id: 1, type: 'movie' as const, directOnly: true, allowSniff: false };
+const params = { id: 1, type: 'movie' as const, allowSniff: false };
 
 await reg.resolveAllStreams(params);
 check('first lookup queries every provider', calls.length === 3);

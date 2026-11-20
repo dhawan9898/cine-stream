@@ -10,7 +10,6 @@ import { Dock, type DockTab } from 'streamkit/ui/Dock.tsx';
 import type { MediaItem, EpisodeItem } from './providers/cineHypeCore.ts';
 import type { BrowseSource } from './services/browseSources.ts';
 import { getMediaWatchHistory, setPlaybackActive } from './services/historyService.ts';
-import { setStreamPlaying } from './providers/service/revalidator.ts';
 import { getSavedTheme, applyTheme } from './services/themeService.ts';
 import { handleLayerBack } from 'streamkit/core/backStack.ts';
 import { useTvNavigation } from './services/tvNavigationService.ts';
@@ -19,6 +18,7 @@ import { startSharedTransition } from './services/sharedTransitionService.ts';
 import { QuickPreview } from './components/QuickPreview.tsx';
 import { closePreview, getPreview, subscribePreview } from './services/previewService.ts';
 import { initDownloads, type DownloadRecord } from './services/downloadService.ts';
+import { setStreamPlaying } from './providers/index.ts';
 
 // Everything except Home is loaded on demand so the first paint ships less JS;
 // the player chunk also carries hls.js.

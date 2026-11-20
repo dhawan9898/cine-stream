@@ -59,11 +59,13 @@ CineStream/
 └── src/
     ├── main.tsx, App.tsx         # Bootstrap; kept-alive tab shell, overlay stack & back bridge
     ├── index.css                 # App design tokens + app-specific rules (base rules: streamkit)
-    ├── providers/                # <- the only provider-specific code
+    ├── providers/                # <- the only provider-specific code (see docs/provider-architecture.md)
+    │   ├── index.ts              # The only entry point for the rest of the app
     │   ├── cineHypeCore.ts       # TMDB catalog client & data models
-    │   ├── streamResolver.ts     # Cached stream resolution with fallback embed URL
-    │   ├── subtitleService.ts, webSniffer.ts
-    │   └── extractors/           # Eight title extractors (tier 1: Kunai-style direct APIs, tier 2: embed sniffing) + registry (tiers, health, last-good)
+    │   ├── service/              # resolveStream / prefetch, saved links, scheduler, revalidation, subtitles
+    │   ├── engine/               # registry, lookup planner + race, sniff queue, stream election
+    │   ├── sources/              # one file per site (Kunai-style JSON APIs, Indian catalogs, FlixHQ, Jellyfin)
+    │   └── core/                 # types, HTTP client + per-host limits, stream facts, language/print rules
     ├── services/                 # historyService, themeService, persistentCache config, nativePlayer, ...
     ├── components/               # Adapters over streamkit (HeroCarousel, GenrePicker) + app widgets
     ├── pages/                    # Home, Browse, Search, MediaDetail, Library, Settings

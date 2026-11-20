@@ -1,8 +1,7 @@
 // playbackPrefs.ts - Applies the viewer's audio / subtitle language and
 // data-saver preferences to a resolved stream before it reaches the player.
 import type { PlayerSubtitle } from '../plugins/exoPlayerPlugin.ts';
-import type { ExtractedStream, ExtractorSubtitle } from '../providers/core/types.ts';
-import { LANGUAGE_NAMES } from '../providers/core/language.ts';
+import { LANGUAGE_NAMES, type ExtractedStream, type ExtractorSubtitle } from '../providers/index.ts';
 
 export function subtitlesForPlayer(subs: ExtractorSubtitle[] | undefined, preferredLang: string): PlayerSubtitle[] {
   const list = subs ?? [];

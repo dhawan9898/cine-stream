@@ -4,10 +4,10 @@
 import React, { memo, useEffect, useRef } from 'react';
 import type { MediaItem } from '../providers/cineHypeCore.ts';
 import { prefetchMediaDetails, posterSrcSet } from '../providers/cineHypeCore.ts';
-import { Priority, prefetchStream } from '../providers/service/resolver.ts';
 import { FadeImage } from 'streamkit/ui/FadeImage.tsx';
 import { hapticMedium } from '../services/hapticsService.ts';
 import { openPreview } from '../services/previewService.ts';
+import { Priority, prefetchStream } from '../providers/index.ts';
 
 interface PosterCardProps {
   media: MediaItem;
