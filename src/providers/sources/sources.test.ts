@@ -10,17 +10,17 @@ const mem = new Map<string, string>();
   removeItem: (k: string) => { mem.delete(k); }
 };
 
-const { HostRateLimiter, RateLimitedError, retryAfterMs } = await import('../extractors/hostLimiter.ts');
+const { HostRateLimiter, RateLimitedError, retryAfterMs } = await import('../core/hostLimiter.ts');
 const { IdMapper, matchConfidence, normalizeTitle, titleSimilarity } = await import('./idMapper.ts');
-const { TtlStore } = await import('./ttlStore.ts');
+const { TtlStore } = await import('../core/ttlStore.ts');
 const flix = await import('./flixhq.ts');
 const { parseDecryptAnswer, resetDecryptEndpoints, decryptApiEnabled } = await import('./decryptApi.ts');
 const { JellyfinSource, streamsFor } = await import('./jellyfin.ts');
 const { saveUserPreferences } = await import('../../services/historyService.ts');
-const { setProviderConfig, DEFAULT_PROVIDER_CONFIG } = await import('../providerConfig.ts');
-const { ExtractorRegistry } = await import('../extractors/extractorRegistry.ts');
-const { pickAlternates } = await import('../streamResolver.ts');
-import type { ExtractedStream, StreamExtractor } from '../extractors/types.ts';
+const { setProviderConfig, DEFAULT_PROVIDER_CONFIG } = await import('../core/providerConfig.ts');
+const { ExtractorRegistry } = await import('../engine/registry.ts');
+const { pickAlternates } = await import('../service/resolver.ts');
+import type { ExtractedStream, StreamExtractor } from '../core/types.ts';
 
 beforeEach(() => {
   saveUserPreferences({ flixhqDecryptApi: false, jellyfinUrl: '', jellyfinApiKey: '' });

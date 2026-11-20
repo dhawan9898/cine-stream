@@ -5,7 +5,7 @@
 // changes. So a title is searched once (English title, then the original-language one), the candidates
 // are scored on title, year and kind, and only a confident match is kept: 30 days for a match, 1 day for
 // "not on this site". A wrong match is worse than none - it would play the wrong film.
-import { TtlStore } from './ttlStore.ts';
+import { TtlStore } from '../core/ttlStore.ts';
 
 export interface TitleRef {
   tmdbId: number;

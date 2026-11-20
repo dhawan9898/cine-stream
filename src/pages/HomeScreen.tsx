@@ -4,7 +4,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronRight, ChevronDown, X, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import { clearPersistedCache } from '../services/persistentCache.ts';
-import { Priority, prefetchStream, warmStreams } from '../providers/streamResolver.ts';
+import { Priority, prefetchStream, warmStreams } from '../providers/service/resolver.ts';
 import { getTrending, getRecommendations, type MediaItem } from '../providers/cineHypeCore.ts';
 import { getWatchHistory, getBookmarks, removeWatchHistory, subscribeLibraryChanges, type WatchHistoryItem } from '../services/historyService.ts';
 import {

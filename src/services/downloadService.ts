@@ -8,7 +8,7 @@
 // provider embed pages (the web-view fallback) are not downloadable.
 import { Capacitor } from '@capacitor/core';
 import { DownloadsPlugin, type DownloadChangedEvent, type DownloadSubtitle, type NativeDownloadState } from '../plugins/downloadsPlugin.ts';
-import { forgetStream, resolveStream } from '../providers/streamResolver.ts';
+import { forgetStream, resolveStream } from '../providers/service/resolver.ts';
 import type { MediaItem, MediaType } from '../providers/cineHypeCore.ts';
 import { pickAudio, subtitlesForPlayer } from './playbackPrefs.ts';
 import { getUserPreferences } from './historyService.ts';

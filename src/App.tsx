@@ -10,7 +10,7 @@ import { Dock, type DockTab } from 'streamkit/ui/Dock.tsx';
 import type { MediaItem, EpisodeItem } from './providers/cineHypeCore.ts';
 import type { BrowseSource } from './services/browseSources.ts';
 import { getMediaWatchHistory, setPlaybackActive } from './services/historyService.ts';
-import { setStreamPlaying } from './providers/streamRevalidator.ts';
+import { setStreamPlaying } from './providers/service/revalidator.ts';
 import { getSavedTheme, applyTheme } from './services/themeService.ts';
 import { handleLayerBack } from 'streamkit/core/backStack.ts';
 import { useTvNavigation } from './services/tvNavigationService.ts';

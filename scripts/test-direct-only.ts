@@ -1,8 +1,8 @@
 // test-direct-only.ts - Offline checks that ExoPlayer is only ever given direct stream data.
 // Run: npx tsx scripts/test-direct-only.ts
-import { ExtractorRegistry } from '../src/providers/extractors/extractorRegistry.ts';
-import { discover } from '../src/providers/extractors/streamDiscovery.ts';
-import type { StreamExtractor, ExtractedStream } from '../src/providers/extractors/types.ts';
+import { ExtractorRegistry } from '../src/providers/engine/registry.ts';
+import { discover } from '../src/providers/core/streamDiscovery.ts';
+import type { StreamExtractor, ExtractedStream } from '../src/providers/core/types.ts';
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = '') {

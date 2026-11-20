@@ -9,10 +9,10 @@
 import { Capacitor } from '@capacitor/core';
 import { clearPersistedCache } from './persistentCache.ts';
 import { cacheClear } from './offlineStore.ts';
-import { clearStreamStore } from '../providers/streamStore.ts';
-import { clearResolvedStreams } from '../providers/streamResolver.ts';
-import { TtlStore } from '../providers/sources/ttlStore.ts';
-import { extractorRegistry } from '../providers/extractors/extractorRegistry.ts';
+import { clearStreamStore } from '../providers/service/streamStore.ts';
+import { clearResolvedStreams } from '../providers/service/resolver.ts';
+import { TtlStore } from '../providers/core/ttlStore.ts';
+import { extractorRegistry } from '../providers/engine/registry.ts';
 import { ExoPlayerPlugin } from '../plugins/exoPlayerPlugin.ts';
 
 // Older caches the current ones replaced, still on devices that updated.

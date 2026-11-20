@@ -11,7 +11,7 @@ import {
   type MediaItem
 } from '../providers/cineHypeCore.ts';
 import { episodeWatchState, getEpisodeProgress, getWatchHistory, isBookmarked, isEpisodeFinished, subscribeLibraryChanges, toggleBookmark, type EpisodeProgress, type WatchHistoryItem } from '../services/historyService.ts';
-import { Priority, prefetchStream, resolveStream } from '../providers/streamResolver.ts';
+import { Priority, prefetchStream, resolveStream } from '../providers/service/resolver.ts';
 import { Capacitor } from '@capacitor/core';
 import { getUserPreferences } from '../services/historyService.ts';
 import { FadeImage } from 'streamkit/ui/FadeImage.tsx';

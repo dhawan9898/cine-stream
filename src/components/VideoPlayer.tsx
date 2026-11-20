@@ -1,13 +1,13 @@
 // VideoPlayer.tsx - Background stream resolution engine with dual ExoPlayer/WebPlayer (direct streams only, never iframes)
 import { reportError } from '../services/errorReporter.ts';
-import { getTimings } from '../providers/streamTimings.ts';
+import { getTimings } from '../providers/service/timings.ts';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, WifiOff, PlayCircle } from 'lucide-react';
 import { StreamLoading } from './StreamLoading.tsx';
 import { Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { getTVSeasonEpisodes, type MediaItem, type EpisodeItem } from '../providers/cineHypeCore.ts';
 import { subtitlesForPlayer, pickAudio, applyPreferredQuality } from '../services/playbackPrefs.ts';
-import { resolveStream, forgetStream, prefetchUpcomingEpisodes, type ResolvedStream } from '../providers/streamResolver.ts';
+import { resolveStream, forgetStream, prefetchUpcomingEpisodes, type ResolvedStream } from '../providers/service/resolver.ts';
 import { getResumePositionMs, getUserPreferences, saveWatchProgress } from '../services/historyService.ts';
 import { openNativeExoPlayer } from '../services/nativePlayer.ts';
 import { ExoPlayerPlugin } from '../plugins/exoPlayerPlugin.ts';

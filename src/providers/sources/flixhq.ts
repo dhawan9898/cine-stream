@@ -12,10 +12,10 @@
 // season/episode ids (1 day), so a later episode of a show is servers -> source only. Each server's embed is
 // resolved by the decrypt API when the viewer allows it (decryptApi.ts); otherwise, or when it fails, the
 // embed goes back to the registry, which sniffs it in the native WebView like any other provider's embed.
-import { BaseExtractor } from '../extractors/baseExtractor.ts';
-import type { ExtractedStream, ExtractParams, SourceManifest } from '../extractors/types.ts';
+import { BaseExtractor } from './base.ts';
+import type { ExtractedStream, ExtractParams, SourceManifest } from '../core/types.ts';
 import { idMapper, type SiteTitle } from './idMapper.ts';
-import { TtlStore } from './ttlStore.ts';
+import { TtlStore } from '../core/ttlStore.ts';
 import { resolveViaDecryptApi } from './decryptApi.ts';
 
 const SHOW_TTL_MS = 24 * 60 * 60 * 1000;

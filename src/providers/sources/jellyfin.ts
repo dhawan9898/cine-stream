@@ -6,8 +6,8 @@
 // HLS transcode (plays everywhere, also in the web player) as the alternate. Self-hosted, so it is preferred
 // over every other source whenever it has the title.
 import { Capacitor } from '@capacitor/core';
-import { BaseExtractor } from '../extractors/baseExtractor.ts';
-import type { ExtractedStream, ExtractorSubtitle, ExtractParams, SourceManifest } from '../extractors/types.ts';
+import { BaseExtractor } from './base.ts';
+import type { ExtractedStream, ExtractorSubtitle, ExtractParams, SourceManifest } from '../core/types.ts';
 import { getUserPreferences } from '../../services/historyService.ts';
 import { idMapper, type SiteTitle } from './idMapper.ts';
 

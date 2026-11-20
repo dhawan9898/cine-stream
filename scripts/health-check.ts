@@ -6,15 +6,15 @@
 // fails (and GitHub mails the repository owner) when a provider that should give direct streams
 // gives none - usually the site has moved or changed, which provider-config.json or a release fixes.
 import { appendFileSync } from 'node:fs';
-import { MovierulzExtractor } from '../src/providers/extractors/movierulzExtractor.ts';
-import { FlixeoExtractor } from '../src/providers/extractors/flixeoExtractor.ts';
-import { VegaExtractor } from '../src/providers/extractors/vegaExtractor.ts';
-import { CineHypeExtractor } from '../src/providers/extractors/cinehypeExtractor.ts';
-import { VidLinkExtractor } from '../src/providers/extractors/vidlinkExtractor.ts';
-import { VidRockExtractor } from '../src/providers/extractors/vidrockExtractor.ts';
-import { RivestreamExtractor } from '../src/providers/extractors/rivestreamExtractor.ts';
-import { MovyExtractor } from '../src/providers/extractors/movyExtractor.ts';
-import type { StreamExtractor } from '../src/providers/extractors/types.ts';
+import { MovierulzExtractor } from '../src/providers/sources/movierulz.ts';
+import { FlixeoExtractor } from '../src/providers/sources/flixeo.ts';
+import { VegaExtractor } from '../src/providers/sources/vega.ts';
+import { CineHypeExtractor } from '../src/providers/sources/cinehype.ts';
+import { VidLinkExtractor } from '../src/providers/sources/vidlink.ts';
+import { VidRockExtractor } from '../src/providers/sources/vidrock.ts';
+import { RivestreamExtractor } from '../src/providers/sources/rivestream.ts';
+import { MovyExtractor } from '../src/providers/sources/movy.ts';
+import type { StreamExtractor } from '../src/providers/core/types.ts';
 
 interface Title { name: string; id: number; type: 'movie' | 'tv'; season?: number; episode?: number; year?: number; language?: string }
 const WORLD: Title[] = [

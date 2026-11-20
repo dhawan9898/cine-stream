@@ -7,10 +7,10 @@ import 'streamkit/styles/dock.css'
 import 'streamkit/styles/shared.css';
 import './index.css';
 import { applyGlassStyle, getGlassStyle } from './services/glassService.ts';
-import { refreshSavedStream } from './providers/streamResolver.ts';
-import { startStreamRevalidator } from './providers/streamRevalidator.ts';
-import { initSpeculation } from './providers/speculation.ts';
-import { loadProviderConfig } from './providers/providerConfig.ts';
+import { refreshSavedStream } from './providers/service/resolver.ts';
+import { startStreamRevalidator } from './providers/service/revalidator.ts';
+import { initSpeculation } from './providers/service/speculation.ts';
+import { loadProviderConfig } from './providers/core/providerConfig.ts';
 import { startCloudSync } from './services/cloudAccount.ts';
 import { startErrorCapture } from './services/errorCapture.ts';
 

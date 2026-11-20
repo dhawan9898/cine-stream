@@ -5,8 +5,8 @@
 // That service sees every link asked for, so it only runs when the viewer turned it on (Settings), and the
 // remote config can repoint it or switch it off. Each endpoint that fails sits out a few minutes; when none
 // answers, the embed is left to the native sniffer (the registry sniffs embed links itself).
-import type { ExtractedStream, ExtractorSubtitle } from '../extractors/types.ts';
-import { getResolverOverride } from '../providerConfig.ts';
+import type { ExtractedStream, ExtractorSubtitle } from '../core/types.ts';
+import { getResolverOverride } from '../core/providerConfig.ts';
 import { getUserPreferences } from '../../services/historyService.ts';
 
 export const DECRYPT_RESOLVER_ID = 'decrypt-api';
