@@ -1,15 +1,20 @@
-// registry.ts - Central registry for real title-specific stream extractors
+// registry.ts - The providers, what has been learned about them, and the lookup that uses them.
+//
+// It owns the provider list (built-in sources plus the remote config's), their learned speed and
+// health (providerStats.ts), and which provider played each title last time. A lookup is planned
+// (planner.ts), run (race.ts), and its streams checked (right film, real quality and languages) and
+// elected (election.ts).
 import { reportError } from '../../services/errorReporter.ts';
-import type { StreamExtractor, ExtractedStream, ExtractParams } from '../core/types.ts';
-import { isCheap, manifestOf, priorMs, strongFor, strongForLanguage, trustRank } from '../core/manifest.ts';
+import type { StreamExtractor, ExtractedStream } from '../core/types.ts';
+import { manifestOf, priorMs, strongFor, trustRank } from '../core/manifest.ts';
 import { compareStreams, electionContext, elect, isSettled, normalizeLanguages, withExtraLanguages, type ElectionContext } from './election.ts';
-import { markBackground } from '../core/hostLimiter.ts';
+import { planRace } from './planner.ts';
+import { RACE_LIMITS, Race, type RaceParams } from './race.ts';
 import { FlixHQSource } from '../sources/flixhq.ts';
 import { JellyfinSource } from '../sources/jellyfin.ts';
 import { sniffDirectStream } from './webSniffer.ts';
 import { LastGoodStore } from 'streamkit/providers/health.ts';
 import { ProviderStats } from '../core/providerStats.ts';
-import { recordTiming } from '../service/timings.ts';
 import { getProviderOverride, isProviderEnabled, subscribeProviderConfig, type ProviderConfig } from '../core/providerConfig.ts';
 import { ApiExtractor } from '../sources/apiProvider.ts';
 import { FlixeoExtractor } from '../sources/flixeo.ts';
@@ -27,35 +32,6 @@ import { inspectStream, isWrongLength } from '../core/streamCheck.ts';
 
 export { withExtraLanguages } from './election.ts';
 
-const MAX_SNIFF_ATTEMPTS = 4;
-// The best two embeds are sniffed side by side from the start; a third only after the hedge delay.
-const SNIFF_CONCURRENCY = 3;
-const UNHEDGED_SNIFFS = 2;
-const PROVIDER_TIMEOUT_MS = 6000;
-// Multi-hop scrapers (search -> seasons -> episodes -> servers -> source) need longer the first time a
-// title is seen; their id and episode caches make later lookups much shorter.
-const MULTI_HOP_TIMEOUT_MS = 9000;
-// A working embed gives its stream in about 5 s once ads are blocked and Play is pressed in every
-// frame (see the native sniffer); waiting much longer only delays the next provider.
-const SNIFF_TIMEOUT_MS = 9000;
-const RESOLVE_DEADLINE_MS = 14000;
-// The provider that worked for this title last time runs alone this long before the others join.
-const LAST_GOOD_HEAD_START_MS = 1200;
-// Cheap providers (JSON APIs, self-hosted: manifest costHint 'instant'/'api') run alone for about the time
-// they usually need - 1.5x the second-fastest one's expected time, within these bounds; the expensive ones
-// (WebView sniffs, multi-hop scrapers) join after that, or at once when every cheap one has failed.
-const CHEAP_HEAD_START_MIN_MS = 800;
-const CHEAP_HEAD_START_MAX_MS = 3500;
-const EARLY_EXIT_GRACE_MS = 250;
-// The best stream in hand is below 1080p, a theatrical print, or (regional titles) not in the title's
-// language: the race waits this long for a better one (see streamElection.ts#isSettled).
-const QUALITY_WAIT_MS = 2000;
-// Streams still being checked when the race would end get this long to finish (see checkStream).
-const CHECK_WAIT_MS = 1500;
-// A title in a language some provider is strong for (Telugu, Tamil, Hindi... films on Movierulz): the
-// race waits this long from its start for that provider before settling for a faster stream. The
-// fast providers usually have one language only, so without the wait the Audio menu never appears.
-const STRONG_PROVIDER_WAIT_MS = 7000;
 const HEALTH_KEY = 'cinestream_provider_stats_v2';
 const FAILS_BEFORE_COOLDOWN = 3;
 const COOLDOWN_MS = 10 * 60 * 1000;
@@ -71,7 +47,7 @@ type Sniffer = (embed: ExtractedStream, signal?: AbortSignal, background?: boole
 
 export class ExtractorRegistry {
   private extractors: StreamExtractor[] = [];
-  private sniffer: Sniffer = (embed, signal, background) => sniffDirectStream(embed, SNIFF_TIMEOUT_MS, signal, background);
+  private sniffer: Sniffer = (embed, signal, background) => sniffDirectStream(embed, RACE_LIMITS.sniffTimeoutMs, signal, background);
   // Learned speed and reliability per provider; also the circuit breaker (see providerStats.ts).
   private stats = new ProviderStats({
     storageKey: HEALTH_KEY,
@@ -227,379 +203,52 @@ export class ExtractorRegistry {
     return base - (strongFor(e, title) ? PRIMARY_BIAS_MS : 0) - (getProviderOverride(e.id)?.bias ?? 0);
   }
 
-  /** Providers best first by plannedMs; ties go to the more trusted source, then registration order. */
-  private rank(list: StreamExtractor[], title: { type: 'movie' | 'tv'; language?: string }): StreamExtractor[] {
-    return list
-      .map((e, index) => ({ e, index, score: this.plannedMs(e, title), trust: trustRank(e) }))
-      .sort((a, b) => a.score - b.score || a.trust - b.trust || a.index - b.index)
-      .map(x => x.e);
-  }
-
-  private getOrderedExtractors(params: { type: 'movie' | 'tv'; language?: string; preferredServerId?: string }): StreamExtractor[] {
-    const enabled = this.getAllExtractors();
-    if (params.preferredServerId) {
-      const preferred = enabled.find(e => e.id === params.preferredServerId);
-      const rest = enabled.filter(e => e.id !== params.preferredServerId);
-      return preferred ? [preferred, ...rest] : enabled;
-    }
-    return this.rank(enabled, params);
-  }
-
-  /** How long the cheap providers run alone (see CHEAP_HEAD_START_*). */
-  private cheapHeadStartMs(cheap: StreamExtractor[], title: { type: 'movie' | 'tv'; language?: string }): number {
-    const times = cheap.map(e => Math.max(0, this.plannedMs(e, title))).sort((a, b) => a - b);
-    const typical = times[Math.min(1, times.length - 1)] ?? CHEAP_HEAD_START_MAX_MS;
-    return Math.round(Math.min(CHEAP_HEAD_START_MAX_MS, Math.max(CHEAP_HEAD_START_MIN_MS, typical * 1.5)));
-  }
-
-  async resolveAllStreams(params: {
-    id: number;
-    type: 'movie' | 'tv';
-    season?: number;
-    episode?: number;
-    title?: string;
-    originalTitle?: string;
-    year?: number;
-    language?: string;
-    directOnly?: boolean;
-    allowSniff?: boolean;
-    fresh?: boolean;
-    preferredServerId?: string;
-    exclude?: string[];
-    // Told about every embed page a provider returned (they are never played, only sniffed or saved).
-    onEmbed?: (embed: ExtractedStream) => void;
-    // The lookup is speculative (nobody is waiting): sniffs yield to anything the user does.
-    sniffBackground?: boolean;
-    // Nobody wants the result any more: stop every extractor and sniff and return what was found.
-    signal?: AbortSignal;
-  }): Promise<ExtractedStream[]> {
-    // Embed/iframe pages are never returned: only direct streams (or sniffed ones) can be played.
-    const directOnly = true;
-    const canSniff = directOnly && params.allowSniff !== false;
-    const ordered = this.getOrderedExtractors(params);
-    const excluded = new Set(params.exclude ?? []);
-    const notExcluded = ordered.filter(e => !excluded.has(e.id));
-    const usable = notExcluded.length > 0 ? notExcluded : ordered;
-    // The player pages of the providers left out. Another provider handing back one of those pages
-    // (a shared fallback embed) would bring the stream that just failed straight back under a new name.
-    const blockedEmbeds = new Set<string>();
-    if (usable === notExcluded) {
-      for (const e of ordered) {
-        if (!excluded.has(e.id) || !e.embedUrl) continue;
-        try {
-          const url = e.embedUrl(params);
-          if (url) blockedEmbeds.add(url);
-        } catch { /* no fixed page for this title */ }
-      }
-    }
-    // Providers whose breaker is open sit out (a half-open one gets a single probe) - unless that would leave none.
-    const healthy = usable.filter(e => this.stats.tryAcquire(e.id));
-    const active = healthy.length > 0 ? healthy : usable;
-    const goodId = this.lastGood.get(`${params.type}:${params.id}`);
-    // The provider that worked for this title last time gets a head start rather than an exclusive
-    // turn: if it still works it wins alone, and if it does not, the others are already running
-    // instead of starting only after its whole attempt (extract + sniff) has timed out.
-    const useLastGood = !params.fresh && !params.preferredServerId && Boolean(goodId) && active.some(e => e.id === goodId);
-    // The cheap providers lead unless the user picked a server or another provider worked for this title last time.
-    const cheap = active.filter(e => isCheap(e));
-    const useTier = !params.preferredServerId && !useLastGood && cheap.length > 0 && cheap.length < active.length;
-    const useHeadStart = useLastGood || useTier;
-    // Providers strong for the title's language (they have its other language releases) start at
-    // once and are waited for (see STRONG_PROVIDER_WAIT_MS), unless the user picked a server.
-    const strongIds = new Set(params.preferredServerId ? [] : active.filter(e => strongForLanguage(e, params)).map(e => e.id));
-    let strongPending = strongIds.size;
-    const headIds = new Set([...(useLastGood ? [goodId as string] : useTier ? cheap.map(e => e.id) : []), ...(useHeadStart ? strongIds : [])]);
-    const headStartMs = useLastGood ? LAST_GOOD_HEAD_START_MS : this.cheapHeadStartMs(cheap, params);
-    const raceList = useHeadStart
-      ? [...active.filter(e => headIds.has(e.id)), ...active.filter(e => !headIds.has(e.id))]
-      : active;
-    const headCount = headIds.size;
-
+  /**
+   * Every checked direct stream for the title, best first (see planner.ts for who runs when and
+   * race.ts for when the lookup ends). Embed pages are never returned: they are sniffed, or handed to
+   * `onEmbed` to be saved.
+   */
+  async resolveAllStreams(params: RaceParams & { directOnly?: boolean; fresh?: boolean; exclude?: string[] }): Promise<ExtractedStream[]> {
+    const plan = planRace(this.getAllExtractors(), params, {
+      plannedMs: e => this.plannedMs(e, params),
+      admit: e => this.stats.tryAcquire(e.id),
+      lastGoodId: this.lastGood.get(`${params.type}:${params.id}`)
+    });
     const election = this.election(params);
-    const lookupStart = Date.now();
     const runtime: Promise<number | undefined> = params.type === 'movie'
       ? Promise.race([
           this.runtimeLookup(params.id).catch(() => undefined),
           new Promise<undefined>(r => setTimeout(() => r(undefined), RUNTIME_WAIT_MS))
         ])
       : Promise.resolve(undefined);
-    return new Promise<ExtractedStream[]>(resolve => {
-      const found: ExtractedStream[] = [];
-      const queue: ExtractedStream[] = [];
-      const queuedUrls = new Set<string>();
-      let pendingExtract = raceList.length;
-      // Found streams still being checked (see checkStream).
-      let verifying = 0;
-      let sniffRunning = 0;
-      let sniffStarted = 0;
-      // Hedged sniffing beyond the first UNHEDGED_SNIFFS: the next only after the running ones have
-      // had their usual time (or failed), so a WebView is not burned on a likely loser.
-      let lastSniffStart = 0;
-      let lastSniffServer: string | undefined;
-      let hedgeTimer: ReturnType<typeof setTimeout> | undefined;
-      let headStartTimer: ReturnType<typeof setTimeout> | undefined;
-      let othersStarted = !useHeadStart;
-      let done = false;
-      let grace: ReturnType<typeof setTimeout> | undefined;
-      let strongTimer: ReturnType<typeof setTimeout> | undefined;
-      let deadline: ReturnType<typeof setTimeout> | undefined;
+    const found = await new Race(plan, params, {
+      check: (stream, signal) => this.checkStream(stream, runtime, params, signal),
+      sniff: (embed, signal, background) => this.sniffWithTimeout(embed, RACE_LIMITS.sniffTimeoutMs, signal, background),
+      recordResult: (id, ok, ms) => this.recordResult(id, ok, ms),
+      expectedMs: id => this.stats.expectedMs(id),
+      hedgeDelayMs: id => this.stats.hedgeDelayMs(id),
+      languagesOnly: s => this.languagesOnly(s),
+      election
+    }).run();
 
-      const abortController = new AbortController();
-      // A speculative lookup's requests yield to the user's own (see hostLimiter.ts).
-      if (params.sniffBackground) markBackground(abortController.signal);
-      const external = params.signal;
-      const onExternalAbort = () => finish();
-
-      const finish = () => {
-        if (done) return;
-        done = true;
-        external?.removeEventListener('abort', onExternalAbort);
-        abortController.abort();
-        if (grace) clearTimeout(grace);
-        if (strongTimer) clearTimeout(strongTimer);
-        if (deadline) clearTimeout(deadline);
-        if (hedgeTimer) clearTimeout(hedgeTimer);
-        if (headStartTimer) clearTimeout(headStartTimer);
-        const sorted = [...found].sort((x, y) => {
-          if (params.preferredServerId) {
-            if (x.serverId === params.preferredServerId) return -1;
-            if (y.serverId === params.preferredServerId) return 1;
-          }
-          // Best first by the election's order; on an English title the language-only providers go
-          // last: they are the final fallback, not the next one.
-          return Number(Boolean(x.isFallbackEmbed)) - Number(Boolean(y.isFallbackEmbed))
-            || (election.regional ? 0 : Number(this.languagesOnly(x)) - Number(this.languagesOnly(y)))
-            || compareStreams(x, y, election);
-        });
-        const directs = sorted.filter(x => !x.isFallbackEmbed);
-        // Remembered: the stream the election picks, not whichever arrived first.
-        const winner = this.electMain(filterBestPrintStreams(directs), params);
-        if (winner) this.rememberGood(params, winner.serverId);
-        resolve(directs);
-      };
-
-      const maybeFinish = () => {
-        if (done) return;
-        // While the head start runs, the providers that have not started yet still count.
-        if (!othersStarted) {
-          // The remembered provider came up empty (its attempt is over, nothing left to sniff): no
-          // need to sit out the rest of its head start.
-          const headDone = pendingExtract <= raceList.length - headCount;
-          if (headDone && sniffRunning === 0 && verifying === 0 && queue.length === 0 && found.length === 0) startOthers();
-          // Everyone was in the head group and has answered: nothing more is coming.
-          else if (headDone && headCount === raceList.length) startOthers();
-          return;
-        }
-        if (pendingExtract === 0 && sniffRunning === 0 && verifying === 0 && (queue.length === 0 || sniffStarted >= MAX_SNIFF_ATTEMPTS)) finish();
-      };
-
-      // A stream counts once its playlist fits the film; checks run side by side with the race.
-      const accept = (stream: ExtractedStream) => {
-        verifying++;
-        void this.checkStream(stream, runtime, params, abortController.signal).then(ok => {
-          verifying--;
-          if (done) return;
-          if (ok) {
-            found.push(normalizeLanguages(stream));
-            finishSoon();
-          }
-          maybeFinish();
-        });
-      };
-
-      const finishSoon = () => {
-        if (params.preferredServerId) {
-          const hasPreferred = found.some(s => s.serverId === params.preferredServerId);
-          if (!hasPreferred) return;
-        }
-        // A faster stream is here, but the provider with this title's other languages is still at
-        // work: give it until STRONG_PROVIDER_WAIT_MS from the start.
-        // A language-only provider's stream (Movierulz, often from its cache in a second) never ends
-        // the race: the others are still looking for the main stream. maybeFinish ends it when
-        // everyone is done and that stream is all there is.
-        // On a regional title they compete like everyone else (they have its own language).
-        const mains = found.filter(s => !s.isFallbackEmbed && (election.regional || !this.languagesOnly(s)));
-        if (mains.length === 0) return;
-        const strongHasStream = found.some(s => !s.isFallbackEmbed && strongIds.has(s.serverId ?? ''));
-        if (strongPending > 0 && !strongHasStream) {
-          const wait = STRONG_PROVIDER_WAIT_MS - (Date.now() - lookupStart);
-          if (wait > 0) {
-            if (!strongTimer) strongTimer = setTimeout(finishWhenChecked, wait);
-            return;
-          }
-        }
-        // Original print, 1080p+ and (regional titles) the title's language: nothing can beat it, end
-        // soon. Otherwise give a better stream a moment to arrive.
-        const settled = mains.some(s => isSettled(s, election));
-        if (!grace) grace = setTimeout(finishWhenChecked, settled ? EARLY_EXIT_GRACE_MS : QUALITY_WAIT_MS);
-      };
-
-      // Streams found but still being checked are not thrown away by the end of the race.
-      let checksDeadline = 0;
-      const finishWhenChecked = () => {
-        if (done) return;
-        if (verifying > 0) {
-          checksDeadline ||= Date.now() + CHECK_WAIT_MS;
-          if (Date.now() < checksDeadline) {
-            grace = setTimeout(finishWhenChecked, 100);
-            return;
-          }
-        }
-        finish();
-      };
-
-      const pump = () => {
-        while (!done && sniffRunning < SNIFF_CONCURRENCY && sniffStarted < MAX_SNIFF_ATTEMPTS && queue.length > 0) {
-          if (sniffRunning >= UNHEDGED_SNIFFS) {
-            const wait = this.stats.hedgeDelayMs(lastSniffServer ?? '') - (Date.now() - lastSniffStart);
-            if (wait > 0) {
-              if (!hedgeTimer) hedgeTimer = setTimeout(() => { hedgeTimer = undefined; pump(); }, wait);
-              return;
-            }
-          }
-          const embed = queue.shift()!;
-          sniffRunning++;
-          sniffStarted++;
-          const sniffStart = Date.now();
-          lastSniffStart = sniffStart;
-          lastSniffServer = embed.serverId;
-          this.sniffWithTimeout(embed, SNIFF_TIMEOUT_MS, abortController.signal, params.sniffBackground).then(stream => {
-            sniffRunning--;
-            recordTiming({ phase: 'sniff', ms: Date.now() - sniffStart, serverId: embed.serverId, titleId: params.id, title: params.title, outcome: stream ? 'sniffed' : 'failed' });
-            // A speculative sniff that was refused or cut short says nothing about the provider.
-            if (stream || !params.sniffBackground) this.recordResult(embed.serverId ?? 'unknown', Boolean(stream), Date.now() - lookupStart);
-            if (stream) accept({ ...stream, serverId: embed.serverId, serverName: embed.serverName });
-            pump();
-            maybeFinish();
-          });
-        }
-      };
-
-      const enqueue = (embed: ExtractedStream) => {
-        if (done || queuedUrls.has(embed.url)) return;
-        queuedUrls.add(embed.url);
-        if (embed.serverId && embed.serverId === goodId) { queue.unshift(embed); return; }
-        // Best provider first (by learned speed and reliability); ties keep arrival order.
-        const score = this.stats.expectedMs(embed.serverId ?? '');
-        let at = queue.length;
-        while (at > 0 && this.stats.expectedMs(queue[at - 1].serverId ?? '') > score && queue[at - 1].serverId !== goodId) at--;
-        queue.splice(at, 0, embed);
-      };
-
-      // Queues the embed page right away when the provider can name it without a request.
-      const queueEarly = (extractor: StreamExtractor) => {
-        if (!canSniff || !extractor.embedUrl) return;
-        const url = (() => { try { return extractor.embedUrl!(params); } catch { return null; } })();
-        if (!url) return;
-        const early: ExtractedStream = { url, format: 'hls', isFallbackEmbed: true, serverId: extractor.id, serverName: extractor.name };
-        params.onEmbed?.(early);
-        enqueue(early);
-      };
-
-      const run = (extractor: StreamExtractor) => {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        const limitMs = manifestOf(extractor).costHint === 'multi-hop' ? MULTI_HOP_TIMEOUT_MS : PROVIDER_TIMEOUT_MS;
-        const timeout = new Promise<null>(r => { timer = setTimeout(() => r(null), limitMs); });
-
-        const startedAt = Date.now();
-        const callParams: ExtractParams = { ...params, signal: abortController.signal };
-        // Providers that report every server/lane they found hand all of them over (alternates for
-        // the player); the rest give their single best.
-        const attempt = (async (): Promise<ExtractedStream[]> => {
-          if (extractor.extractAll) return extractor.extractAll(callParams);
-          const one = await extractor.extract(callParams);
-          return one ? [one] : [];
-        })();
-        Promise.race([attempt, timeout])
-          .catch(err => {
-            // Thrown, not just "nothing found": a broken provider or site. Cancelled ones (another
-            // provider already won) are not failures.
-            // Rate limits (HTTP 429) are the site asking for a pause, which the host limiter gives it.
-            const expected = err instanceof Error && (/abort/i.test(err.name + err.message) || /\b429\b|rate limited/i.test(err.message));
-            if (!abortController.signal.aborted && !expected) {
-              reportError('provider', err, { provider: extractor.id, title: params.title, id: params.id, type: params.type, season: params.season, episode: params.episode, ms: Date.now() - startedAt });
-            }
-            return null;
-          })
-          .then(result => {
-            if (timer) clearTimeout(timer);
-            const elapsed = Date.now() - startedAt;
-            const streams = (result ?? []).filter(st => st && st.url && st.url.trim().length > 0);
-            const directs = streams.filter(st => !st.isFallbackEmbed);
-            recordTiming({
-              phase: 'extract', ms: elapsed, serverId: extractor.id, titleId: params.id, title: params.title,
-              outcome: streams.length === 0 ? (elapsed >= limitMs - 50 ? 'timeout' : 'none') : directs.length > 0 ? 'direct' : 'embed'
-            });
-            if (done) return;
-
-            if (streams.length === 0) {
-              this.recordResult(extractor.id, false);
-              return;
-            }
-            if (directs.length > 0) this.recordResult(extractor.id, true, elapsed);
-            const ttl = manifestOf(extractor).linkTtlMs;
-            for (const stream of streams) {
-              const tagged = {
-                ...stream,
-                serverId: stream.serverId || extractor.id,
-                serverName: stream.serverName || extractor.name,
-                ...(ttl !== undefined && stream.revalidateAfterMs === undefined ? { revalidateAfterMs: ttl } : {})
-              };
-              if (!tagged.isFallbackEmbed) {
-                accept(tagged);
-              } else if (!blockedEmbeds.has(tagged.url)) {
-                // An embed page is neither a success nor a failure until it is sniffed (or cannot be here:
-                // a background prefetch, or the web).
-                params.onEmbed?.(tagged);
-                if (canSniff) enqueue(tagged);
-              }
-            }
-          })
-          .finally(() => {
-            pendingExtract--;
-            if (strongIds.has(extractor.id)) {
-              strongPending--;
-              // It answered (with or without a stream): nothing more to wait for if one is in hand.
-              if (found.some(s => !s.isFallbackEmbed)) finishSoon();
-            }
-            pump();
-            maybeFinish();
-          });
-      };
-
-      // Everyone else: after the head start, or as soon as the remembered provider has nothing.
-      const startOthers = () => {
-        if (othersStarted || done) return;
-        othersStarted = true;
-        if (headStartTimer) clearTimeout(headStartTimer);
-        const others = raceList.slice(headCount);
-        // Every early embed is queued before any sniff starts, so the best-ranked ones get the WebViews.
-        others.forEach(queueEarly);
-        pump();
-        others.forEach(run);
-        maybeFinish();
-      };
-
-      deadline = setTimeout(finish, RESOLVE_DEADLINE_MS);
-      if (raceList.length === 0 || external?.aborted) { finish(); return; }
-      external?.addEventListener('abort', onExternalAbort, { once: true });
-
-      if (useHeadStart) {
-        const head = raceList.slice(0, headCount);
-        head.forEach(queueEarly);
-        pump();
-        head.forEach(run);
-        headStartTimer = setTimeout(startOthers, headStartMs);
-      } else {
-        raceList.forEach(queueEarly);
-        pump();
-        raceList.forEach(run);
+    const sorted = [...found].sort((x, y) => {
+      if (params.preferredServerId) {
+        if (x.serverId === params.preferredServerId) return -1;
+        if (y.serverId === params.preferredServerId) return 1;
       }
+      // Best first by the election's order; on an English title the language-only providers go
+      // last: they are the final fallback, not the next one.
+      return (election.regional ? 0 : Number(this.languagesOnly(x)) - Number(this.languagesOnly(y)))
+        || compareStreams(x, y, election);
     });
+    // Remembered: the stream the election picks, not whichever arrived first.
+    const winner = this.electMain(filterBestPrintStreams(sorted), params);
+    if (winner) this.rememberGood(params, winner.serverId);
+    return sorted;
   }
 
   /** Turns a saved embed page into a direct stream with the native sniffer, or null. */
-  sniffEmbed(embed: ExtractedStream, ms = SNIFF_TIMEOUT_MS): Promise<ExtractedStream | null> {
+  sniffEmbed(embed: ExtractedStream, ms = RACE_LIMITS.sniffTimeoutMs): Promise<ExtractedStream | null> {
     return this.sniffWithTimeout(embed, ms);
   }
 
